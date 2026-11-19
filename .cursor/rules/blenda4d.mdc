@@ -1,0 +1,5 @@
+---
+description: Blenda 4D project rules
+alwaysApply: true
+---
+Read AGENTS.md at the repository root: it holds the rules and how to test.

@@ -1,0 +1,196 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<style>
+@font-face { font-family: Inter; src: url(Inter.woff2); }
+:root { --win:#1c1c1c; --panel:#2b2b2b; --panel2:#262626; --field:#3c3c3c; --btn:#474747; --sel:#4b4b6d; --text:#d0d0d0; --dim:#8c8c8c;
+        --om-sel:#e8923a; --line:#1a1a1a; --accent:#aba8c7; }
+* { box-sizing:border-box; margin:0; padding:0; }
+body { width:1700px; height:1000px; background:var(--win); font:13px Inter, sans-serif; color:var(--text); overflow:hidden; position:relative; }
+.abs { position:absolute; }
+.area { position:absolute; background:var(--panel); border-radius:4px; overflow:hidden; }
+.row { display:flex; align-items:center; }
+.menu span { padding:0 7px; }
+.ico { display:inline-block; image-rendering:auto; }
+/* Blender widgets */
+.field { background:var(--field); border-radius:4px; height:20px; display:flex; align-items:center; justify-content:center; color:var(--text); }
+.btn { background:var(--btn); border-radius:4px; height:20px; display:flex; align-items:center; justify-content:center; }
+.btn.on { background:var(--sel); color:#f2f2f2; }
+.group { display:flex; }
+.group > * { border-radius:0; margin-right:1px; }
+.group > *:first-child { border-radius:4px 0 0 4px; }
+.group > *:last-child { border-radius:0 4px 4px 0; margin-right:0; }
+.col > * { border-radius:0; margin-bottom:1px; }
+.col > *:first-child { border-radius:4px 4px 0 0; }
+.col > *:last-child { border-radius:0 0 4px 4px; margin-bottom:0; }
+.check { width:14px; height:14px; border-radius:3px; background:var(--field); display:inline-flex; align-items:center; justify-content:center; margin-right:6px; }
+.check.on { background:var(--sel); }
+.check.on::after { content:""; width:7px; height:4px; border-left:2px solid #fff; border-bottom:2px solid #fff; transform:rotate(-45deg) translate(1px,-1px); }
+.drop { background:var(--field); border-radius:4px; height:20px; display:flex; align-items:center; padding:0 6px; justify-content:space-between; }
+.drop::after { content:""; width:5px; height:5px; border-right:1.5px solid var(--dim); border-bottom:1.5px solid var(--dim); transform:rotate(45deg) translateY(-2px); }
+.slider { background:var(--field); border-radius:4px; height:20px; position:relative; display:flex; align-items:center; justify-content:center; overflow:hidden; }
+.slider .fill { position:absolute; left:0; top:0; bottom:0; background:var(--sel); }
+.slider span { position:relative; }
+.tool { width:44px; height:44px; border-radius:5px; display:flex; align-items:center; justify-content:center; }
+.tool.on { background:var(--sel); }
+.tool img { width:32px; height:32px; }
+.tbtn { width:40px; height:40px; border-radius:5px; display:flex; align-items:center; justify-content:center; background:#333; }
+.tbtn.on { background:var(--sel); }
+.tbtn img { width:30px; height:30px; }
+.tab { padding:5px 14px; border-radius:4px 4px 0 0; color:var(--dim); }
+.tab.on { background:var(--panel); color:var(--text); }
+.lbl { position:absolute; background:rgba(40,40,40,0.75); padding:1px 5px; border-radius:3px; font-size:12px; }
+.amrow { display:flex; align-items:center; height:24px; }
+.amrow .l { width:176px; padding-left:12px; }
+.amrow .v { flex:1; margin-right:12px; }
+.omrow { display:flex; align-items:center; height:24px; padding-left:6px; }
+.omrow .nm { flex:1; display:flex; align-items:center; gap:5px; }
+.omrow .cols { display:flex; gap:8px; align-items:center; width:118px; }
+.dot { width:6px; height:6px; border-radius:50%; background:#777; }
+.sw { width:56px; height:56px; border-radius:50%; }
+</style></head>
+<body>
+<script>
+const P = new URLSearchParams(location.search);
+const SEL = P.get("sel") || "cube";
+const AB = P.get("ab");
+const I = (n, s) => `<img class="ico" src="icons/${n.replace(/\./g,'_')}.png" ${s?`style="${s}"`:''}>`;
+let h = "";
+// ---------------------------------------------------------------- main menu bar
+h += `<div class="abs row menu" style="left:8px;top:0;height:34px;font-size:14px">${I("LOOP_BACK","margin-right:10px")}${I("LOOP_FORWARDS","margin-right:14px;opacity:.5")}`
+  + ["File","Edit","Create","Modes","Select","Tools","Spline","Mesh","Volume","MoClone","Character","Animate","Simulate","Tracker","Render","Add-ons","Window","Help"].map(m=>`<span>${m}</span>`).join("") + `</div>`;
+h += `<div class="abs row" style="right:14px;top:0;height:34px;gap:14px;font-size:14px"><span style="color:var(--dim)">Layout:</span><div class="drop" style="width:150px;font-size:13px">Standard</div><span style="margin-left:6px">Blenda 4D</span><span style="color:#555">|</span><span style="color:var(--dim)">Blender</span></div>`;
+// ---------------------------------------------------------------- document tabs
+h += `<div class="abs row" style="left:4px;top:38px;height:42px;right:4px;background:var(--panel2);border-radius:4px;padding-left:8px;gap:10px">
+  <div class="btn on" style="width:380px;height:26px;justify-content:center">Studio_Scene.blend</div>${I("PANEL_CLOSE")}${I("ADD","margin-left:12px")}</div>`;
+// ---------------------------------------------------------------- command palette
+const PAL = [["ASSET_MANAGER"], ["ops.generic.select_box"], ["X","Y","Z","ORIENTATION_GLOBAL"], ["VERTEXSEL","OBJECT_DATAMODE","FACESEL","EDGESEL"], ["GRID"], ["ops.transform.transform"], ["SNAP_ON"], ["SNAP_GRID","AXIS_TOP"], ["MOD_MIRROR"], ["RENDER_STILL","RENDER_ANIMATION","OUTPUT"]];
+h += `<div class="abs row" style="left:4px;top:84px;width:1232px;height:50px;background:var(--panel);border-radius:4px;padding:0 6px;gap:14px">`;
+PAL.forEach((g,gi)=>{ h += `<div class="row" style="gap:3px">` + g.map((n,i)=>{
+   const on = (gi==3 && i==1) || (gi==0 && AB);
+   if (["X","Y","Z"].includes(n)) return `<div class="tbtn" style="font:500 22px Inter;color:${{X:'#e85d5d',Y:'#7fc95a',Z:'#5d8fe8'}[n]}">${n}</div>`;
+   const big = n.startsWith("ops.");
+   return `<div class="tbtn ${on?'on':''}">${I(n, big?"width:30px;height:30px":"width:22px;height:22px;image-rendering:pixelated")}</div>`; }).join("") + `</div>`; });
+h += `<div style="flex:1"></div><div class="row" style="gap:3px"><div class="tbtn ${AB?"":"on"}" title="Material Manager">${I("MATERIAL","width:22px;height:22px;image-rendering:pixelated")}</div><div class="tbtn" title="Preferences">${I("PREFERENCES","width:22px;height:22px;image-rendering:pixelated")}</div></div>`;
+h += `</div>`;
+// ---------------------------------------------------------------- left tool column
+const LEFT = ["VIEWZOOM","ops.generic.select_box","ops.transform.translate","ops.transform.rotate","ops.transform.resize",null,"ops.mesh.extrude_region_move","ops.mesh.inset","ops.mesh.bevel",null,"ops.curve.pen","ops.curve.draw","ops.mesh.knife_tool",null,"ops.gpencil.draw","ops.view3d.ruler","ops.generic.cursor"];
+h += `<div class="area" style="left:4px;top:138px;width:52px;height:770px;padding:6px 4px">`;
+LEFT.forEach((n,i)=>{ h += n ? `<div class="tool ${i==1?"on":""}">${n.startsWith("ops")?I(n):I(n,"width:22px;height:22px;image-rendering:pixelated")}</div>` : `<div style="height:10px"></div>`; });
+h += `</div>`;
+// ---------------------------------------------------------------- viewport block
+const TL=60; const VX=AB?548:60, VW=AB?632:890, MMX=954, MMW=AB?0:226;
+h += `<div class="area" style="left:${VX}px;top:138px;width:${VW}px;height:710px">
+  <div class="row" style="height:32px;background:var(--panel2);padding-left:6px"><div class="tab on">View</div><div class="tab">Render Settings</div><div class="tab">Render Viewer</div></div>
+  <div class="row menu" style="height:32px;padding-left:8px">${I("COLLAPSEMENU","margin-right:8px")}<span>View</span><span>Cameras</span><span>Display</span><span>Options</span><span>Filter</span><span>Panel</span>
+     <div style="flex:1"></div><div class="group" style="margin-right:12px">${["SHADING_WIRE","SHADING_SOLID","SHADING_TEXTURE","SHADING_RENDERED"].map((n,i)=>`<div class="btn ${i==2?'on':''}" style="width:24px">${I(n)}</div>`).join("")}</div>
+     <div class="row" style="gap:12px;margin-right:12px">${I("VIEW_PAN")}${I("VIEW_ZOOM")}${I("ORIENTATION_GIMBAL")}${I("FULLSCREEN_ENTER")}</div></div>
+  <div style="position:absolute;left:0;top:64px;right:0;bottom:0;background:url(viewport.png) center/cover"></div>
+  <div class="lbl" style="left:6px;top:72px">Perspective</div><div class="lbl" style="left:${VW/2-55}px;top:72px">Default Camera</div>
+  <div class="lbl" style="left:6px;bottom:6px">View Transform: Scene</div><div class="lbl" style="right:6px;bottom:6px">Grid Spacing : 100 cm</div>
+</div>`;
+// ---------------------------------------------------------------- Material Manager column
+if (!AB) {
+const MATS = [["Orange","#e8732a"],["Blue","#3f6fe0"],["Green","#5bbf4e"],["Gold","#f0bf42"],["Floor","#7a7a7a"],["Glass","#9fd3e8"]];
+h += `<div class="area" style="left:${MMX}px;top:138px;width:${MMW}px;height:710px">
+  <div class="row" style="height:32px;background:var(--panel2);padding-left:6px"><div class="tab on">Materials</div></div>
+  <div class="row menu" style="height:32px;padding-left:8px;font-size:12.5px">${I("COLLAPSEMENU","margin-right:6px")}<span>Create</span><span>Edit</span><span>View</span><span>Select</span><span>Material</span></div>
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px 6px;padding:10px 8px">` +
+  MATS.map(([n,c],i)=>`<div style="display:flex;flex-direction:column;align-items:center;gap:4px"><div class="sw" style="background:radial-gradient(circle at 35% 30%, #fff8 0, ${c} 35%, #000 110%);${(SEL=='cube'&&i==0)?'outline:2px solid var(--om-sel);outline-offset:2px':''}"></div><span style="font-size:12px">${n}</span></div>`).join("") + `</div></div>`;
+}
+// ---------------------------------------------------------------- timeline (under viewport + Material Manager)
+h += `<div class="area" style="left:${TL}px;top:852px;width:${1180-TL}px;height:114px">
+  <div class="row" style="height:34px;padding:0 10px;gap:10px">
+    <div class="field" style="width:110px">1</div><div style="flex:1"></div>
+    <div class="group">${["REW","FRAME_PREV","PLAY_REVERSE","PLAY","FRAME_NEXT","FF"].map(n=>`<div class="btn" style="width:26px">${I(n)}</div>`).join("")}</div>
+    <div class="field" style="width:100px">1</div><div class="btn" style="width:26px">${I("REC")}</div><div style="flex:1"></div><div class="field" style="width:110px">250</div></div>
+  <div style="position:relative;height:72px;margin:0 10px;background:#232323;border-radius:4px">` +
+  Array.from({length:26},(_,i)=>`<div style="position:absolute;left:${i*4.1+0.6}%;top:0;bottom:0;border-left:1px solid #333"></div>` + (i%3==0?`<span style="position:absolute;left:calc(${i*4.1+0.6}% + 4px);top:4px;font-size:12px;color:var(--dim)">${i*10||1}</span>`:``)).join("") +
+  `<div style="position:absolute;left:2%;top:0;bottom:0;border-left:2px solid #4772b3"></div><div style="position:absolute;left:calc(2% - 12px);top:3px;width:24px;height:18px;background:#4772b3;border-radius:4px;font-size:12px;text-align:center;color:#fff">1</div></div></div>`;
+
+// ---------------------------------------------------------------- Asset Browser (left of the viewport)
+if (AB) {
+  const S = (n)=>`<span style="width:16px;height:16px;display:inline-flex;align-items:center;justify-content:center">${I(n)}</span>`;
+  const TABS = [["Auto",1],["All",1],["Models",1],["Materials",1],["Media",0],["Nodes",1],["Operators",0],["Scenes",1],["Presets",0],["HDRIs",1],["Poses",1],["Brushes",1]];
+  const onTab = AB=="mats" ? "Materials" : "All";
+  let a = `<div class="area" style="left:60px;top:138px;width:484px;height:710px">
+    <div class="row menu" style="height:30px;padding-left:4px"><span>Create</span><span>Edit</span><span>View</span><span>Libraries</span><div style="flex:1"></div>
+      <div class="drop" style="width:70px;margin-right:6px">All</div><div class="row" style="gap:10px;margin-right:10px">${S("ASSET_MANAGER")}${S("PREFERENCES")}${S("FULLSCREEN_ENTER")}</div></div>
+    <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:3px;padding:2px 8px">` +
+    TABS.map(([n,ok])=>`<div class="btn ${n==onTab?'on':''}" style="${ok?'':'color:#666'}">${n}</div>`).join("") + `</div>
+    <div class="row" style="height:30px;padding:0 8px;gap:8px">${S("BACK")}${S("FORWARD")}${S("HOME")}${S("SOLO_OFF")}
+      <div class="field" style="flex:1;justify-content:flex-start;padding-left:6px;gap:6px;color:#777">${S("VIEWZOOM")}Search</div>
+      <div class="drop" style="width:40px">${S("FILTER")}</div><div class="drop" style="width:40px">${S("IMPORT")}</div></div>
+    <div style="display:flex;height:584px">
+      <div style="width:236px;padding:6px 0 0 10px;font-size:12.5px;border-right:1px solid #222">`;
+  const smart = [["FUND","Favorites",1],["VIEWZOOM","Featured Content",0],["BOOKMARKS","Keywords",1],["NEWFOLDER","New Assets",0],["FILE_FOLDER","Other",0],["TIME","Recently Created",1],["TIME","Recently Used",1]];
+  a += `<div class="row" style="height:22px;gap:6px">${S("DISCLOSURE_TRI_DOWN")}${S("ASSET_MANAGER")}<span>Smart Searches</span></div>`;
+  smart.forEach(([ic,n,ok])=>{ a += `<div class="row" style="height:21px;gap:6px;padding-left:20px;${ok?'':'color:#777'}">${S(ic)}<span>${n}</span></div>`; });
+  a += `<div style="height:14px"></div>`;
+  ["Brushes","Compositing","Geometry Nodes","HDRIs","Hair","IES Lights","Materials","Megascans","Models","Shading","Uncategorized"].forEach((n,i)=>{
+     const on = AB=="mats" && n=="Materials";
+     a += `<div class="row" style="height:22px;gap:6px;${on?'background:#33334a;border-radius:3px;margin-right:6px':''}">${n=="Uncategorized"?'<span style="width:16px"></span>':S("DISCLOSURE_TRI_RIGHT")}${S("FILE_FOLDER")}<span>${n}</span></div>`; });
+  a += `</div><div style="flex:1;padding:8px 10px;overflow:hidden">`;
+  if (AB == "mats") {
+    const M2 = [["Brushed Steel","#9aa3ab"],["Copper","#c8744a"],["Car Paint","#b3192a"],["Glass","#bfe3f0"],["Oak","#a6743f"],["Marble","#e8e4dc"],["Rubber","#2a2a2a"],["Gold","#f0c047"],["Concrete","#8d8a84"],["Fabric","#4a5f8f"]];
+    a += `<div style="font-size:16px">Materials</div><div style="color:var(--dim);font-size:12px;margin:2px 0 10px">${M2.length} Items</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px 8px">` + M2.map(([n,c],i)=>`<div style="background:#1d1d1d;border-radius:5px;padding:8px 6px 6px;display:flex;flex-direction:column;align-items:center;gap:5px;${i==2?'outline:2px solid var(--sel)':''}">
+        <div class="sw" style="width:70px;height:70px;background:radial-gradient(circle at 35% 30%, #fff9 0, ${c} 32%, #000 112%)"></div><span style="font-size:12px">${n}</span></div>`).join("") + `</div>`;
+  } else {
+    const HOME = [["MATERIAL","Materials"],["MESH_CUBE","Models"],["WORLD","HDRIs"],["FILE_BLEND","Templates"],["ARMATURE_DATA","Motion Capture"],["NODETREE","Nodes"],["BRUSH_DATA","Brushes"],["ASSET_MANAGER","All Assets"]];
+    a += `<div style="font-size:16px">Home</div><div style="color:var(--dim);font-size:12px;margin:2px 0 10px">Asset Types (${HOME.length} Items)</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">` + HOME.map(([ic,n])=>`<div style="background:#1d1d1d;border-radius:5px;height:96px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px">
+        ${I(ic,"width:40px;height:40px;image-rendering:pixelated;opacity:.85")}<span style="font-size:12.5px">${n}</span></div>`).join("") + `</div>`;
+  }
+  a += `</div></div>
+    <div class="row" style="position:absolute;left:0;right:0;bottom:0;height:30px;background:var(--panel2);padding:0 10px;gap:8px">
+      <div class="group">${["LONGDISPLAY","IMGDISPLAY","SHORTDISPLAY"].map((n,i)=>`<div class="btn ${i==1?'on':''}" style="width:26px">${S(n)}</div>`).join("")}</div><div style="flex:1"></div>
+      <div class="slider" style="width:150px;height:14px"><div class="fill" style="width:40%"></div></div></div></div>`;
+  h += a;
+}
+// ---------------------------------------------------------------- right create column
+const CREATE = ["ops.transform.transform","MESH_CUBE","MESH_UVSPHERE","MESH_CYLINDER",null,"CURVE_BEZCURVE","OUTLINER_OB_FONT",null,"MOD_SUBSURF","MOD_SOLIDIFY","MOD_ARRAY",null,"MOD_SIMPLEDEFORM","OUTLINER_OB_FORCE_FIELD",null,"WORLD","OUTLINER_OB_CAMERA","LIGHT_AREA"];
+h += `<div class="area" style="left:1184px;top:138px;width:52px;height:828px;padding:6px 4px">`;
+CREATE.forEach(n=>{ h += n ? `<div class="tool">${n.startsWith("ops")?I(n):I(n,"width:22px;height:22px;image-rendering:pixelated")}</div>` : `<div style="height:12px"></div>`; });
+h += `</div>`;
+// ---------------------------------------------------------------- Object Manager
+const TREE = [["Sky","WORLD",0,[],null],["Camera","OUTLINER_OB_CAMERA",0,[],null],["Light","LIGHT_AREA",0,[],"light"],["Cloner","MOD_ARRAY",0,[],"cloner",true],["Cube","MESH_CUBE",1,["MATERIAL","SHADING_TEXTURE"],"cube"],
+              ["Subdivision Surface","MOD_SUBSURF",0,[],"subdiv",true],["Cube.1","MESH_CUBE",1,["MATERIAL"],null],["Bend","MOD_SIMPLEDEFORM",0,[],null,true],["Cylinder","MESH_CYLINDER",1,["MATERIAL"],null],["Floor","MESH_PLANE",0,["MATERIAL"],null]];
+h += `<div class="area" style="left:1240px;top:84px;width:456px;height:382px">
+  <div class="row" style="height:30px;background:var(--panel2);padding-left:6px"><div class="tab on">Objects</div></div>
+  <div class="row menu" style="height:32px;padding-left:8px">${I("COLLAPSEMENU","margin-right:6px")}<span>File</span><span>Edit</span><span>View</span><span>Object</span><span>Tags</span><span>Bookmarks</span><div style="flex:1"></div>
+    <div class="row" style="gap:10px;margin-right:12px">${I("VIEWZOOM")}${I("HOME")}${I("FILTER")}</div></div>
+  <div style="padding-top:4px">` + TREE.map(([n,ic,d,tags,k,kids])=>{ const on = k===SEL;
+     return `<div class="omrow" style="${on?'background:#33334a':''}"><div class="nm" style="padding-left:${d*20}px">${kids?I("DISCLOSURE_TRI_DOWN"):`<span style="width:12px"></span>`}${I(ic)}<span style="color:${on?'var(--om-sel)':'var(--text)'}">${n}</span></div>
+       <div class="cols"><div class="check" style="width:12px;height:12px;margin:0;background:#555"></div><div style="display:flex;flex-direction:column;gap:3px"><div class="dot"></div><div class="dot"></div></div>${I("CHECKMARK","filter:hue-rotate(60deg) saturate(3)")}${tags.map(t=>I(t)).join("")}</div></div>`; }).join("") +
+  `</div></div>`;
+// ---------------------------------------------------------------- Attribute Manager (follows the selection)
+const PAGES = {
+ cube: {title:"Cube Object [Cube]", icon:"MESH_CUBE", tabs:["Basic","Coord.","Object","Phong"], on:2, head:"Object Properties", rows:[
+   ["Size . X",{f:"200 cm"}],["Size . Y",{f:"200 cm"}],["Size . Z",{f:"200 cm"}],["Segments X",{f:"1"}],["Segments Y",{f:"1"}],["Segments Z",{f:"1"}],
+   ["Separate Surfaces",{c:false}],["Fillet",{c:true}],["Fillet Radius",{s:"8 cm",p:16}],["Fillet Subdivision",{f:"3"}]]},
+ cloner: {title:"Cloner Object [Cloner]", icon:"MOD_ARRAY", tabs:["Basic","Coord.","Object","Transform","Effectors"], on:2, head:"Object Properties", rows:[
+   ["Mode",{d:"Grid Array"}],["Clones",{d:"Iterate"}],["Fix Clone",{c:true}],["Reset Coordinates",{c:true}],["Count . X",{f:"5"}],["Count . Y",{f:"1"}],["Count . Z",{f:"3"}],
+   ["Mode",{d:"Per Step"}],["Size . X",{f:"150 cm"}],["Size . Y",{f:"100 cm"}],["Size . Z",{f:"150 cm"}],["Form",{d:"Cube"}]]},
+ light: {title:"Light Object [Light]", icon:"LIGHT_AREA", tabs:["Basic","Coord.","General","Details","Shadow","Noise"], on:2, head:"General", rows:[
+   ["Color",{col:"#fff5e6"}],["Use Temperature",{c:false}],["Intensity",{s:"100 %",p:50}],["Type",{d:"Area"}],["Shadow",{d:"Area"}],["Visible Light",{d:"None"}],
+   ["No Illumination",{c:false}],["Ambient Illumination",{c:false}],["Diffuse",{c:true}],["Specular",{c:true}]]}};
+const pg = PAGES[SEL];
+h += `<div class="area" style="left:1240px;top:470px;width:456px;height:496px">
+  <div class="row" style="height:30px;background:var(--panel2);padding-left:6px"><div class="tab on">Attributes</div><div class="tab">Variations</div></div>
+  <div class="row menu" style="height:32px;padding-left:8px">${I("COLLAPSEMENU","margin-right:6px")}<span>Mode</span><span>Edit</span><span>User Data</span><div style="flex:1"></div>
+    <div class="row" style="gap:10px;margin-right:12px">${I("BACK")}${I("FORWARD")}${I("VIEWZOOM")}${I("FILTER")}${I("LOCKED")}</div></div>
+  <div class="row" style="height:30px;padding:0 12px;gap:6px">${I(pg.icon)}<span>${pg.title}</span><div style="flex:1"></div><div class="drop" style="width:110px">Default</div></div>
+  <div class="group" style="margin:2px 12px 8px">${pg.tabs.map((t,i)=>`<div class="btn ${i==pg.on?'on':''}" style="flex:1">${t}</div>`).join("")}</div>
+  <div style="padding:2px 12px 6px;font-weight:500">${pg.head}</div>` +
+  pg.rows.map(([l,v])=>{ let w;
+     if (v.f!==undefined) w=`<div class="field">${v.f}</div>`;
+     else if (v.d) w=`<div class="drop">${v.d}</div>`;
+     else if (v.s) w=`<div class="slider"><div class="fill" style="width:${v.p}%"></div><span>${v.s}</span></div>`;
+     else if (v.col) w=`<div class="field" style="background:${v.col}"></div>`;
+     else w=`<div class="row"><span class="check ${v.c?'on':''}"></span></div>`;
+     return `<div class="amrow"><div class="l">${l}</div><div class="v">${w}</div></div>`; }).join("") + `</div>`;
+// ---------------------------------------------------------------- status bar
+h += `<div class="abs" style="left:14px;top:972px;height:26px;display:flex;align-items:center;color:var(--dim);font-size:12.5px">Live Selection: Click and drag to select elements.</div>`;
+document.body.insertAdjacentHTML("beforeend", h);
+</script>
+</body></html>

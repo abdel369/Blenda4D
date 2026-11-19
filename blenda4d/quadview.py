@@ -1,0 +1,248 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""Four views: the viewport's expand / contract button.
+
+One full-size view + the button: the viewport splits into four real 3D views, Perspective top left, Top top right,
+Right bottom left and Front bottom right. The side views are orthographic with their rotation locked; the view the
+button was pressed in becomes the Perspective one (or, after an expand, the corner it came from) and keeps its view.
+
+Four views + the button in one of them: that view fills the viewport again and the other three are joined away. Each
+view's state (where it looks, projection, shading and overlays) is remembered, so the next split brings the three
+hidden views back as they were.
+
+Areas are split and joined one step per redraw (an area's size only updates on the next event loop), with Blender's
+own area_split / area_join; a join that does not take falls back to area_close, and a step that still fails stops
+there and leaves every area a working viewport."""
+import math
+
+import bpy
+from mathutils import Euler
+
+from . import build
+
+CORNERS = ("PERSP", "TOP", "RIGHT", "FRONT")          # top left, top right, bottom left, bottom right
+AXIS = {"PERSP": None, "TOP": "TOP", "RIGHT": "RIGHT", "FRONT": "FRONT"}
+_r = math.radians
+AXIS_ROTATION = {"TOP": Euler((0, 0, 0)).to_quaternion(), "FRONT": Euler((_r(90), 0, 0)).to_quaternion(),
+                 "RIGHT": Euler((_r(90), 0, _r(90))).to_quaternion()}
+SHADING = ("type", "light", "color_type", "single_color", "show_xray", "xray_alpha", "show_shadows", "show_cavity",
+           "use_scene_lights", "use_scene_world", "use_scene_lights_render", "use_scene_world_render",
+           "wireframe_color_type", "show_backface_culling", "show_object_outline", "show_xray_wireframe",
+           "xray_alpha_wireframe", "render_pass", "studio_light")
+OVERLAY = ("show_overlays", "show_floor", "show_axis_x", "show_axis_y", "show_axis_z", "show_wireframes",
+           "show_face_orientation", "show_outline_selected", "show_relationship_lines", "show_extras", "show_bones")
+SPACE = ("lens", "clip_start", "clip_end", "lock_camera", "camera", "show_gizmo")
+
+_saved = {}            # corner -> remembered state of a view; "ALONE" -> the corner the single view stands for
+
+
+# --- a view's state -------------------------------------------------------------------------------------------------
+
+def views(screen):
+    return [a for a in screen.areas if a.type == "VIEW_3D"]
+
+
+def _region(area):
+    return next((r for r in area.regions if r.type == "WINDOW"), None)
+
+
+def corner_of(area, screen):
+    """Which corner of the four-view arrangement an area sits in."""
+    vs = views(screen)
+    x0, x1 = min(a.x for a in vs), max(a.x + a.width for a in vs)
+    y0, y1 = min(a.y for a in vs), max(a.y + a.height for a in vs)
+    left = area.x + area.width / 2 < (x0 + x1) / 2
+    top = area.y + area.height / 2 > (y0 + y1) / 2
+    return {(True, True): "PERSP", (False, True): "TOP", (True, False): "RIGHT", (False, False): "FRONT"}[(left, top)]
+
+
+def alone_corner():
+    return _saved.get("ALONE", "PERSP")
+
+
+def _axis_corner(area):
+    """The side corner a view looks like (orthographic, locked, straight down that axis), else None."""
+    rv = area.spaces.active.region_3d
+    if rv.view_perspective != "ORTHO" or not rv.lock_rotation:
+        return None
+    return next((c for c, q in AXIS_ROTATION.items() if abs(q.rotation_difference(rv.view_rotation).angle) < 1e-3), None)
+
+
+def corner_of_single(area):
+    """The corner a single view stands for: the one it was expanded from, unless the layout was rebuilt since and the
+    view no longer looks like it (then: the side view it matches, else Perspective)."""
+    remembered, looks = alone_corner(), _axis_corner(area)
+    if (remembered == "PERSP" and looks is None) or remembered == looks:
+        return remembered
+    return looks or "PERSP"
+
+
+def state(area):
+    sp = area.spaces.active
+    rv = sp.region_3d
+    return {"rot": rv.view_rotation.copy(), "loc": rv.view_location.copy(), "dist": rv.view_distance,
+            "persp": rv.view_perspective, "lock": rv.lock_rotation,
+            "shading": {k: _copy(getattr(sp.shading, k)) for k in SHADING if hasattr(sp.shading, k)},
+            "overlay": {k: getattr(sp.overlay, k) for k in OVERLAY if hasattr(sp.overlay, k)},
+            "space": {k: getattr(sp, k) for k in SPACE if hasattr(sp, k)}}
+
+
+def _copy(v):
+    return v[:] if hasattr(v, "__len__") and not isinstance(v, str) else v
+
+
+def apply(area, st):
+    sp = area.spaces.active
+    rv = sp.region_3d
+    for group, target in (("shading", sp.shading), ("overlay", sp.overlay), ("space", sp)):
+        for k, v in st.get(group, {}).items():
+            try:
+                if getattr(target, k) != v:
+                    setattr(target, k, v)
+            except (AttributeError, TypeError, ValueError, ReferenceError):
+                pass
+    rv.lock_rotation = False
+    rv.view_perspective = st["persp"]
+    rv.view_rotation = st["rot"]
+    rv.view_location = st["loc"]
+    rv.view_distance = st["dist"]
+    rv.lock_rotation = st["lock"]
+
+
+def _axis_view(window, area, corner):
+    """Turn a view to look straight down an axis, orthographic, rotation locked."""
+    rv = area.spaces.active.region_3d
+    rv.lock_rotation = False
+    try:
+        with bpy.context.temp_override(window=window, screen=window.screen, area=area, region=_region(area)):
+            bpy.ops.view3d.view_axis(type=AXIS[corner])     # also names the view ("Top Orthographic")
+    except RuntimeError:
+        rv.view_rotation = AXIS_ROTATION[corner]
+    rv.view_perspective = "ORTHO"
+    rv.lock_rotation = True
+
+
+# --- splitting and joining ------------------------------------------------------------------------------------------
+
+def _split(window, area, direction):
+    """Split an area in half; returns (top, bottom) for HORIZONTAL, (left, right) for VERTICAL."""
+    before = {a.as_pointer() for a in window.screen.areas}
+    with bpy.context.temp_override(window=window, screen=window.screen, area=area, region=_region(area)):
+        bpy.ops.screen.area_split(direction=direction, factor=0.5)
+    new = next(a for a in window.screen.areas if a.as_pointer() not in before)
+    yield
+    if direction == "HORIZONTAL":
+        return tuple(sorted((new, area), key=lambda a: -a.y))
+    return tuple(sorted((new, area), key=lambda a: a.x))
+
+
+def _touching(a, b):
+    """Do a and b share one whole edge (what area_join needs)?"""
+    rows = abs(a.y - b.y) <= 2 and abs(a.height - b.height) <= 2
+    cols = abs(a.x - b.x) <= 2 and abs(a.width - b.width) <= 2
+    beside = abs(a.x + a.width - b.x) <= 4 or abs(b.x + b.width - a.x) <= 4
+    stacked = abs(a.y + a.height - b.y) <= 4 or abs(b.y + b.height - a.y) <= 4
+    return (rows and beside) or (cols and stacked)
+
+
+def _join(window, gone, keep):
+    """Join `gone` into `keep` (keep stays, with its view). False when Blender would not do it."""
+    screen = window.screen
+    count = len(screen.areas)
+    try:
+        with bpy.context.temp_override(window=window, screen=screen, area=keep, region=_region(keep)):
+            # the area under source_xy stays, the one under target_xy goes
+            bpy.ops.screen.area_join(source_xy=(keep.x + keep.width // 2, keep.y + keep.height // 2),
+                                     target_xy=(gone.x + gone.width // 2, gone.y + gone.height // 2))
+    except (RuntimeError, TypeError):
+        pass
+    yield
+    if len(screen.areas) < count:
+        return True
+    try:
+        with bpy.context.temp_override(window=window, screen=screen, area=gone, region=_region(gone)):
+            bpy.ops.screen.area_close()
+    except RuntimeError:
+        pass
+    yield
+    return len(screen.areas) < count
+
+
+def split_steps(window):
+    """One view -> four."""
+    screen = window.screen
+    vs = views(screen)
+    if len(vs) != 1:
+        return
+    view = vs[0]
+    alone = corner_of_single(view)
+    _saved.pop("ALONE", None)
+    _saved[alone] = state(view)
+    left, right = yield from _split(window, view, "VERTICAL")
+    tl, bl = yield from _split(window, left, "HORIZONTAL")
+    tr, br = yield from _split(window, right, "HORIZONTAL")
+    for area, corner in zip((tl, tr, bl, br), CORNERS):
+        build.dress_view(area)
+        st = _saved.get(corner)
+        if st is not None:
+            apply(area, st)
+        elif AXIS[corner]:
+            _axis_view(window, area, corner)
+        else:
+            rv = area.spaces.active.region_3d
+            rv.lock_rotation = False
+            if rv.view_perspective == "ORTHO":
+                rv.view_perspective = "PERSP"
+        area.tag_redraw()
+        yield
+
+
+def expand_steps(window, keep):
+    """Four views -> the one pressed, full size; the others are remembered."""
+    screen = window.screen
+    vs = views(screen)
+    if len(vs) < 2 or keep not in vs:
+        return
+    for a in vs:
+        _saved[corner_of(a, screen)] = state(a)
+    _saved["ALONE"] = corner_of(keep, screen)
+    for _ in range(12):
+        others = [a for a in views(screen) if a != keep]
+        if not others:
+            break
+        pair = next(((a, keep) for a in others if _touching(a, keep)), None) or \
+            next(((a, b) for a in others for b in others if a != b and _touching(a, b)), None)
+        if pair is None:
+            print("Blenda 4D: four views: no pair of views to join")
+            break
+        ok = yield from _join(window, *pair)
+        if not ok:
+            print("Blenda 4D: four views: could not join two views; leaving them as they are")
+            break
+    for a in screen.areas:
+        a.tag_redraw()
+
+
+class BLENDA4D_OT_quad_view(bpy.types.Operator):
+    bl_idname = "blenda4d.quad_view"
+    bl_label = "Four Views / Full Size"
+    bl_description = "One view: split it into four (Perspective, Top, Right, Front). Four views: make this one full size"
+
+    @classmethod
+    def poll(cls, context):
+        return context.area is not None and context.area.type == "VIEW_3D" and not build.busy()
+
+    def execute(self, context):
+        if len(views(context.screen)) > 1:
+            build.run_steps(expand_steps(context.window, context.area))
+        else:
+            build.run_steps(split_steps(context.window))
+        return {"FINISHED"}
+
+
+def register():
+    bpy.utils.register_class(BLENDA4D_OT_quad_view)
+
+
+def unregister():
+    _saved.clear()
+    bpy.utils.unregister_class(BLENDA4D_OT_quad_view)

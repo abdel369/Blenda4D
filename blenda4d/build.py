@@ -1,0 +1,209 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""Build Blenda's Standard layout on the live screen at exact pixel sizes.
+
+Areas are made with area_split / area_close (which work without window focus), one step per redraw, because an
+area's size only updates on the next event loop:
+  document tabs (full width, top) | managers column (right, full height: Objects over Attributes)
+  command palette (top, left of the managers) | modes column (left) | create column (left of the managers)
+  timeline (bottom, under the viewport) | optional Material Manager column (between viewport and create column)
+  | optional Asset Browser column (left of the viewport)."""
+import bpy
+
+from . import roles
+
+DOC_TABS_PX = 30
+PALETTE_PX = 62
+TIMELINE_PX = 64
+TOOL_ZOOM = {"MODES": 3, "CREATE": 8, "PALETTE": 7}   # zoom steps (as Ctrl+scroll): larger icons, boxes stay square
+MODES_PX = 70                 # with the 3-step zoom and 1.9 tall buttons: square boxes, icon evenly inside
+CREATE_PX = 70
+MANAGERS_PX = 330
+MATERIALS_PX = 230
+MM_BAR_PX = 30
+ASSETS_PX = 420
+EDGE = 3
+
+_active = [0]
+
+
+def busy():
+    return _active[0] > 0
+
+
+def run_steps(gen, done=None):
+    """Run a generator one step per redraw; a step that fails while the window is not ready is retried."""
+    state = {"retries": 20}
+    _active[0] += 1
+
+    def tick():
+        try:
+            next(gen)
+            return 0.05
+        except StopIteration:
+            _active[0] -= 1
+            if done:
+                done()
+            return None
+        except RuntimeError as ex:
+            state["retries"] -= 1
+            if state["retries"] > 0:
+                return 0.25
+            _active[0] -= 1
+            print("Blenda 4D: layout step gave up:", ex)
+            return None
+        except Exception:
+            _active[0] -= 1
+            raise
+    bpy.app.timers.register(tick)
+
+
+def _scale():
+    return bpy.context.preferences.system.ui_scale
+
+
+def px(v):
+    return int(round(v * _scale()))
+
+
+def _region(area, kind):
+    return next((r for r in area.regions if r.type == kind), None)
+
+
+def _ov(window, area, region="WINDOW"):
+    return bpy.context.temp_override(window=window, screen=window.screen, area=area, region=_region(area, region))
+
+
+def biggest_view(screen):
+    views = [a for a in screen.areas if a.type == "VIEW_3D"]
+    if not views:
+        big = max(screen.areas, key=lambda a: a.width * a.height)
+        big.type = "VIEW_3D"
+        views = [big]
+    return max(views, key=lambda a: a.width * a.height)
+
+
+def split(window, area, direction, size_px, side):
+    size = area.height if direction == "HORIZONTAL" else area.width
+    frac = size_px / max(size, 1)
+    factor = {"TOP": 1 - frac, "BOTTOM": frac, "LEFT": frac, "RIGHT": 1 - frac}[side]
+    before = {a.as_pointer() for a in window.screen.areas}
+    with _ov(window, area):
+        bpy.ops.screen.area_split(direction=direction, factor=factor)
+    new = next(a for a in window.screen.areas if a.as_pointer() not in before)
+    yield
+    pair = (new, area)
+    if direction == "HORIZONTAL":
+        top, bottom = sorted(pair, key=lambda a: -a.y)
+        return top if side == "TOP" else bottom
+    left, right = sorted(pair, key=lambda a: a.x)
+    return left if side == "LEFT" else right
+
+
+def make_role(window, area, name):
+    area.type = "PROPERTIES"
+    yield
+    for _ in range(20):
+        if roles.set_role(area, name):
+            break
+        area.tag_redraw()
+        yield
+    roles.hide_nav(area)
+    yield
+    if name in TOOL_ZOOM:
+        _zoom(window, area, TOOL_ZOOM[name])
+        yield
+
+
+def _zoom(window, area, n):
+    """Blender's own area zoom (as Ctrl+scroll does): buttons and icons grow together."""
+    region = next((r for r in area.regions if r.type == "WINDOW"), None)
+    if region is None:
+        return
+    try:
+        with bpy.context.temp_override(window=window, screen=window.screen, area=area, region=region):
+            for _ in range(n):
+                bpy.ops.view2d.zoom_in()
+    except RuntimeError as ex:
+        print("Blenda 4D: could not zoom", area.type, ex)
+
+
+def steps(window, materials=False, assets=False):
+    screen = window.screen
+    # 1. everything back into one viewport
+    for _ in range(40):
+        extra = [a for a in screen.areas if a.type != "VIEW_3D"] + \
+                [a for a in screen.areas if a.type == "VIEW_3D" and a != biggest_view(screen)]
+        if not extra:
+            break
+        with _ov(window, extra[0]):
+            bpy.ops.screen.area_close()
+        yield
+    view = biggest_view(screen)
+    hdr = _region(view, "HEADER").height if _region(view, "HEADER") else 26
+    # 2. strips at exact sizes, full-width ones first
+    tabs = yield from split(window, view, "HORIZONTAL", px(DOC_TABS_PX) + EDGE, "TOP")
+    yield from make_role(window, tabs, "DOC_TABS")
+    managers = yield from split(window, biggest_view(screen), "VERTICAL", px(MANAGERS_PX) + EDGE, "RIGHT")
+    yield from make_role(window, managers, "OBJECTS")
+    palette = yield from split(window, biggest_view(screen), "HORIZONTAL", px(PALETTE_PX) + EDGE, "TOP")
+    yield from make_role(window, palette, "PALETTE")
+    modes = yield from split(window, biggest_view(screen), "VERTICAL", px(MODES_PX) + EDGE, "LEFT")
+    yield from make_role(window, modes, "MODES")
+    create = yield from split(window, biggest_view(screen), "VERTICAL", px(CREATE_PX) + EDGE, "RIGHT")
+    yield from make_role(window, create, "CREATE")
+    timeline = yield from split(window, biggest_view(screen), "HORIZONTAL", px(TIMELINE_PX) + hdr + EDGE, "BOTTOM")
+    timeline.type = "DOPESHEET_EDITOR"
+    timeline.ui_type = "TIMELINE"
+    yield
+    if assets:
+        ab = yield from split(window, biggest_view(screen), "VERTICAL", px(ASSETS_PX) + EDGE, "LEFT")
+        yield from make_role(window, ab, "ASSETS")
+    if materials:
+        mm = yield from split(window, biggest_view(screen), "VERTICAL", px(MATERIALS_PX) + EDGE, "RIGHT")
+        yield from make_role(window, mm, "MATERIALS")
+        bar = yield from split(window, mm, "HORIZONTAL", px(MM_BAR_PX) + EDGE, "BOTTOM")
+        yield from make_role(window, bar, "MM_BAR")
+    attributes = yield from split(window, managers, "HORIZONTAL", round(managers.height * 0.56), "BOTTOM")
+    yield from make_role(window, attributes, "ATTRIBUTES")
+    objs = sorted(roles.areas(screen, "OBJECTS"), key=lambda a: a.y)
+    if len(objs) > 1:                                      # the split can hand back the other half
+        yield from make_role(window, objs[0], "ATTRIBUTES")
+    objs = sorted(roles.areas(screen, "OBJECTS"), key=lambda a: a.y)
+    if objs:                                               # the Object Manager's bottom strip: its Size slider
+        om_bar = yield from split(window, objs[-1], "HORIZONTAL", px(MM_BAR_PX) + EDGE, "BOTTOM")
+        yield from make_role(window, om_bar, "OM_BAR")
+        objs = sorted(roles.areas(screen, "OBJECTS") + roles.areas(screen, "OM_BAR"), key=lambda a: a.y)
+        if len(roles.areas(screen, "OBJECTS")) == 2:       # the split handed back the other half
+            yield from make_role(window, min(roles.areas(screen, "OBJECTS"), key=lambda a: a.y), "OM_BAR")
+    # 3. the viewport and timeline lose Blender's own chrome
+    for a in screen.areas:
+        if a.type == "VIEW_3D":
+            dress_view(a)
+        elif a.type == "DOPESHEET_EDITOR":
+            st = a.spaces.active
+            st.show_region_channels = False
+            st.show_region_ui = False
+    for a in screen.areas:
+        a.tag_redraw()
+
+
+def dress_view(area):
+    v3d = area.spaces.active
+    for attr, want in (("show_region_ui", False), ("show_region_toolbar", False), ("show_region_header", True),
+                       ("show_region_tool_header", True), ("show_region_hud", False)):
+        if getattr(v3d, attr) != want:
+            setattr(v3d, attr, want)
+    v3d.show_gizmo_navigate = False
+    v3d.overlay.show_text = False
+    v3d.overlay.show_stats = False
+
+
+def toggle(window, name, on):
+    """Show or hide an optional column (Material Manager, Asset Browser) by rebuilding with it."""
+    run_steps(steps(window, materials=(on if name == "MATERIALS" else bool(roles.areas(window.screen, "MATERIALS"))),
+                    assets=(on if name == "ASSETS" else bool(roles.areas(window.screen, "ASSETS")))))
+
+
+def rebuild(window, done=None):
+    run_steps(steps(window, materials=bool(roles.areas(window.screen, "MATERIALS")),
+                    assets=bool(roles.areas(window.screen, "ASSETS"))), done)

@@ -1,0 +1,968 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""The managers: Object Manager, Attribute Manager (follows the selection), Material Manager, Asset Browser,
+Variations. Each is a panel drawn with Blender's UI elements in its own role area."""
+import time
+
+import bpy
+
+from . import matman, menus, roles
+
+TYPE_ICON = {"MESH": "MESH_CUBE", "CURVE": "CURVE_BEZCURVE", "SURFACE": "OUTLINER_OB_SURFACE", "META": "OUTLINER_OB_META",
+             "FONT": "OUTLINER_OB_FONT", "EMPTY": "OUTLINER_OB_EMPTY", "LIGHT": "LIGHT_AREA", "CAMERA": "OUTLINER_OB_CAMERA",
+             "ARMATURE": "OUTLINER_OB_ARMATURE", "LATTICE": "OUTLINER_OB_LATTICE", "VOLUME": "OUTLINER_OB_VOLUME",
+             "POINTCLOUD": "OUTLINER_OB_POINTCLOUD", "CURVES": "OUTLINER_OB_CURVES", "GREASEPENCIL": "OUTLINER_OB_GREASEPENCIL"}
+TYPE_LABEL = {"MESH": "Polygon Object", "CURVE": "Spline", "FONT": "Text", "EMPTY": "Null", "LIGHT": "Light Object",
+              "CAMERA": "Camera Object", "ARMATURE": "Joint", "LATTICE": "FFD", "VOLUME": "Volume", "SURFACE": "Surface",
+              "META": "Metaball", "POINTCLOUD": "Point Cloud", "CURVES": "Hair", "GREASEPENCIL": "Sketch"}
+
+
+PRIM_ICON = {"cube": "MESH_CUBE", "sphere": "MESH_UVSPHERE", "cylinder": "MESH_CYLINDER", "plane": "MESH_PLANE", "disc": "MESH_CIRCLE",
+             "cone": "MESH_CONE", "torus": "MESH_TORUS", "pyramid": "MESH_CONE", "tube": "MESH_CYLINDER", "oiltank": "MESH_CAPSULE",
+             "capsule": "MESH_CAPSULE", "platonic": "MESH_ICOSPHERE", "relief": "IMAGE_DATA", "landscape": "RNDCURVE",
+             "figure": "ARMATURE_DATA", "bezier": "SURFACE_NSURFACE", "cyc": "MESH_GRID"}
+
+
+def type_icon(ob):
+    from . import kinds
+    if kinds.kind_of(ob):
+        return kinds.KINDS[kinds.kind_of(ob)]["icon"]
+    k = ob.get("b4d_type")
+    if k in PRIM_ICON:
+        return PRIM_ICON[k]
+    if ob.type == "LIGHT":
+        return {"POINT": "LIGHT_POINT", "SUN": "LIGHT_SUN", "SPOT": "LIGHT_SPOT", "AREA": "LIGHT_AREA"}.get(ob.data.type, "LIGHT")
+    return TYPE_ICON.get(ob.type, "OBJECT_DATA")
+
+
+def type_icon_kw(ob):
+    """Layout keywords for an object's row icon: its type icon tinted by the create-column group (icons.py), or
+    Blender's plain icon."""
+    from . import icons
+    return icons.object_icon(ob, type_icon(ob))
+
+
+# --- manager menus ------------------------------------------------------------------------------------------------
+I = menus.item
+OM_MENUS = [menus.simple_menu("File", [I("Merge Objects...", "wm.append", "APPEND_BLEND"), I("Save Selected Objects As...")], "om"),
+            menus.simple_menu("Edit", [I("Undo", "ed.undo"), I("Redo", "ed.redo"), menus.SEP, I("Rename...", "blenda4d.om_rename"), I("Copy", "view3d.copybuffer"),
+                                        I("Paste", "view3d.pastebuffer"), I("Delete", "object.delete"), menus.SEP,
+                                        I("Select All", "object.select_all", action="SELECT"), I("Deselect All", "object.select_all", action="DESELECT")], "om"),
+            menus.simple_menu("View", [I("Expand All", "blenda4d.om_expand", open=True), I("Collapse All", "blenda4d.om_expand", open=False)], "om"),
+            menus.simple_menu("Object", [I("Group Objects", "blenda4d.group"), I("Make Editable", "object.convert", target="MESH"),
+                                          I("Duplicate", "object.duplicate_move")], "om"),
+            menus.simple_menu("Tags", [I("Material", "blenda4d.mat_tag", "MATERIAL"), I("Smoothing", "object.shade_auto_smooth", "SHADING_SMOOTH")], "om"),
+            menus.simple_menu("Bookmarks", [I("Add Bookmark")], "om")]
+AM_MENUS = [menus.simple_menu("Mode", [I("Object"), I("Tag"), I("Material")], "am"),
+            menus.simple_menu("Edit", [I("Copy"), I("Paste")], "am"),
+            menus.simple_menu("User Data", [I("Add User Data...")], "am")]
+MM_MENUS = [menus.simple_menu(n, [I("New Material", "blenda4d.new_material", "ADD")] if n == "Create" else [I("…")], "mm")
+            for n in ("Create", "Edit", "View", "Select", "Material")]
+
+
+def manager_title(layout, title, right_tabs=None):
+    """The manager's own tab strip: its name (and the other managers grouped with it)."""
+    row = layout.row(align=True)
+    row.alignment = "LEFT"
+    if right_tabs:
+        wm = bpy.context.window_manager
+        row.prop(wm, right_tabs, expand=True)
+    else:
+        row.operator("blenda4d.noop", text=title, depress=True)
+
+
+# --- Object Manager -------------------------------------------------------------------------------------------------
+AM_SUBJECTS = {}             # "TAG" -> fn(layout, context, ob) -> True when it drew the page (wm.b4d_am_subject "TAG:...")
+OM_TAG_BUTTON = []           # [fn(layout, ob, slot_index, material)]: draws a material swatch as a clickable tag
+_clicks = ["", 0.0]          # last Object Manager click: row name, time (two on one row = rename)
+_renamed = [0.0]
+
+
+class BLENDA4D_OT_om_select(bpy.types.Operator):
+    bl_idname = "blenda4d.om_select"
+    bl_label = "Select"
+    bl_description = "Select the object (Shift adds to the selection); a click below the list deselects all"
+    bl_options = {"UNDO"}
+    name: bpy.props.StringProperty(options={"SKIP_SAVE"})
+    extend: bpy.props.BoolProperty(options={"SKIP_SAVE"})
+
+    @classmethod
+    def poll(cls, context):
+        return roles.role(context.area) == "OBJECTS"
+
+    def invoke(self, context, event):
+        self.extend = event.shift or event.ctrl or event.oskey
+        if not self.name:
+            ob = object_at(context, event)
+            now = time.monotonic()
+            last, _clicks[:] = list(_clicks), [ob.name if ob else "", now]
+            if (ob is not None and not self.extend and last[0] == ob.name
+                    and now - last[1] < context.preferences.inputs.mouse_double_click_time / 1000
+                    and now - _renamed[0] > 0.6):
+                _clicks[0] = ""
+                return bpy.ops.blenda4d.om_rename("INVOKE_DEFAULT", name=ob.name)
+            if ob is None:
+                if self.extend:
+                    return {"CANCELLED"}
+                context.window_manager.b4d_am_subject = ""
+                for o in context.view_layer.objects:
+                    o.select_set(False)
+                return {"FINISHED"}
+            self.name = ob.name
+        return self.execute(context)
+
+    def execute(self, context):
+        ob = bpy.data.objects.get(self.name)
+        if ob is None:
+            return {"CANCELLED"}
+        context.window_manager.b4d_am_subject = ""         # a click on the object shows the object again, not its tag
+        if context.mode != "OBJECT":
+            bpy.ops.object.mode_set(mode="OBJECT")
+        if not self.extend:
+            for o in context.view_layer.objects:
+                o.select_set(False)
+        try:
+            ob.select_set(not (self.extend and ob.select_get()))
+        except RuntimeError:
+            return {"CANCELLED"}
+        context.view_layer.objects.active = ob
+        return {"FINISHED"}
+
+
+class BLENDA4D_OT_om_fold(bpy.types.Operator):
+    bl_idname = "blenda4d.om_fold"
+    bl_label = "Fold"
+    name: bpy.props.StringProperty()
+
+    def execute(self, context):
+        ob = bpy.data.objects.get(self.name)
+        if ob:
+            ob.b4d_om_closed = not ob.b4d_om_closed
+        return {"FINISHED"}
+
+
+class BLENDA4D_OT_om_expand(bpy.types.Operator):
+    bl_idname = "blenda4d.om_expand"
+    bl_label = "Expand"
+    open: bpy.props.BoolProperty(default=True)
+
+    def execute(self, context):
+        for ob in context.scene.objects:
+            ob.b4d_om_closed = not self.open
+        return {"FINISHED"}
+
+
+class BLENDA4D_OT_group(bpy.types.Operator):
+    bl_idname = "blenda4d.group"
+    bl_label = "Group Objects"
+    bl_description = "Put the selected objects under a new Null"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        sel = list(context.selected_objects)
+        if not sel:
+            return {"CANCELLED"}
+        null = bpy.data.objects.new("Null", None)
+        context.collection.objects.link(null)
+        for ob in sel:
+            mw = ob.matrix_world.copy()
+            ob.parent = null
+            ob.matrix_parent_inverse.identity()
+            ob.matrix_world = mw
+        return {"FINISHED"}
+
+
+TOP_LEVEL = "\x00top"
+ROWS_TOP_UNITS = 4.15        # where the first object row starts, in row heights below the top of the panel area
+STRIPE = (0.02, 0.02, 0.02, 1.0)      # added to every other Object Manager row: +5 grey levels, as in the original (Joseph, Nov 19)
+
+
+def visible_rows(context):
+    """The Object Manager's rows in drawing order: (object, depth). Folded objects hide their children; the search
+    keeps an object when it or anything under it matches."""
+    needle = context.window_manager.b4d_om_search.lower()
+    out = []
+
+    def walk(ob, depth):
+        if needle and needle not in ob.name.lower() and not any(needle in c.name.lower() for c in ob.children_recursive):
+            return
+        out.append((ob, depth))
+        if ob.children and not ob.b4d_om_closed:
+            for c in sorted(ob.children, key=lambda c: c.name):
+                walk(c, depth + 1)
+    for ob in context.scene.objects:
+        if ob.parent is None:
+            walk(ob, 0)
+    return out
+
+
+def row_height():
+    s = bpy.context.preferences.system
+    return round(18 * s.ui_scale) + 2 * s.pixel_size
+
+
+def row_at(context, region, mouse_y):
+    """Index of the Object Manager row under a window y (len(rows) or more = below the last row, -1 = above)."""
+    y = region.view2d.region_to_view(0, mouse_y - region.y)[1]
+    h = row_height()
+    return int((-y - ROWS_TOP_UNITS * h) // h)
+
+
+def object_at(context, event):
+    """The object on the Object Manager row under the mouse, or None."""
+    if roles.role(context.area) != "OBJECTS" or context.region is None or context.region.type != "WINDOW":
+        return None
+    rows = visible_rows(context)
+    i = row_at(context, context.region, event.mouse_y)
+    return rows[i][0] if 0 <= i < len(rows) else None
+
+
+def _is_under(ob, other):
+    p = other
+    while p is not None:
+        if p == ob:
+            return True
+        p = p.parent
+    return False
+
+
+def reparent(objs, target):
+    """Put objs under target (None = top level), keeping where they are in the world."""
+    done = 0
+    for ob in objs:
+        if target is not None and (ob == target or _is_under(ob, target)):
+            continue
+        mw = ob.matrix_world.copy()
+        ob.parent = target
+        ob.matrix_parent_inverse.identity()        # no hidden parent inverse: the local values are the real ones
+        ob.matrix_world = mw
+        done += 1
+    return done
+
+
+class BLENDA4D_OT_om_drag(bpy.types.Operator):
+    bl_idname = "blenda4d.om_drag"
+    bl_label = "Drag in the Object Manager"
+    bl_description = "Drag objects onto another object to put them under it; drop below the list for the top level"
+    bl_options = {"UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        return roles.role(context.area) == "OBJECTS"
+
+    def _target(self, context, event):
+        i = row_at(context, self.region, event.mouse_y)
+        if i >= len(self.rows):
+            return TOP_LEVEL
+        if i < 0:
+            return ""
+        ob = self.rows[i][0]
+        return "" if ob in self.objs or any(_is_under(o, ob) for o in self.objs) else ob.name
+
+    def invoke(self, context, event):
+        self.region = context.region
+        self.rows = visible_rows(context)
+        i = row_at(context, self.region, event.mouse_prev_press_y)
+        if not 0 <= i < len(self.rows):
+            return {"PASS_THROUGH"}
+        src = self.rows[i][0]
+        self.objs = [src] + ([o for o in context.selected_objects if o != src] if src.select_get() else [])
+        context.window_manager.b4d_om_drop = ""
+        context.window.cursor_modal_set("HAND")
+        context.window_manager.modal_handler_add(self)
+        return {"RUNNING_MODAL"}
+
+    def _end(self, context):
+        context.window_manager.b4d_om_drop = ""
+        context.window.cursor_modal_restore()
+        self.region.tag_redraw()
+
+    def modal(self, context, event):
+        wm = context.window_manager
+        if event.type in {"MOUSEMOVE", "INBETWEEN_MOUSEMOVE"}:
+            t = self._target(context, event)
+            if t != wm.b4d_om_drop:
+                wm.b4d_om_drop = t
+                self.region.tag_redraw()
+            return {"RUNNING_MODAL"}
+        if event.type == "LEFTMOUSE" and event.value == "RELEASE":
+            t = self._target(context, event)
+            self._end(context)
+            if not t:
+                return {"CANCELLED"}
+            n = reparent(self.objs, None if t == TOP_LEVEL else bpy.data.objects.get(t))
+            return {"FINISHED"} if n else {"CANCELLED"}
+        if event.type in {"ESC", "RIGHTMOUSE"}:
+            self._end(context)
+            return {"CANCELLED"}
+        return {"RUNNING_MODAL"}
+
+
+class BLENDA4D_OT_om_rename(bpy.types.Operator):
+    bl_idname = "blenda4d.om_rename"
+    bl_label = "Rename"
+    bl_description = "Rename the active object"
+    bl_options = {"UNDO"}
+    name: bpy.props.StringProperty(options={"SKIP_SAVE"})
+
+    @classmethod
+    def poll(cls, context):
+        return roles.role(context.area) == "OBJECTS"
+
+    def invoke(self, context, event):
+        _renamed[0] = time.monotonic()
+        ob = bpy.data.objects.get(self.name) or object_at(context, event) or context.active_object
+        if ob is None:
+            return {"CANCELLED"}
+        self.name = ob.name
+        return context.window_manager.invoke_popup(self, width=220)
+
+    def draw(self, context):
+        ob = bpy.data.objects.get(self.name)
+        if ob is not None:
+            self.layout.activate_init = True
+            self.layout.prop(ob, "name", text="", **type_icon_kw(ob))
+
+    def execute(self, context):
+        return {"FINISHED"}
+
+
+def _tags(ob):
+    """The icons after an object's row: one per material, plus smoothing and modifiers."""
+    out = []
+    for i, slot in enumerate(getattr(ob, "material_slots", [])):
+        if slot.material:
+            out.append(("MATERIAL", slot.material, i))
+    if ob.type == "MESH" and any(m.type == "SMOOTH_BY_ANGLE" or m.name.startswith("Smooth") for m in ob.modifiers):
+        out.append(("SHADING_SMOOTH", None, -1))
+    return out
+
+
+def _main_view(context):
+    """The largest 3D view in the window, with its drawing region."""
+    views = [a for a in context.window.screen.areas if a.type == "VIEW_3D"]
+    if not views:
+        return None, None
+    area = max(views, key=lambda a: a.width * a.height)
+    return area, next((r for r in area.regions if r.type == "WINDOW"), None)
+
+
+def _in_solo(context):
+    area, _ = _main_view(context)
+    return area is not None and area.spaces.active.local_view is not None
+
+
+class BLENDA4D_OT_om_solo(bpy.types.Operator):
+    bl_idname = "blenda4d.om_solo"
+    bl_label = "Solo"
+    bl_description = "Show only the selected objects in the viewport (Local View in Blender); press again to show everything"
+
+    def execute(self, context):
+        area, region = _main_view(context)
+        if area is None:
+            return {"CANCELLED"}
+        if area.spaces.active.local_view is None and not context.selected_objects:
+            if context.view_layer.objects.active is None:
+                return {"CANCELLED"}
+            context.view_layer.objects.active.select_set(True)
+        with context.temp_override(area=area, region=region):
+            bpy.ops.view3d.localview(frame_selected=False)
+        for a in context.window.screen.areas:
+            a.tag_redraw()
+        return {"FINISHED"}
+
+
+class BLENDA4D_OT_om_scroll_active(bpy.types.Operator):
+    bl_idname = "blenda4d.om_scroll_active"
+    bl_label = "Scroll to First Active"
+    bl_description = "Open the folders above the active object and scroll the Object Manager to it"
+
+    def execute(self, context):
+        ob = context.view_layer.objects.active
+        if ob is None:
+            return {"CANCELLED"}
+        p = ob.parent
+        while p is not None:
+            p.b4d_om_closed = False
+            p = p.parent
+        area = next((a for a in context.window.screen.areas if roles.role(a) == "OBJECTS"), None)
+        region = next((r for r in area.regions if r.type == "WINDOW"), None) if area else None
+        if region is None:
+            return {"CANCELLED"}
+        rows = [r[0] for r in visible_rows(context)]
+        if ob not in rows:
+            return {"CANCELLED"}
+        h = row_height()
+        row_top = -(ROWS_TOP_UNITS + rows.index(ob)) * h
+        v2d = region.view2d
+        top = v2d.region_to_view(0, region.height)[1]
+        bottom = v2d.region_to_view(0, 0)[1]
+        if bottom + h <= row_top <= top:
+            return {"FINISHED"}                          # already in sight
+        with context.temp_override(area=area, region=region):
+            for _ in range(400):                         # Blender moves a little per scroll: step until the row shows
+                top = v2d.region_to_view(0, region.height)[1]
+                bottom = v2d.region_to_view(0, 0)[1]
+                if bottom + 2 * h <= row_top <= top - h:
+                    break
+                before = top
+                if row_top > top - h:
+                    bpy.ops.view2d.scroll_up(deltay=40)
+                else:
+                    bpy.ops.view2d.scroll_down(deltay=40)
+                if v2d.region_to_view(0, region.height)[1] == before:
+                    break                                # at the end of the list
+        area.tag_redraw()
+        return {"FINISHED"}
+
+
+def _om_zoom(self, context):
+    """The size slider: Blender's own area zoom (as Ctrl+scroll), so names, icons and rows grow together."""
+    area = next((a for a in context.window.screen.areas if roles.role(a) == "OBJECTS"), None)
+    region = next((r for r in area.regions if r.type == "WINDOW"), None) if area else None
+    if region is None:
+        return
+    with context.temp_override(area=area, region=region):
+        try:
+            bpy.ops.view2d.reset()
+            for _ in range(self.b4d_om_zoom):
+                bpy.ops.view2d.zoom_in()
+        except RuntimeError as ex:
+            print("Blenda 4D: Object Manager size", ex)
+    area.tag_redraw()
+
+
+class BLENDA4D_PT_om_bar(roles.RolePanel, bpy.types.Panel):
+    """The Object Manager's bottom strip: an area of its own so the Size slider stays at the bottom."""
+    bl_label = "Object Manager Size"
+    role = "OM_BAR"
+
+    def draw(self, context):
+        sp = self.layout.split(factor=0.35)              # a short slider on the right, as in the Material Manager
+        sp.label(text="")
+        row = sp.row(align=True)                         # zoom out / Size / zoom in: says what it does at a glance
+        row.label(text="", icon="ZOOM_OUT")
+        row.prop(context.window_manager, "b4d_om_zoom", text="Size", slider=True)
+        row.label(text="", icon="ZOOM_IN")
+
+
+class BLENDA4D_PT_objects(roles.RolePanel, bpy.types.Panel):
+    bl_label = "Objects"
+    role = "OBJECTS"
+
+    def draw(self, context):
+        layout = self.layout
+        manager_title(layout, "Objects")
+        bar = layout.row(align=True)
+        bar.label(text="", icon="COLLAPSEMENU")
+        menus.menu_bar(bar, OM_MENUS)
+        bar.separator_spacer()
+        bar.prop(context.window_manager, "b4d_om_search", text="", icon="VIEWZOOM")
+        tools = layout.row(align=True)                  # the tool row: scroll to the active object, solo
+        tools.alignment = "LEFT"
+        tools.operator("blenda4d.om_scroll_active", text="", icon="ZOOM_SELECTED", emboss=False)
+        tools.operator("blenda4d.om_solo", text="", icon="SELECT_INTERSECT", emboss=False,
+                       depress=_in_solo(context))
+        layout.separator(factor=0.3)
+        col = layout.column(align=True)
+        drop = context.window_manager.b4d_om_drop
+        for ob, depth in visible_rows(context):
+            self._row(col, ob, depth)
+
+        if drop == TOP_LEVEL:
+            col.label(text="Move to top level", icon="TRIA_UP")
+
+    def _row(self, col, ob, depth):
+        row = col.row(align=True)
+        if depth:
+            row.separator(factor=1.6 * depth)
+        if ob.children:
+            row.operator("blenda4d.om_fold", text="", icon="DISCLOSURE_TRI_RIGHT" if ob.b4d_om_closed else "DISCLOSURE_TRI_DOWN",
+                         emboss=False).name = ob.name
+        else:
+            row.label(text="", icon="BLANK1")
+        name = row.row(align=True)
+        name.alignment = "LEFT"
+        name.label(text=ob.name, **type_icon_kw(ob))     # a label, so a press here can start a drag (see om_drag)
+        right = row.row(align=True)
+        right.alignment = "RIGHT"
+        right.prop(ob, "hide_viewport", text="", emboss=False, icon="LAYER_ACTIVE" if not ob.hide_viewport else "LAYER_USED")
+        right.prop(ob, "hide_render", text="", emboss=False, icon="LAYER_ACTIVE" if not ob.hide_render else "LAYER_USED")
+        right.prop(ob, "b4d_enabled", text="", emboss=False, icon="CHECKMARK" if ob.b4d_enabled else "X")
+        for icon, mat, slot in _tags(ob):
+            if mat is not None and OM_TAG_BUTTON:
+                OM_TAG_BUTTON[0](right, ob, slot, mat)
+            elif mat is not None:
+                right.label(text="", icon_value=right.icon(mat))
+            else:
+                right.label(text="", icon=icon)
+
+
+# --- Attribute Manager ------------------------------------------------------------------------------------------
+TABS_COMMON = [("BASIC", "Basic", ""), ("COORD", "Coord.", ""), ("OBJECT", "Object", "")]
+
+
+def _page_tabs(ob):
+    from . import kinds
+    k = kinds.kind_of(ob)
+    if k:
+        own = [(t[0], t[1], "") for t in kinds.KINDS[k]["tabs"]]
+        if own and kinds.KINDS[k].get("own_tabs_only"):
+            return own
+        return TABS_COMMON[:2] + own if own else list(TABS_COMMON)
+    tabs = list(TABS_COMMON)
+    if ob.type == "MESH":
+        tabs.append(("PHONG", "Phong", ""))
+    if ob.type == "LIGHT":
+        tabs[2] = ("OBJECT", "General", "")
+        tabs += [("DETAILS", "Details", ""), ("SHADOW", "Shadow", "")]
+    return tabs
+
+
+def _tab_items(self, context):
+    ob = context.view_layer.objects.active if context else None
+    return _page_tabs(ob) if ob is not None else TABS_COMMON
+
+
+def _vec(col, data, prop, label, axes="XYZ"):
+    sub = col.column(align=True)
+    for i, a in enumerate(axes):
+        sub.prop(data, prop, index=i, text=f"{label} . {a}")
+
+
+def page_basic(col, ob):
+    col.prop(ob, "name", text="Name")
+    col.prop(ob, "b4d_vis_editor", text="Visible in Editor")
+    col.prop(ob, "b4d_vis_render", text="Visible in Renderer")
+    col.separator()
+    col.prop(ob, "color", text="Display Color")
+    col.prop(ob, "show_in_front", text="X-Ray")
+
+
+def page_coord(col, ob):
+    _vec(col, ob, "b4d_pos", "P")
+    col.separator()
+    _vec(col, ob, "b4d_scale", "S")
+    col.separator()
+    _vec(col, ob, "b4d_rot", "R")
+    col.separator()
+    col.prop(ob, "rotation_mode", text="Rotation Order")
+
+
+def prim_kind(ob):
+    from . import primitives
+    k = ob.get("b4d_type")
+    return k if k in primitives.PRIMS else None
+
+
+def _generator(ob):
+    return next((m for m in ob.modifiers if m.type == "NODES" and m.node_group and m.node_group.name.startswith("Blenda ")), None)
+
+
+# rows a page greys out until the switch they belong to is on
+_NEEDS = {"Fillet Radius": "Fillet", "Fillet Segments": "Fillet", "Fillet Subdivision": "Fillet", "From": "Slice", "To": "Slice",
+          "Regular Grid": "Slice", "Width": None, "Radius Y": None}
+
+
+def page_primitive(col, ob, kind):
+    """A primitive's Object page: its generator's settings, in order, with Blender's own fields."""
+    from . import primitives
+    mod = _generator(ob)
+    if mod is None or mod.node_group is None:
+        col.label(text="This object's generator is missing")
+        return
+    items = mod.node_group.interface.items_tree
+    values = {}
+    for sname, stype, _default, _key in primitives.PRIMS[kind][2]:
+        if sname not in items:
+            continue
+        try:
+            owner, attr = primitives.input_slot(mod, items[sname].identifier)
+        except KeyError:
+            continue
+        values[sname] = (owner, attr)
+    for sname, stype, _default, _key in primitives.PRIMS[kind][2]:
+        if sname not in values:
+            continue
+        owner, attr = values[sname]
+        row = col.row(align=True)
+        switch = _NEEDS.get(sname)
+        if switch and switch in values:
+            o2, a2 = values[switch]
+            try:
+                row.active = bool(getattr(o2, a2))
+            except (AttributeError, TypeError):
+                pass
+        if stype == "VECTOR":
+            sub = col.column(align=True)
+            for i, axis in enumerate("XYZ"):
+                sub.prop(owner, attr, index=i, text=f"{sname} . {axis}")
+        else:
+            row.prop(owner, attr, text=sname)
+
+
+def page_object(col, ob):
+    from . import kinds
+    d = ob.data
+    kind = prim_kind(ob)
+    if kind:
+        return page_primitive(col, ob, kind)
+    if ob.type == "MESH":
+        col.label(text=f"Points: {len(d.vertices)}    Polygons: {len(d.polygons)}")
+        _vec(col, ob, "b4d_size", "Size")
+    elif ob.type == "LIGHT":
+        col.prop(d, "color", text="Color")
+        col.prop(d, "energy", text="Intensity")
+        col.prop(d, "type", text="Type")
+        col.prop(d, "use_shadow", text="Shadow")
+        if d.type == "AREA":
+            col.prop(d, "shape", text="Area Shape")
+            col.prop(d, "size", text="Size")
+    elif ob.type == "CAMERA":
+        col.prop(d, "type", text="Projection")
+        col.prop(d, "lens", text="Focal Length")
+        col.prop(d, "sensor_width", text="Sensor Size")
+        col.prop(d, "clip_start", text="Near Clipping")
+        col.prop(d, "clip_end", text="Far Clipping")
+    elif ob.type == "EMPTY":
+        col.prop(ob, "empty_display_type", text="Display")
+        col.prop(ob, "empty_display_size", text="Radius")
+    elif ob.type == "CURVE" and "spline" in kinds.KINDS:          # the splines module draws any curve's page
+        kinds.KINDS["spline"]["pages"]["OBJECT"](col, ob)
+    elif ob.type == "CURVE":
+        col.prop(d, "resolution_u", text="Intermediate Points")
+        col.prop(d, "dimensions", text="Type")
+        col.prop(d, "extrude", text="Extrude")
+        col.prop(d, "bevel_depth", text="Thickness")
+    elif ob.type == "FONT":
+        col.prop(d, "body", text="Text")
+        col.prop(d, "size", text="Height")
+        col.prop(d, "extrude", text="Depth")
+        col.prop(d, "align_x", text="Align")
+    else:
+        col.label(text="No settings for this object type yet")
+
+
+def page_phong(col, ob):
+    col.operator("object.shade_smooth", text="Smooth")
+    col.operator("object.shade_flat", text="Flat")
+    col.operator("object.shade_auto_smooth", text="Smooth by Angle")
+
+
+def page_light_details(col, ob):
+    d = ob.data
+    col.prop(d, "diffuse_factor", text="Diffuse")
+    col.prop(d, "specular_factor", text="Specular")
+    col.prop(d, "volume_factor", text="Volume")
+    if d.type == "SPOT":
+        col.prop(d, "spot_size", text="Outer Angle")
+        col.prop(d, "spot_blend", text="Falloff")
+
+
+def page_light_shadow(col, ob):
+    d = ob.data
+    col.prop(d, "use_shadow", text="Cast Shadows")
+    col.prop(d, "shadow_soft_size", text="Shadow Radius")
+
+
+PAGES = {"BASIC": page_basic, "COORD": page_coord, "OBJECT": page_object, "PHONG": page_phong,
+         "DETAILS": page_light_details, "SHADOW": page_light_shadow}
+
+
+class BLENDA4D_PT_attributes(roles.RolePanel, bpy.types.Panel):
+    bl_label = "Attributes"
+    role = "ATTRIBUTES"
+
+    def draw(self, context):
+        layout = self.layout
+        wm = context.window_manager
+        manager_title(layout, "Attributes", right_tabs="b4d_right_tab")
+        if wm.b4d_right_tab == "VARIATIONS":
+            return draw_variations(layout, context)
+        bar = layout.row(align=True)
+        bar.label(text="", icon="COLLAPSEMENU")
+        menus.menu_bar(bar, AM_MENUS)
+        ob = context.view_layer.objects.active
+        layout.separator(factor=0.3)
+        if ob is None:
+            layout.label(text="Nothing selected")
+            return
+        fn = AM_SUBJECTS.get(wm.b4d_am_subject.partition(":")[0])
+        if fn is not None and fn(layout, context, ob):
+            return
+        head = layout.row(align=True)
+        kind = prim_kind(ob)
+        from . import primitives
+        from . import kinds
+        own = kinds.kind_of(ob)
+        label = (kinds.KINDS[own]["label"] if own else
+                 (primitives.PRIMS[kind][1] + " Object") if kind else TYPE_LABEL.get(ob.type, "Object"))
+        head.label(text=f"{label} [{ob.name}]", **type_icon_kw(ob))
+        layout.row(align=True).prop(wm, "b4d_am_tab", expand=True)
+        tab = wm.b4d_am_tab
+        tabs = [t[0] for t in _page_tabs(ob)]
+        if tab not in tabs:
+            tab = "OBJECT" if "OBJECT" in tabs else tabs[min(2, len(tabs) - 1)]
+        layout.separator(factor=0.5)
+        page = kinds.KINDS[own]["pages"].get(tab) if own else None
+        title = (kinds.KINDS[own]["titles"].get(tab) if own else None) or {
+            "BASIC": "Basic Properties", "COORD": "Coordinates", "OBJECT": "Object Properties", "PHONG": "Phong",
+            "DETAILS": "Details", "SHADOW": "Shadow"}.get(tab, dict((t[0], t[1]) for t in _page_tabs(ob)).get(tab, tab))
+        layout.label(text=title)
+        col = layout.column()
+        col.use_property_split = True
+        col.use_property_decorate = True
+        (page or PAGES.get(tab, lambda c, o: None))(col, ob)
+
+
+def draw_variations(layout, context):
+    layout.label(text="Variations of this scene appear here.")
+    layout.operator("blenda4d.noop", text="New Variation", icon="ADD")
+
+
+# --- Material Manager --------------------------------------------------------------------------------------------
+class BLENDA4D_OT_new_material(bpy.types.Operator):
+    bl_idname = "blenda4d.new_material"
+    bl_label = "New Material"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        mat = bpy.data.materials.new("Mat")
+        mat.use_nodes = True
+        context.window_manager.b4d_material = mat.name
+        return {"FINISHED"}
+
+
+class BLENDA4D_OT_mat_pick(bpy.types.Operator):
+    bl_idname = "blenda4d.mat_pick"
+    bl_label = "Material"
+    bl_description = "Select this material; Shift-click puts it on the selected objects"
+    name: bpy.props.StringProperty()
+
+    def invoke(self, context, event):
+        mat = bpy.data.materials.get(self.name)
+        if mat is None:
+            return {"CANCELLED"}
+        context.window_manager.b4d_material = mat.name
+        if event.shift:
+            for ob in context.selected_objects:
+                if hasattr(ob.data, "materials"):
+                    if ob.data.materials:
+                        ob.data.materials[0] = mat
+                    else:
+                        ob.data.materials.append(mat)
+        return {"FINISHED"}
+
+
+class BLENDA4D_OT_mat_tag(bpy.types.Operator):
+    bl_idname = "blenda4d.mat_tag"
+    bl_label = "Material Tag"
+    bl_description = "Give the selected objects the current material"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        mat = bpy.data.materials.get(context.window_manager.b4d_material) or bpy.data.materials.new("Mat")
+        for ob in context.selected_objects:
+            if hasattr(ob.data, "materials"):
+                ob.data.materials.append(mat)
+        return {"FINISHED"}
+
+
+class BLENDA4D_PT_materials(roles.RolePanel, bpy.types.Panel):
+    bl_label = "Materials"
+    role = "MATERIALS"
+
+    def draw(self, context):
+        layout = self.layout
+        manager_title(layout, "Materials")
+        bar = layout.row(align=True)
+        bar.label(text="", icon="COLLAPSEMENU")
+        menus.menu_bar(bar, MM_MENUS)
+        matman.draw_tools(layout, context)
+        layout.separator(factor=0.4)
+        matman.draw_materials(layout, context)
+
+
+# --- Asset Browser (layout per the approved mock-up; Blender's asset libraries underneath) ------------------------
+AB_TABS = (("AUTO", "Auto"), ("ALL", "All"), ("MODELS", "Models"), ("MATERIALS", "Materials"), ("MEDIA", "Media"), ("NODES", "Nodes"),
+           ("OPERATORS", "Operators"), ("SCENES", "Scenes"), ("PRESETS", "Presets"), ("HDRIS", "HDRIs"), ("POSES", "Poses"), ("BRUSHES", "Brushes"))
+AB_GREY = {"MEDIA", "OPERATORS", "PRESETS"}
+AB_SMART = (("FUND", "Favorites", True), ("VIEWZOOM", "Featured Content", False), ("BOOKMARKS", "Keywords", True),
+            ("NEWFOLDER", "New Assets", False), ("FILE_FOLDER", "Other", False), ("TIME", "Recently Created", True), ("TIME", "Recently Used", True))
+AB_MENUS = [menus.simple_menu(n, [I("…")], "ab") for n in ("Create", "Edit", "View", "Libraries")]
+
+
+class BLENDA4D_PT_assets(roles.RolePanel, bpy.types.Panel):
+    bl_label = "Asset Browser"
+    role = "ASSETS"
+
+    def draw(self, context):
+        layout = self.layout
+        wm = context.window_manager
+        from . import kinds
+        if "ASSETS" in kinds.PANELS:
+            return kinds.PANELS["ASSETS"](layout, context)
+        manager_title(layout, "Asset Browser")
+        bar = layout.row(align=True)
+        menus.menu_bar(bar, AB_MENUS)
+        grid = layout.grid_flow(row_major=True, columns=6, even_columns=True, align=True)
+        for key, label in AB_TABS:
+            cell = grid.row(align=True)
+            cell.enabled = key not in AB_GREY
+            cell.prop_enum(wm, "b4d_ab_tab", key, text=label)
+        nav = layout.row(align=True)
+        nav.operator("blenda4d.noop", text="", icon="BACK")
+        nav.operator("blenda4d.noop", text="", icon="FORWARD")
+        nav.operator("blenda4d.noop", text="", icon="HOME")
+        nav.operator("blenda4d.noop", text="", icon="SOLO_OFF")
+        nav.prop(wm, "b4d_ab_search", text="", icon="VIEWZOOM")
+        split = layout.split(factor=0.48)
+        tree = split.column(align=True)
+        tree.label(text="Smart Searches", icon="DISCLOSURE_TRI_DOWN")
+        for icon, label, ok in AB_SMART:
+            r = tree.row(align=True)
+            r.enabled = ok
+            r.separator(factor=2.0)
+            r.label(text=label, icon=icon)
+        tree.separator()
+        for lib in context.preferences.filepaths.asset_libraries:
+            r = tree.row(align=True)
+            r.label(text=lib.name, icon="FILE_FOLDER")
+        right = split.column()
+        right.label(text="Home")
+        homes = (("MATERIAL", "Materials", "MATERIALS"), ("MESH_CUBE", "Models", "MODELS"), ("WORLD", "HDRIs", "HDRIS"),
+                 ("FILE_BLEND", "Templates", "SCENES"), ("ARMATURE_DATA", "Motion Capture", "POSES"), ("NODETREE", "Nodes", "NODES"),
+                 ("BRUSH_DATA", "Brushes", "BRUSHES"), ("ASSET_MANAGER", "All Assets", "ALL"))
+        hg = right.grid_flow(row_major=True, columns=2, even_columns=True)
+        for icon, label, tab in homes:
+            b = hg.column(align=True)
+            b.scale_y = 2.2
+            b.prop_enum(wm, "b4d_ab_tab", tab, text=label, icon=icon)
+
+
+classes = (BLENDA4D_OT_om_solo, BLENDA4D_OT_om_scroll_active, BLENDA4D_OT_om_select, BLENDA4D_OT_om_drag, BLENDA4D_OT_om_rename, BLENDA4D_OT_om_fold, BLENDA4D_OT_om_expand, BLENDA4D_OT_group, BLENDA4D_OT_new_material,
+           BLENDA4D_OT_mat_pick, BLENDA4D_OT_mat_tag, *OM_MENUS, *AM_MENUS, *MM_MENUS, *AB_MENUS,
+           BLENDA4D_PT_objects, BLENDA4D_PT_om_bar, BLENDA4D_PT_attributes, BLENDA4D_PT_materials, BLENDA4D_PT_assets)
+
+
+def _vis_get(attr):
+    def get(self):
+        return 2 if getattr(self, attr) else 0
+    return get
+
+
+def _vis_set(attr):
+    def put(self, v):
+        setattr(self, attr, v == 2)
+    return put
+
+
+def _enabled_set(self, v):
+    self["_b4d_enabled"] = bool(v)
+    self.hide_viewport = not v
+    self.hide_render = not v
+
+
+def register():
+    for c in classes:
+        bpy.utils.register_class(c)
+    O, W = bpy.types.Object, bpy.types.WindowManager
+    vis = [("DEFAULT", "Default", ""), ("ON", "On", ""), ("OFF", "Off", "")]
+    O.b4d_om_closed = bpy.props.BoolProperty(default=False)
+    O.b4d_enabled = bpy.props.BoolProperty(name="Enabled", get=lambda self: self.get("_b4d_enabled", True), set=_enabled_set)
+    O.b4d_vis_editor = bpy.props.EnumProperty(items=vis, get=_vis_get("hide_viewport"), set=_vis_set("hide_viewport"))
+    O.b4d_vis_render = bpy.props.EnumProperty(items=vis, get=_vis_get("hide_render"), set=_vis_set("hide_render"))
+    W.b4d_om_search = bpy.props.StringProperty(name="Search", options={"TEXTEDIT_UPDATE"})
+    W.b4d_om_drop = bpy.props.StringProperty()
+    W.b4d_om_zoom = bpy.props.IntProperty(name="Size", description="Size of the Object Manager's names and icons",
+                                          default=0, min=0, max=8, update=_om_zoom)
+    W.b4d_am_tab = bpy.props.EnumProperty(items=_tab_items, name="Page")
+    W.b4d_right_tab = bpy.props.EnumProperty(items=[("ATTRIBUTES", "Attributes", ""), ("VARIATIONS", "Variations", "")])
+    W.b4d_material = bpy.props.StringProperty()
+    W.b4d_am_subject = bpy.props.StringProperty()      # what the Attribute Manager shows besides the object (a tag)
+    W.b4d_ab_tab = bpy.props.EnumProperty(items=[(k, l, "") for k, l in AB_TABS], default="ALL")
+    W.b4d_ab_search = bpy.props.StringProperty(name="Search")
+    _add_keymap()
+    _draw.append(bpy.types.SpaceProperties.draw_handler_add(_draw_rows, (), "WINDOW", "POST_PIXEL"))
+
+
+_keymaps = []
+_draw = []
+
+
+def _draw_rows():
+    """Row highlights in the Object Manager (selected, active, drop target), like Blender's own lists."""
+    context = bpy.context
+    if roles.role(context.area) != "OBJECTS":
+        return
+    import gpu
+    from gpu_extras.batch import batch_for_shader
+    region = context.region
+    c = context.preferences.themes[0].user_interface.wcol_regular.inner_sel     # the theme's pressed-button colour
+    drop = context.window_manager.b4d_om_drop
+    h = row_height()
+    rects = []
+    active = context.view_layer.objects.active
+    rows = visible_rows(context)
+    i = 0
+    while True:
+        top = region.view2d.view_to_region(0, -(ROWS_TOP_UNITS + i) * h, clip=False)[1]
+        if top - h > region.height:          # above the visible part: skip on
+            i += 1
+            continue
+        if top < 0:
+            break
+        ob = rows[i][0] if i < len(rows) else None
+        if ob is not None and ob.name == drop:
+            k = 0.95
+        elif ob is not None and ob == active and ob.select_get():
+            k = 0.6
+        elif ob is not None and ob.select_get():
+            k = 0.35
+        else:
+            k = None
+        if k is not None:
+            rects.append((top - h, top, (c[0] * k, c[1] * k, c[2] * k, 1.0)))
+        elif i % 2:                          # alternating dark and mid grey, to the bottom of the list
+            rects.append((top - h, top, STRIPE))
+        i += 1
+    if not rects:
+        return
+    shader = gpu.shader.from_builtin("UNIFORM_COLOR")
+    gpu.state.blend_set("ADDITIVE")        # lightens the row behind the text instead of covering it
+    for y0, y1, col in rects:
+        batch = batch_for_shader(shader, "TRIS", {"pos": [(0, y0), (region.width, y0), (region.width, y1), (0, y1)]},
+                                 indices=[(0, 1, 2), (0, 2, 3)])
+        shader.uniform_float("color", col)
+        batch.draw(shader)
+    gpu.state.blend_set("NONE")
+
+
+def _add_keymap():
+    kc = bpy.context.window_manager.keyconfigs.addon
+    if kc is None:
+        return
+    km = kc.keymaps.new(name="Property Editor", space_type="PROPERTIES")
+    _keymaps.append((km, km.keymap_items.new("blenda4d.om_drag", "LEFTMOUSE", "CLICK_DRAG")))
+    _keymaps.append((km, km.keymap_items.new("blenda4d.om_select", "LEFTMOUSE", "CLICK")))
+    _keymaps.append((km, km.keymap_items.new("blenda4d.om_select", "LEFTMOUSE", "CLICK", shift=True)))
+    _keymaps.append((km, km.keymap_items.new("blenda4d.om_rename", "LEFTMOUSE", "DOUBLE_CLICK")))
+    _keymaps.append((km, km.keymap_items.new("blenda4d.om_rename", "F2", "PRESS")))
+
+
+def unregister():
+    for h in _draw:
+        bpy.types.SpaceProperties.draw_handler_remove(h, "WINDOW")
+    _draw.clear()
+    for km, kmi in _keymaps:
+        try:
+            km.keymap_items.remove(kmi)
+        except (ReferenceError, RuntimeError):
+            pass
+    _keymaps.clear()
+    O, W = bpy.types.Object, bpy.types.WindowManager
+    for n in ("b4d_om_closed", "b4d_enabled", "b4d_vis_editor", "b4d_vis_render"):
+        delattr(O, n)
+    for n in ("b4d_om_search", "b4d_om_drop", "b4d_om_zoom", "b4d_am_tab", "b4d_right_tab", "b4d_material", "b4d_ab_tab", "b4d_ab_search", "b4d_am_subject"):
+        delattr(W, n)
+    for c in reversed(classes):
+        bpy.utils.unregister_class(c)

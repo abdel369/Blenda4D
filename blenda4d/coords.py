@@ -1,0 +1,66 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""Coordinates as Blenda shows them: Y up, centimetres, rotations X, Y, Z in degrees.
+
+Blender stays Z-up in metres underneath: shown (x, y, z) = Blender (x, z, y), 1 cm = 0.01 m. The properties convert
+on read and write, so the numbers people see and type are the Y-up ones."""
+import math
+
+import bpy
+
+SCALE = 0.01
+
+
+def to_shown(v):
+    return (v[0] / SCALE, v[2] / SCALE, v[1] / SCALE)
+
+
+def from_shown(v):
+    return (v[0] * SCALE, v[2] * SCALE, v[1] * SCALE)
+
+
+def _get_pos(self):
+    return to_shown(self.location)
+
+
+def _set_pos(self, value):
+    self.location = from_shown(value)
+
+
+def _get_rot(self):
+    e = self.rotation_euler
+    return (math.degrees(e.x), math.degrees(e.z), math.degrees(e.y))
+
+
+def _set_rot(self, value):
+    self.rotation_euler = (math.radians(value[0]), math.radians(value[2]), math.radians(value[1]))
+
+
+def _get_scale(self):
+    s = self.scale
+    return (s[0], s[2], s[1])
+
+
+def _set_scale(self, value):
+    self.scale = (value[0], value[2], value[1])
+
+
+def _get_size(self):
+    return to_shown(self.dimensions)
+
+
+def _set_size(self, value):
+    if self.type == "MESH":
+        self.dimensions = from_shown(value)
+
+
+def register():
+    O = bpy.types.Object
+    O.b4d_pos = bpy.props.FloatVectorProperty(name="Position", size=3, get=_get_pos, set=_set_pos, precision=2, subtype="XYZ")
+    O.b4d_rot = bpy.props.FloatVectorProperty(name="Rotation", size=3, get=_get_rot, set=_set_rot, precision=2, subtype="XYZ")
+    O.b4d_scale = bpy.props.FloatVectorProperty(name="Scale", size=3, get=_get_scale, set=_set_scale, precision=3, subtype="XYZ")
+    O.b4d_size = bpy.props.FloatVectorProperty(name="Size", size=3, get=_get_size, set=_set_size, precision=2, subtype="XYZ")
+
+
+def unregister():
+    for n in ("b4d_pos", "b4d_rot", "b4d_scale", "b4d_size"):
+        delattr(bpy.types.Object, n)
