@@ -468,25 +468,26 @@ def _hold(row, op, menu, icon, depress=False, **props):
 
 
 def draw(top, context):
+    from . import bars
     ts = context.tool_settings
     g = top.row(align=True)
     g.operator("blenda4d.tb_axis", text="", icon="EMPTY_ARROWS", depress=ts.use_transform_data_origin)
-    top.separator(factor=0.6)
+    top.separator(factor=bars.PALETTE_GAP)
     g = top.row(align=True)
     _hold(g, "blenda4d.tb_snap", "BLENDA4D_MT_tb_snap", "SNAP_ON" if ts.use_snap else "SNAP_OFF", depress=ts.use_snap)
-    top.separator(factor=0.6)
+    top.separator(factor=bars.PALETTE_GAP)
     g = top.row(align=True)
     _hold(g, "blenda4d.tb_workplane", "BLENDA4D_MT_tb_workplane", "GRID", depress=_state["workplane"] is not None)
-    top.separator(factor=0.6)
+    top.separator(factor=bars.PALETTE_GAP)
     g = top.row(align=True)
     g.operator("blenda4d.tb_soft", text="", icon="PROP_ON", depress=getattr(ts, _soft_attr(context)))
-    top.separator(factor=0.6)
+    top.separator(factor=bars.PALETTE_GAP)
     g = top.row(align=True)
     _hold(g, "blenda4d.tb_symmetry", "BLENDA4D_MT_tb_symmetry", "MOD_MIRROR", depress=symmetry_on(context), axis="X")
-    top.separator(factor=0.6)
+    top.separator(factor=bars.PALETTE_GAP)
     g = top.row(align=True)
     _hold(g, "blenda4d.tb_solo", "BLENDA4D_MT_tb_solo", "SELECT_INTERSECT", depress=solo_on(context))
-    top.separator(factor=0.6)
+    top.separator(factor=bars.PALETTE_GAP)
     g = top.row(align=True)
     _a, _r, sp = main_view(context)
     _hold(g, "blenda4d.tb_render_view", "BLENDA4D_MT_tb_render_view", "SHADING_RENDERED",

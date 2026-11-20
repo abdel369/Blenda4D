@@ -211,6 +211,9 @@ class BLENDA4D_PT_doc_tabs(roles.RolePanel, bpy.types.Panel):
         row.operator("wm.read_homefile", text="", icon="ADD", emboss=False)
 
 
+PALETTE_GAP = 1.3            # between the command bar groups: about a third of a button, as in the private version
+
+
 def _palette_button(row, op, icon=None, icon_value=0, depress=False, **props):
     kw = {"icon_value": icon_value} if icon_value else {"icon": icon}
     o = row.operator(op, text="", depress=depress, **kw)
@@ -226,30 +229,29 @@ class BLENDA4D_PT_palette(roles.RolePanel, bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         whole = layout.row(align=False)
-        top = whole.row(align=False)
+        top = whole.row(align=True)                      # joined: only the separators below space the groups
         top.alignment = "LEFT"
         top.scale_y = 1.2
         top.scale_x = 1.2
         screen = context.window.screen
         g = top.row(align=True)
         _palette_button(g, "blenda4d.toggle_column", "ASSET_MANAGER", depress=bool(roles.areas(screen, "ASSETS")), name="ASSETS")
-        top.separator(factor=0.6)
+        top.separator(factor=PALETTE_GAP)
         tool = active_tool(context)
         g = top.row(align=True)
         # a picture icon, which fits its button exactly (Blender's large tool icon spilled past the highlight here)
         sel_iv = icons.icon("ops.generic.select_box", "palette") or tool_icon("ops.generic.select_box")
         _palette_button(g, "wm.tool_set_by_id", icon_value=sel_iv, depress=tool.startswith("builtin.select"), name="builtin.select_box", space_type="VIEW_3D")
-        top.separator(factor=0.6)
+        top.separator(factor=PALETTE_GAP)
         g = top.row(align=True)
         locks = context.window_manager.b4d_axis
         for i, letter in enumerate(("X", "Y", "Z")):
             b = g.row(align=True)
-            b.ui_units_x = 1.6
             iv = icons.icon("axis_" + letter.lower(), "axis")        # the letter with its axis colour under it
             o = b.operator("blenda4d.axis_lock", text="" if iv else letter, depress=locks[i], **({"icon_value": iv} if iv else {}))
             o.axis = i
         g.prop(context.scene.transform_orientation_slots[0], "type", text="", icon_only=True)
-        top.separator(factor=0.6)
+        top.separator(factor=PALETTE_GAP)
         g = top.row(align=True)
         mode = context.mode
         sel = context.tool_settings.mesh_select_mode if mode == "EDIT_MESH" else (False, False, False)
@@ -257,7 +259,7 @@ class BLENDA4D_PT_palette(roles.RolePanel, bpy.types.Panel):
         _palette_button(g, "blenda4d.set_mode", "OBJECT_DATAMODE", depress=(mode == "OBJECT"), mode="MODEL")
         _palette_button(g, "blenda4d.set_mode", "FACESEL", depress=sel[2], mode="POLYGONS")
         _palette_button(g, "blenda4d.set_mode", "EDGESEL", depress=sel[1], mode="EDGES")
-        top.separator(factor=0.6)
+        top.separator(factor=PALETTE_GAP)
         from . import topbar
         if topbar.registered():          # Axis, Snapping, Workplane, Soft Selection, Symmetry, Solo, Render (topbar.py)
             topbar.draw(top, context)
