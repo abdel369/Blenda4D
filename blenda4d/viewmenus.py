@@ -17,6 +17,82 @@ def _heading(layout, text):
     layout.label(text=text)
 
 
+# Display presets: (key, name, Blender equivalent for the tooltip). "(Lines)" adds every edge over the shading.
+PRESETS = (
+    ("SMOOTH", "Smooth Shading", "Solid, Studio lighting, material colours"),
+    ("SMOOTH_LINES", "Smooth Shading (Lines)", "Solid, Studio lighting, material colours, wireframe overlay"),
+    ("QUICK", "Quick Shading", "Solid, Studio lighting, one plain colour"),
+    ("QUICK_LINES", "Quick Shading (Lines)", "Solid, Studio lighting, one plain colour, wireframe overlay"),
+    ("FLAT", "Flat Shading", "Solid, Flat lighting, material colours"),
+    ("FLAT_LINES", "Flat Shading (Lines)", "Solid, Flat lighting, material colours, wireframe overlay"),
+    ("HIDDEN", "Hidden Line", "Solid in the background colour with a wireframe overlay: only the edges you can see"),
+    ("LINES", "Lines", "Wireframe"),
+)
+QUICK_GREY = (0.8, 0.8, 0.8)
+
+
+def _background():
+    """The viewport's background colour, in the linear colour the shading uses (the theme stores display colour)."""
+    try:
+        c = tuple(bpy.context.preferences.themes[0].view_3d.space.gradients.high_gradient)
+    except (AttributeError, IndexError):
+        c = (0.24, 0.24, 0.24)
+    return tuple(v / 12.92 if v <= 0.04045 else ((v + 0.055) / 1.055) ** 2.4 for v in c)
+
+
+def current_preset(sp):
+    sh, ov = sp.shading, sp.overlay
+    if sh.type == "WIREFRAME":
+        return "LINES"
+    if sh.type != "SOLID":
+        return None
+    lines = ov.show_wireframes
+    if sh.light == "FLAT" and sh.color_type == "SINGLE":
+        return "HIDDEN" if lines else None
+    base = "FLAT" if sh.light == "FLAT" else "QUICK" if sh.color_type == "SINGLE" else "SMOOTH"
+    return base + ("_LINES" if lines else "")
+
+
+class BLENDA4D_OT_display_preset(bpy.types.Operator):
+    bl_idname = "blenda4d.display_preset"
+    bl_label = "Display"
+    bl_description = "How the viewport draws the scene"
+    kind: bpy.props.StringProperty()
+
+    @classmethod
+    def description(cls, context, properties):
+        row = next((p for p in PRESETS if p[0] == properties.kind), None)
+        return f"{row[1]} (Blender: {row[2]})" if row else cls.bl_description
+
+    def execute(self, context):
+        sp = _space(context)
+        if sp is None:
+            return {"CANCELLED"}
+        sh, ov = sp.shading, sp.overlay
+        k = self.kind
+        if k == "LINES":
+            sh.type = "WIREFRAME"
+            ov.show_wireframes = False
+        else:
+            sh.type = "SOLID"
+            sh.show_xray = False
+            base = k.replace("_LINES", "")
+            sh.light = "FLAT" if base in ("FLAT", "HIDDEN") else "STUDIO"
+            if base in ("QUICK", "HIDDEN"):
+                sh.color_type = "SINGLE"
+                sh.single_color = _background() if base == "HIDDEN" else QUICK_GREY
+            else:
+                sh.color_type = "MATERIAL"
+            ov.show_wireframes = k.endswith("_LINES") or base == "HIDDEN"
+            if ov.show_wireframes:
+                ov.wireframe_threshold = 1.0                   # every edge, as a lines display shows them
+                ov.wireframe_opacity = 1.0
+        for a in context.screen.areas:
+            if a.type == "VIEW_3D":
+                a.tag_redraw()
+        return {"FINISHED"}
+
+
 class BLENDA4D_OT_use_camera(bpy.types.Operator):
     bl_idname = "blenda4d.use_camera"
     bl_label = "Use Camera"
@@ -157,8 +233,12 @@ class BLENDA4D_MT_view_display(bpy.types.Menu):
             return
         sh = sp.shading
         _heading(layout, "Shading")
-        for kind, label in (("WIREFRAME", "Wireframe"), ("SOLID", "Solid"), ("MATERIAL", "Material Preview"),
-                            ("RENDERED", "Rendered")):
+        now = current_preset(sp)
+        for key, label, _b in PRESETS:
+            layout.operator("blenda4d.display_preset", text=label,
+                            icon="RADIOBUT_ON" if now == key else "RADIOBUT_OFF").kind = key
+        layout.separator()
+        for kind, label in (("MATERIAL", "Material Preview"), ("RENDERED", "Rendered")):
             layout.prop_enum(sh, "type", kind, text=label)
         layout.separator()
         if sh.type == "SOLID":
@@ -268,4 +348,4 @@ class BLENDA4D_MT_view_panel(bpy.types.Menu):
 
 VIEW_CLASSES = [BLENDA4D_MT_view_view, BLENDA4D_MT_view_cameras, BLENDA4D_MT_view_display, BLENDA4D_MT_view_options,
                 BLENDA4D_MT_view_filter, BLENDA4D_MT_view_panel]
-OPS = (BLENDA4D_OT_use_camera, BLENDA4D_OT_default_camera, BLENDA4D_OT_projection, BLENDA4D_OT_show_types)
+OPS = (BLENDA4D_OT_display_preset, BLENDA4D_OT_use_camera, BLENDA4D_OT_default_camera, BLENDA4D_OT_projection, BLENDA4D_OT_show_types)
