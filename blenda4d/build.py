@@ -40,7 +40,7 @@ def run_steps(gen, done=None):
     def tick():
         try:
             next(gen)
-            return 0.05
+            return 0.0                                   # the next step as soon as Blender has laid out the last
         except StopIteration:
             _active[0] -= 1
             if done:
@@ -129,6 +129,63 @@ def _zoom(window, area, n):
         print("Blenda 4D: could not zoom", area.type, ex)
 
 
+def add_assets(window):
+    """The Asset Browser column, left of the viewport, with its bottom strip."""
+    screen = window.screen
+    ab = yield from split(window, biggest_view(screen), "VERTICAL", px(ASSETS_PX) + EDGE, "LEFT")
+    yield from make_role(window, ab, "ASSETS")
+    ab_bar = yield from split(window, ab, "HORIZONTAL", px(MM_BAR_PX) + EDGE, "BOTTOM")
+    yield from make_role(window, ab_bar, "AB_BAR")          # its bottom strip: view buttons and the Size bar
+    if len(roles.areas(screen, "ASSETS")) == 2:            # the split handed back the other half
+        yield from make_role(window, min(roles.areas(screen, "ASSETS"), key=lambda a: a.y), "AB_BAR")
+
+
+def add_materials(window):
+    """The Material Manager column, right of the viewport, with its bottom strip."""
+    screen = window.screen
+    mm = yield from split(window, biggest_view(screen), "VERTICAL", px(MATERIALS_PX) + EDGE, "RIGHT")
+    yield from make_role(window, mm, "MATERIALS")
+    bar = yield from split(window, mm, "HORIZONTAL", px(MM_BAR_PX) + EDGE, "BOTTOM")
+    yield from make_role(window, bar, "MM_BAR")
+    if len(roles.areas(screen, "MATERIALS")) == 2:         # the split handed back the other half
+        yield from make_role(window, min(roles.areas(screen, "MATERIALS"), key=lambda a: a.y), "MM_BAR")
+
+
+COLUMNS = {"MATERIALS": (add_materials, "MM_BAR"), "ASSETS": (add_assets, "AB_BAR")}
+CORE = ("DOC_TABS", "PALETTE", "MODES", "OBJECTS", "ATTRIBUTES", "OM_BAR", "OM_HEAD")
+
+
+def intact(screen):
+    """The Standard layout is all there (each strip once, a viewport and the timeline): nothing to rebuild."""
+    if any(len(roles.areas(screen, r)) != 1 for r in CORE):
+        return False
+    if not any(a.type == "VIEW_3D" for a in screen.areas) or not any(a.type == "DOPESHEET_EDITOR" for a in screen.areas):
+        return False
+    for main, (_add, bar) in COLUMNS.items():
+        if len(roles.areas(screen, main)) != len(roles.areas(screen, bar)) or len(roles.areas(screen, main)) > 1:
+            return False
+    return True
+
+
+def column_steps(window, name, on):
+    """Show or hide one optional column, leaving every other area where it is."""
+    screen = window.screen
+    add, bar = COLUMNS[name]
+    if on:
+        yield from add(window)
+    else:
+        for role in (bar, name):                           # the strip into its column, the column into the viewport
+            for a in roles.areas(screen, role):
+                with _ov(window, a):
+                    bpy.ops.screen.area_close()
+                yield
+    if not intact(screen):                                 # the change did not land as planned: build it all
+        yield from steps(window, materials=bool(roles.areas(screen, "MATERIALS")) if name != "MATERIALS" else on,
+                         assets=bool(roles.areas(screen, "ASSETS")) if name != "ASSETS" else on)
+    for a in screen.areas:
+        a.tag_redraw()
+
+
 def steps(window, materials=False, assets=False):
     screen = window.screen
     from . import render_settings
@@ -160,17 +217,9 @@ def steps(window, materials=False, assets=False):
     timeline.ui_type = "TIMELINE"
     yield
     if assets:
-        ab = yield from split(window, biggest_view(screen), "VERTICAL", px(ASSETS_PX) + EDGE, "LEFT")
-        yield from make_role(window, ab, "ASSETS")
-        ab_bar = yield from split(window, ab, "HORIZONTAL", px(MM_BAR_PX) + EDGE, "BOTTOM")
-        yield from make_role(window, ab_bar, "AB_BAR")      # its bottom strip: view buttons and the Size bar
-        if len(roles.areas(screen, "ASSETS")) == 2:        # the split handed back the other half
-            yield from make_role(window, min(roles.areas(screen, "ASSETS"), key=lambda a: a.y), "AB_BAR")
+        yield from add_assets(window)
     if materials:
-        mm = yield from split(window, biggest_view(screen), "VERTICAL", px(MATERIALS_PX) + EDGE, "RIGHT")
-        yield from make_role(window, mm, "MATERIALS")
-        bar = yield from split(window, mm, "HORIZONTAL", px(MM_BAR_PX) + EDGE, "BOTTOM")
-        yield from make_role(window, bar, "MM_BAR")
+        yield from add_materials(window)
     attributes = yield from split(window, managers, "HORIZONTAL", round(managers.height * 0.56), "BOTTOM")
     yield from make_role(window, attributes, "ATTRIBUTES")
     objs = sorted(roles.areas(screen, "OBJECTS"), key=lambda a: a.y)
@@ -230,11 +279,18 @@ def dress_view(area):
 
 
 def toggle(window, name, on):
-    """Show or hide an optional column (Material Manager, Asset Browser) by rebuilding with it."""
-    run_steps(steps(window, materials=(on if name == "MATERIALS" else bool(roles.areas(window.screen, "MATERIALS"))),
-                    assets=(on if name == "ASSETS" else bool(roles.areas(window.screen, "ASSETS")))))
+    """Show or hide an optional column (Material Manager, Asset Browser): only that column changes."""
+    run_steps(column_steps(window, name, on))
 
 
-def rebuild(window, done=None):
+def rebuild(window, done=None, force=False):
+    """Build the Standard layout; a layout that is already all there is only tidied (no area moves)."""
+    if not force and intact(window.screen):
+        for a in window.screen.areas:
+            if a.type == "VIEW_3D":
+                dress_view(a)
+        if done:
+            done()
+        return
     run_steps(steps(window, materials=bool(roles.areas(window.screen, "MATERIALS")),
                     assets=bool(roles.areas(window.screen, "ASSETS"))), done)

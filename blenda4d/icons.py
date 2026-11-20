@@ -30,7 +30,9 @@ def _load():
                 pass
         if f.endswith(".png"):
             try:
-                _pcoll.load(f[:-4], os.path.join(DIR, f), "IMAGE")
+                p = _pcoll.load(f[:-4], os.path.join(DIR, f), "IMAGE")
+                p.icon_size[:]                         # read now: loaded at once, never Blender's waiting clock
+                p.image_size[:]
             except Exception:
                 pass
     return _pcoll

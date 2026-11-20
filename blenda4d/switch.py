@@ -72,7 +72,9 @@ def _finish(window):
         area.tag_redraw()
 
 
-def _leave_workspace(window):
+def _leave_workspace(window, forget=False):
+    """Back to the workspace used before. The Blenda 4D workspace stays (switching back shows it at once, nothing is
+    rebuilt); it is removed only when the add-on is turned off (forget)."""
     ws = window.workspace
     if ws is None or ws.name != WORKSPACE:
         return
@@ -80,6 +82,8 @@ def _leave_workspace(window):
     if prev is None:
         return
     window.workspace = prev
+    if not forget:
+        return
 
     tries = [25]
 
@@ -135,7 +139,7 @@ def splash(on):
             os.environ[key] = old
 
 
-def set_mode(on):
+def set_mode(on, forget=False):
     splash(on)
     if on and not _on[0]:
         _register_mode()
@@ -152,7 +156,7 @@ def set_mode(on):
     elif not on and _on[0]:
         if not bpy.app.background:
             for window in bpy.context.window_manager.windows:
-                _leave_workspace(window)
+                _leave_workspace(window, forget)
         theme.restore()
         _screen_chrome(False)
         _unregister_mode()
@@ -194,6 +198,6 @@ def register():
 
 def unregister():
     if _on[0]:
-        set_mode(False)
+        set_mode(False, forget=True)
     bpy.types.TOPBAR_HT_upper_bar.remove(_blender_header_button)
     bpy.utils.unregister_class(BLENDA4D_OT_switch)
