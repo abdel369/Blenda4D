@@ -503,7 +503,7 @@ class BLENDA4D_PT_create(roles.RolePanel, bpy.types.Panel):
 
 
 classes = (BLENDA4D_OT_set_mode, BLENDA4D_OT_shading, BLENDA4D_OT_overlay, BLENDA4D_OT_axis_lock, BLENDA4D_OT_toggle_column,
-           BLENDA4D_OT_create, *GROUP_MENUS, BLENDA4D_PT_doc_tabs, BLENDA4D_PT_palette, BLENDA4D_PT_modes, BLENDA4D_PT_view_tools, BLENDA4D_PT_create)
+           BLENDA4D_OT_create, *GROUP_MENUS, BLENDA4D_PT_doc_tabs, BLENDA4D_PT_palette, BLENDA4D_PT_modes, BLENDA4D_PT_create)
 
 
 def register():
@@ -513,9 +513,13 @@ def register():
     bpy.types.WindowManager.b4d_axis = bpy.props.BoolVectorProperty(size=3, default=(True, True, True))
     override()
     _hide_blender_tools()
+    from . import strip                                  # the create column, drawn into the viewport's toolbar strip
+    strip.register()
 
 
 def unregister():
+    from . import strip
+    strip.unregister()
     _show_blender_tools()
     restore()
     del bpy.types.WindowManager.b4d_axis
