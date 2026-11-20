@@ -189,18 +189,27 @@ OVERRIDES = (("PROPERTIES_HT_header", "draw", properties_header), ("TOPBAR_HT_up
 
 
 def override():
+    from . import own_draw
     for cls_name, attr, fn in OVERRIDES:
         cls = getattr(bpy.types, cls_name)
         key = f"{cls_name}.{attr}" if attr != "draw" else cls_name
+        if attr == "draw":                     # only Blender's own entry: other add-ons' header items keep drawing
+            _saved[key] = own_draw.swap(cls_name, fn)
+            continue
         if key not in _saved:
             _saved[key] = getattr(cls, attr)
         setattr(cls, attr, fn)
 
 
 def restore():
-    for cls_name, attr, _fn in OVERRIDES:
+    from . import own_draw
+    for cls_name, attr, fn in OVERRIDES:
         cls = getattr(bpy.types, cls_name)
         key = f"{cls_name}.{attr}" if attr != "draw" else cls_name
+        if attr == "draw":
+            own_draw.restore(cls_name, fn)
+            _saved.pop(key, None)
+            continue
         if key in _saved:
             setattr(cls, attr, _saved.pop(key))
 
