@@ -75,7 +75,7 @@ MAIN = {
                item("Cyc Wall", "blenda4d.add_primitive", "MESH_GRID", kind="cyc"), SEP,
                item("Spline", "curve.primitive_bezier_curve_add", "CURVE_BEZCURVE"), item("Circle", "curve.primitive_bezier_circle_add", "CURVE_BEZCIRCLE"),
                item("Text", "object.text_add", "OUTLINER_OB_FONT"), SEP,
-               item("Null", "object.empty_add", "OUTLINER_OB_EMPTY"), item("Camera", "object.camera_add", "OUTLINER_OB_CAMERA"),
+               item("Null", "object.empty_add", "OUTLINER_OB_EMPTY"), item("Camera", "blenda4d.add_camera", "OUTLINER_OB_CAMERA"),
                item("Light", "object.light_add", "OUTLINER_OB_LIGHT", type="AREA")],
     "Modes": [item("Model", "object.mode_set", "OBJECT_DATAMODE", mode="OBJECT"), item("Points", "blenda4d.set_mode", "VERTEXSEL", mode="POINTS"),
               item("Edges", "blenda4d.set_mode", "EDGESEL", mode="EDGES"), item("Polygons", "blenda4d.set_mode", "FACESEL", mode="POLYGONS")],

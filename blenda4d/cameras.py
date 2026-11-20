@@ -132,7 +132,54 @@ def _guides_set(self, on):
         del self["b4d_guides_off"]
 
 
+def _view_for(context):
+    """The 3D view a new camera copies: the one the command came from, else the largest in the window."""
+    if context.area is not None and context.area.type == "VIEW_3D":
+        return context.area.spaces.active
+    views = [a for a in context.screen.areas if a.type == "VIEW_3D" and len(a.spaces)] if context.screen else []
+    return max(views, key=lambda a: a.width * a.height).spaces.active if views else None
+
+
+class BLENDA4D_OT_add_camera(bpy.types.Operator):
+    bl_idname = "blenda4d.add_camera"
+    bl_label = "Camera"
+    bl_description = ("Create a camera where the view is looking from: same position, angle and framing, so it "
+                      "shows exactly what the view shows")
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        sp = _view_for(context)
+        if context.mode != "OBJECT" and context.object is not None:
+            bpy.ops.object.mode_set(mode="OBJECT")
+        bpy.ops.object.camera_add()
+        ob = context.active_object
+        if sp is None or ob is None or ob.type != "CAMERA":
+            return {"FINISHED"}
+        rv = sp.region_3d
+        ob.matrix_world = rv.view_matrix.inverted()
+        src = context.scene.camera
+        if rv.view_perspective == "CAMERA" and src is not None and src.type == "CAMERA":
+            d, s = ob.data, src.data                             # looking through a camera: the same lens
+            d.type, d.lens, d.ortho_scale = s.type, s.lens, s.ortho_scale
+            d.sensor_width, d.sensor_height, d.sensor_fit = s.sensor_width, s.sensor_height, s.sensor_fit
+        elif rv.view_perspective == "ORTHO":
+            ob.data.type = "ORTHO"
+            ob.data.sensor_fit = "AUTO"
+            ob.data.ortho_scale = 2.0 / min(rv.window_matrix[0][0], rv.window_matrix[1][1])   # the view's wider side
+        else:
+            # the view's focal length is measured against a sensor twice as wide as a camera's 36 mm one
+            # (measured: the same number gives a camera half the view's width), so half of it frames the same
+            ob.data.sensor_width, ob.data.sensor_fit = 36.0, "AUTO"
+            ob.data.lens = sp.lens / 2.0
+        return {"FINISHED"}
+
+
 def register():
+    bpy.utils.register_class(BLENDA4D_OT_add_camera)
+    from . import bars
+    for g in bars.CREATE_GROUPS:                               # the camera button makes it where the view is
+        if g and g[0] == "camera":
+            g[1][0] = ("Camera", "OUTLINER_OB_CAMERA", "blenda4d.add_camera", {})
     C = bpy.types.Camera
     for axis in ("x", "y"):
         g, s = _offset(axis)
@@ -148,6 +195,11 @@ def register():
 
 
 def unregister():
+    from . import bars
+    for g in bars.CREATE_GROUPS:
+        if g and g[0] == "camera":
+            g[1][0] = ("Camera", "OUTLINER_OB_CAMERA", "object.camera_add", {})
+    bpy.utils.unregister_class(BLENDA4D_OT_add_camera)
     managers.CAMERA_PAGES.clear()
     managers.CAMERA_TABS.clear()
     managers.CAMERA_TITLES.clear()
