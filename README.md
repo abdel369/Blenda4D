@@ -47,7 +47,7 @@ the licence below. [ROADMAP.md](ROADMAP.md) lists what isn't built yet; pull req
 ## Install
 
 1. Install [Blender 5.2 LTS](https://www.blender.org/download/) or later.
-2. Download `blenda4d-0.1.0.zip` from the [latest release](https://github.com/recon007jf/Blenda4D/releases/latest).
+2. Download the `blenda4d-…zip` file from the [latest release](https://github.com/recon007jf/Blenda4D/releases/latest).
 3. In Blender: **Edit > Preferences > Add-ons**, menu at the top right, **Install from Disk**, pick the zip.
 4. The Blenda 4D layout opens. Use the **Blenda 4D | Blender** switch at the top right to go back and forth.
 
