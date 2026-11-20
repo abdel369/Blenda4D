@@ -145,6 +145,8 @@ def topbar_left(self, context):
 def topbar_right(self, context):
     from . import layouts
     layout = self.layout
+    from . import updates
+    updates.draw(layout)                                 # "Update to x.y.z" when the update list has a newer one
     row = layout.row(align=True)
     row.label(text="Layout:")
     row.menu(layouts.BLENDA4D_MT_layouts.bl_idname, text=layouts.current_name())
@@ -301,10 +303,11 @@ class BLENDA4D_PT_palette(roles.RolePanel, bpy.types.Panel):
         g = top.row(align=True)
         mode = context.mode
         sel = context.tool_settings.mesh_select_mode if mode == "EDIT_MESH" else (False, False, False)
+        # left to right: Points, Edges, Polygons, Model (Joseph, Nov 20: Model rightmost, then Polygon, Edge, Point)
         _palette_button(g, "blenda4d.set_mode", "VERTEXSEL", depress=sel[0], mode="POINTS")
-        _palette_button(g, "blenda4d.set_mode", "OBJECT_DATAMODE", depress=(mode == "OBJECT"), mode="MODEL")
-        _palette_button(g, "blenda4d.set_mode", "FACESEL", depress=sel[2], mode="POLYGONS")
         _palette_button(g, "blenda4d.set_mode", "EDGESEL", depress=sel[1], mode="EDGES")
+        _palette_button(g, "blenda4d.set_mode", "FACESEL", depress=sel[2], mode="POLYGONS")
+        _palette_button(g, "blenda4d.set_mode", "OBJECT_DATAMODE", depress=(mode == "OBJECT"), mode="MODEL")
         top.separator(factor=PALETTE_GAP)
         from . import topbar
         if topbar.registered():          # Axis, Snapping, Workplane, Soft Selection, Symmetry, Solo, Render (topbar.py)
