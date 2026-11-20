@@ -330,9 +330,8 @@ def draw_bar(layout, context):
     row.separator_spacer()
     size = row.row(align=True)
     size.ui_units_x = 8
-    size.label(text="", icon="ZOOM_OUT")
-    size.prop(wm, "b4d_mm_px", text="Size", slider=True)
-    size.label(text="", icon="ZOOM_IN")
+    from .managers import size_bar
+    size_bar(size, "b4d_mm_px", step=8)
 
 
 class BLENDA4D_PT_mm_bar(roles.RolePanel, bpy.types.Panel):

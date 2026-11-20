@@ -451,6 +451,29 @@ def _om_zoom(self, context):
     area.tag_redraw()
 
 
+class BLENDA4D_OT_size_step(bpy.types.Operator):
+    bl_idname = "blenda4d.size_step"
+    bl_label = "Size"
+    bl_description = "Make the names and icons smaller or larger"
+    prop: bpy.props.StringProperty(options={"SKIP_SAVE"})
+    step: bpy.props.IntProperty(default=1, options={"SKIP_SAVE"})
+
+    def execute(self, context):
+        wm = context.window_manager
+        rna = wm.bl_rna.properties[self.prop]
+        setattr(wm, self.prop, max(rna.hard_min, min(rna.hard_max, getattr(wm, self.prop) + self.step)))
+        return {"FINISHED"}
+
+
+def size_bar(row, prop, step=1):
+    """A manager's size bar: zoom out button, the slider, zoom in button (the buttons step it, the slider drags)."""
+    o = row.operator("blenda4d.size_step", text="", icon="ZOOM_OUT", emboss=False)
+    o.prop, o.step = prop, -step
+    row.prop(bpy.context.window_manager, prop, text="Size", slider=True)
+    o = row.operator("blenda4d.size_step", text="", icon="ZOOM_IN", emboss=False)
+    o.prop, o.step = prop, step
+
+
 class BLENDA4D_PT_om_bar(roles.RolePanel, bpy.types.Panel):
     """The Object Manager's bottom strip: an area of its own so the Size slider stays at the bottom."""
     bl_label = "Object Manager Size"
@@ -460,9 +483,7 @@ class BLENDA4D_PT_om_bar(roles.RolePanel, bpy.types.Panel):
         sp = self.layout.split(factor=0.35)              # a short slider on the right, as in the Material Manager
         sp.label(text="")
         row = sp.row(align=True)                         # zoom out / Size / zoom in: says what it does at a glance
-        row.label(text="", icon="ZOOM_OUT")
-        row.prop(context.window_manager, "b4d_om_zoom", text="Size", slider=True)
-        row.label(text="", icon="ZOOM_IN")
+        size_bar(row, "b4d_om_zoom")
 
 
 class BLENDA4D_PT_objects(roles.RolePanel, bpy.types.Panel):
@@ -859,7 +880,7 @@ class BLENDA4D_PT_assets(roles.RolePanel, bpy.types.Panel):
             b.prop_enum(wm, "b4d_ab_tab", tab, text=label, icon=icon)
 
 
-classes = (BLENDA4D_OT_om_delete, BLENDA4D_OT_om_solo, BLENDA4D_OT_om_scroll_active, BLENDA4D_OT_om_select, BLENDA4D_OT_om_drag, BLENDA4D_OT_om_rename, BLENDA4D_OT_om_fold, BLENDA4D_OT_om_expand, BLENDA4D_OT_group, BLENDA4D_OT_new_material,
+classes = (BLENDA4D_OT_size_step, BLENDA4D_OT_om_delete, BLENDA4D_OT_om_solo, BLENDA4D_OT_om_scroll_active, BLENDA4D_OT_om_select, BLENDA4D_OT_om_drag, BLENDA4D_OT_om_rename, BLENDA4D_OT_om_fold, BLENDA4D_OT_om_expand, BLENDA4D_OT_group, BLENDA4D_OT_new_material,
            BLENDA4D_OT_mat_pick, BLENDA4D_OT_mat_tag, *OM_MENUS, *AM_MENUS, *MM_MENUS, *AB_MENUS,
            BLENDA4D_PT_objects, BLENDA4D_PT_om_bar, BLENDA4D_PT_attributes, BLENDA4D_PT_materials, BLENDA4D_PT_assets)
 
@@ -926,7 +947,8 @@ def _draw_rows():
     i = 0
     while True:
         top = region.view2d.view_to_region(0, -(ROWS_TOP_UNITS + i) * h, clip=False)[1]
-        if top - h > region.height:          # above the visible part: skip on
+        bottom = region.view2d.view_to_region(0, -(ROWS_TOP_UNITS + i + 1) * h, clip=False)[1]   # zoomed rows are taller
+        if bottom > region.height:           # above the visible part: skip on
             i += 1
             continue
         if top < 0:
@@ -941,9 +963,9 @@ def _draw_rows():
         else:
             k = None
         if k is not None:
-            rects.append((top - h, top, (c[0] * k, c[1] * k, c[2] * k, 1.0)))
+            rects.append((bottom, top, (c[0] * k, c[1] * k, c[2] * k, 1.0)))
         elif i % 2:                          # alternating dark and mid grey, to the bottom of the list
-            rects.append((top - h, top, STRIPE))
+            rects.append((bottom, top, STRIPE))
         i += 1
     if not rects:
         return
