@@ -66,6 +66,13 @@ def any_icon(name):
     return None
 
 
+def tool_shape(name):
+    """icon_value of a tinted tool shape (vector, drawn at the size of Blender's tool icons), or None. Unlike any_icon
+    it never answers with a picture icon, which draws smaller beside the tool shapes."""
+    _load()
+    return _tools.get(name)
+
+
 def kw(name, group):
     """Keyword arguments for a layout call: icon_value=<tinted> if a copy exists, else icon=<name>."""
     iv = icon(name, group)

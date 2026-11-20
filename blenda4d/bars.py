@@ -350,7 +350,8 @@ def draw_tools(col, context):
         if t is None:
             col.separator(factor=1.2)
             continue
-        iv = icons.any_icon(TOOL_ICONS.get(t, "")) or tool_icon(TOOL_ICONS.get(t, ""))   # tinted accent, else Blender's
+        name = TOOL_ICONS.get(t, "")
+        iv = icons.tool_shape(name) or tool_icon(name)    # tinted tool shape, else Blender's: all drawn the same size
         op = col.operator("wm.tool_set_by_id", text="", icon_value=iv, depress=(tool == t))
         op.name, op.space_type = t, "VIEW_3D"          # the tool belongs to the viewport, not this panel
 
