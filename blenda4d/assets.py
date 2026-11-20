@@ -109,7 +109,7 @@ def _redraw():
     wm = bpy.context.window_manager
     for w in wm.windows:
         for a in w.screen.areas:
-            if roles.role(a) == "ASSETS":
+            if roles.role(a) in ("ASSETS", "AB_BAR"):
                 a.tag_redraw()
 
 
@@ -239,10 +239,15 @@ def _draw_home(right, context):
     sub.enabled = False
     sub.label(text=f"Asset Types ({len(HOME)} Items)")
     grid = right.grid_flow(row_major=True, columns=2, even_columns=True, even_rows=True)
+    from . import menus
+    unit = 20 * context.preferences.system.ui_scale
+    tile = (context.region.width * (1 - SPLIT) - 2 * 8 * unit / 20) / 2 - unit * 0.5   # one tile's width in pixels
+    # every tile keeps its icon only while every name still fits beside one (Blender pads text and icon 1.75 units)
+    icons = all(menus._text_width(label) + unit * 1.75 <= tile for _i, label, _t in HOME)
     for icon, label, tab in HOME:
         c = grid.column(align=True)
         c.scale_y = 3.0
-        c.operator("blenda4d.ab_show", text=label, icon=icon).tab = tab
+        c.operator("blenda4d.ab_show", text=label, icon=icon if icons else "NONE").tab = tab
     _st["geom"] = None
 
 
@@ -348,12 +353,31 @@ def draw(layout, context):
         layout.label(text=line, icon="TIME")
     elif lib.failures():
         layout.label(text=f"{len(lib.failures())} could not be added (see the console)", icon="ERROR")
-    bottom = layout.row(align=True)
-    views = bottom.row(align=True)
+    if not roles.areas(context.screen, "AB_BAR"):      # a layout saved before the browser had its own bottom strip
+        draw_bar(layout, context)
+
+
+def draw_bar(layout, context):
+    """The Asset Browser's bottom strip: grid / list on the left, zoom out / Size / zoom in on the right."""
+    from .managers import size_bar
+    wm = context.window_manager
+    layout.use_property_split = False
+    row = layout.row(align=False)
+    views = row.row(align=True)
     views.prop(wm, "b4d_ab_view", expand=True, icon_only=True)
-    size = bottom.row(align=True)
+    row.separator_spacer()
+    size = row.row(align=True)
+    size.ui_units_x = 8
     size.enabled = wm.b4d_ab_view == "GRID" and not (_st["home"] and not wm.b4d_ab_search)
-    size.prop(wm, "b4d_ab_size", text="Size", slider=True)
+    size_bar(size, "b4d_ab_size", step=0.5)
+
+
+class BLENDA4D_PT_ab_bar(roles.RolePanel, bpy.types.Panel):
+    bl_label = "Asset Size"
+    role = "AB_BAR"
+
+    def draw(self, context):
+        draw_bar(self.layout, context)
 
 
 # --- operators --------------------------------------------------------------------------------------------------------
@@ -967,7 +991,7 @@ class BLENDA4D_MT_ab_libraries(bpy.types.Menu):
 
 
 MENUS = (BLENDA4D_MT_ab_create, BLENDA4D_MT_ab_edit, BLENDA4D_MT_ab_view, BLENDA4D_MT_ab_libraries)
-classes = (BLENDA4D_OT_ab_open, BLENDA4D_OT_ab_fold, BLENDA4D_OT_ab_show, BLENDA4D_OT_ab_home, BLENDA4D_OT_ab_back,
+classes = (BLENDA4D_PT_ab_bar, BLENDA4D_OT_ab_open, BLENDA4D_OT_ab_fold, BLENDA4D_OT_ab_show, BLENDA4D_OT_ab_home, BLENDA4D_OT_ab_back,
            BLENDA4D_OT_ab_forward, BLENDA4D_OT_ab_favorite, BLENDA4D_OT_ab_refresh, BLENDA4D_OT_ab_library_prefs,
            BLENDA4D_OT_ab_pick, BLENDA4D_OT_ab_add_to_scene, BLENDA4D_OT_ab_drag, BLENDA4D_OT_ab_new_folder,
            BLENDA4D_OT_ab_rename_folder, BLENDA4D_OT_ab_delete_folder, BLENDA4D_MT_ab_folder, BLENDA4D_OT_ab_folder_menu,

@@ -4,6 +4,8 @@
 A menu is a list of items: (label, operator, {props}, icon) runs a Blender or Blenda operator; (label, None, ...)
 is shown greyed (nothing behind it yet); "-" is a separator; ("menu", label, idname) opens a sub-menu (Blender's
 own lists such as Open Recent and Import are used as they are, being lists of files and formats, not layout)."""
+import math
+
 import bpy
 
 SEP = "-"
@@ -128,17 +130,82 @@ MAIN_CLASSES = [_make(k, v, "main") for k, v in MAIN.items()]
 from .viewmenus import OPS as VIEW_OPS, VIEW_CLASSES  # noqa: E402  the viewport's own menus (viewmenus.py)
 
 
-def menu_bar(layout, classes, labels=None):
+def _text_width(text):
+    """A widget label's width in pixels, as Blender's layout measures it."""
+    import blf
+    prefs = bpy.context.preferences
+    blf.size(0, prefs.ui_styles[0].widget.points * prefs.system.ui_scale)
+    return blf.dimensions(0, text)[0]
+
+
+def _menu_px(name):
+    """A panel menu button's width in pixels: its text plus Blender's 1.25 units of padding (text_pad_compact in
+    interface_layout.cc)."""
+    return _text_width(name) + math.ceil(20 * bpy.context.preferences.system.ui_scale * 1.25)
+
+
+def fit_count(names, avail):
+    """How many menus fit side by side in `avail` pixels, leaving room for the » menu when some do not fit."""
+    more = 20 * bpy.context.preferences.system.ui_scale * 1.35          # the icon-only » button
+    widths = [_menu_px(n) for n in names]
+    if sum(widths) <= avail:
+        return len(names)
+    used, n = more, 0
+    for w in widths:
+        if used + w > avail:
+            break
+        used += w
+        n += 1
+    return n
+
+
+_overflow = {}               # first menu's idname -> the menus its » lists, set each time the bar draws
+_more = {}                   # first menu's idname -> that bar's » menu class
+
+
+def make_more(classes):
+    """The » menu for a bar of these menus (register the class it returns with the bar's menus)."""
+    key = classes[0].bl_idname
+
+    def draw(self, context):
+        for cls in _overflow.get(key, ()):
+            self.layout.menu(cls.bl_idname, text=cls.bl_label)
+
+    cls = type("BLENDA4D_MT_more_" + key.rpartition("_MT_")[2], (bpy.types.Menu,),
+               {"bl_idname": "BLENDA4D_MT_more_" + key.rpartition("_MT_")[2], "bl_label": "More", "draw": draw})
+    _more[key] = cls
+    return cls
+
+
+def menu_bar(layout, classes, labels=None, avail=None):
+    """The menus side by side. With `avail` (pixels), menus that would not fit go into a » menu at the end, as the
+    names are never cut short."""
+    shown = [c for c in classes if labels is None or c.bl_label in labels]
+    n = fit_count([c.bl_label for c in shown], avail) if avail else len(shown)
     row = layout.row(align=True)
     row.alignment = "LEFT"
     try:
         row.emboss = "PULLDOWN_MENU"
     except (AttributeError, TypeError):
         pass
-    for cls in classes:
-        if labels is None or cls.bl_label in labels:
-            row.menu(cls.bl_idname, text=cls.bl_label)
+    for cls in shown[:n]:
+        row.menu(cls.bl_idname, text=cls.bl_label)
+    if n < len(shown):
+        key = classes[0].bl_idname
+        _overflow[key] = shown[n:]
+        if key in _more:
+            row.menu(_more[key].bl_idname, text="", icon="RIGHTARROW_THIN")
     return row
+
+
+def panel_width(share=1.0, reserve=0.0):
+    """Pixels free for a line of buttons in the current panel: the region less Blender's panel insets, times `share`
+    (a split's factor), less `reserve` pixels."""
+    region = bpy.context.region
+    if region is None:
+        return None
+    s = bpy.context.preferences.system.ui_scale
+    return (region.width - 2 * 8 * s - 4 * s) * share - reserve
 
 
 def simple_menu(label, items, manager="mgr"):

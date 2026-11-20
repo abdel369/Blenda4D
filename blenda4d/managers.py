@@ -539,13 +539,21 @@ def _status_split(context, buttons):
     return max(0.25, min(0.9, 1 - need / max(width, 1)))
 
 
+OM_MENU_SHARE = 0.915
+
+
+def _icon_px():
+    """An icon-only label's width: one unit."""
+    return 20 * bpy.context.preferences.system.ui_scale
+
+
 def draw_om_head(layout, context):
     """The Object Manager's title, menus, search and tool row."""
     manager_title(layout, "Objects")
-    sp = layout.split(factor=0.915, align=True)     # menus on the left, the search box at the right edge
+    sp = layout.split(factor=OM_MENU_SHARE, align=True)   # menus on the left, the search box at the right edge
     bar = sp.row(align=True)
     bar.label(text="", icon="COLLAPSEMENU")
-    menus.menu_bar(bar, OM_MENUS)
+    menus.menu_bar(bar, OM_MENUS, avail=menus.panel_width(OM_MENU_SHARE, _icon_px()))
     sp.prop(context.window_manager, "b4d_om_search", text="", icon="VIEWZOOM")
     tools = layout.split(factor=0.2, align=True).row(align=True)   # the tool row: scroll to the active object, solo
     tools.operator("blenda4d.om_scroll_active", text="", icon="ZOOM_SELECTED", emboss=False)
@@ -798,7 +806,7 @@ class BLENDA4D_PT_attributes(roles.RolePanel, bpy.types.Panel):
             return draw_variations(layout, context)
         bar = layout.row(align=True)
         bar.label(text="", icon="COLLAPSEMENU")
-        menus.menu_bar(bar, AM_MENUS)
+        menus.menu_bar(bar, AM_MENUS, avail=menus.panel_width(1.0, _icon_px()))
         ob = context.view_layer.objects.active
         layout.separator(factor=0.3)
         if ob is None:
@@ -902,7 +910,7 @@ class BLENDA4D_PT_materials(roles.RolePanel, bpy.types.Panel):
         manager_title(layout, "Materials")
         bar = layout.row(align=True)
         bar.label(text="", icon="COLLAPSEMENU")
-        menus.menu_bar(bar, MM_MENUS)
+        menus.menu_bar(bar, MM_MENUS, avail=menus.panel_width(1.0, _icon_px()))
         matman.draw_tools(layout, context)
         layout.separator(factor=0.4)
         matman.draw_materials(layout, context)
@@ -967,6 +975,7 @@ class BLENDA4D_PT_assets(roles.RolePanel, bpy.types.Panel):
 
 classes = (BLENDA4D_OT_size_step, BLENDA4D_OT_om_delete, BLENDA4D_OT_om_solo, BLENDA4D_OT_om_scroll_active, BLENDA4D_OT_om_select, BLENDA4D_OT_om_drag, BLENDA4D_OT_om_rename, BLENDA4D_OT_om_fold, BLENDA4D_OT_om_expand, BLENDA4D_OT_group, BLENDA4D_OT_new_material,
            BLENDA4D_OT_mat_pick, BLENDA4D_OT_mat_tag, *OM_MENUS, *AM_MENUS, *MM_MENUS, *AB_MENUS,
+           *(menus.make_more(m) for m in (OM_MENUS, AM_MENUS, MM_MENUS)),
            BLENDA4D_PT_objects, BLENDA4D_PT_om_bar, BLENDA4D_PT_om_head, BLENDA4D_PT_attributes, BLENDA4D_PT_materials, BLENDA4D_PT_assets)
 
 

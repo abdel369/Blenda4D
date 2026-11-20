@@ -160,6 +160,10 @@ def steps(window, materials=False, assets=False):
     if assets:
         ab = yield from split(window, biggest_view(screen), "VERTICAL", px(ASSETS_PX) + EDGE, "LEFT")
         yield from make_role(window, ab, "ASSETS")
+        ab_bar = yield from split(window, ab, "HORIZONTAL", px(MM_BAR_PX) + EDGE, "BOTTOM")
+        yield from make_role(window, ab_bar, "AB_BAR")      # its bottom strip: view buttons and the Size bar
+        if len(roles.areas(screen, "ASSETS")) == 2:        # the split handed back the other half
+            yield from make_role(window, min(roles.areas(screen, "ASSETS"), key=lambda a: a.y), "AB_BAR")
     if materials:
         mm = yield from split(window, biggest_view(screen), "VERTICAL", px(MATERIALS_PX) + EDGE, "RIGHT")
         yield from make_role(window, mm, "MATERIALS")

@@ -24,6 +24,7 @@ ROLE_FLAGS = {
     "MM_BAR": "show_properties_scene",
     "OM_BAR": "show_properties_output",
     "OM_HEAD": "show_properties_view_layer",
+    "AB_BAR": "show_properties_bone",
 }
 
 
