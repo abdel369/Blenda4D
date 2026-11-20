@@ -253,6 +253,7 @@ def _draw_tip():
 class BLENDA4D_OT_strip_hover(bpy.types.Operator):
     bl_idname = "blenda4d.strip_hover"
     bl_label = "Create column hover"
+    bl_description = "Shows the name of the create button under the pointer"
     bl_options = {"INTERNAL"}
 
     def invoke(self, context, event):

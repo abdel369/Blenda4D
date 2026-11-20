@@ -129,26 +129,58 @@ def _zoom(window, area, n):
         print("Blenda 4D: could not zoom", area.type, ex)
 
 
+def split_now(window, area, direction, size_px, side, size=None):
+    """Split off a strip and return it at once: Blender makes the smaller part the new area, which is the strip.
+    `size` stands in for the area's size when Blender has not laid the area out yet."""
+    size = size or (area.height if direction == "HORIZONTAL" else area.width)
+    frac = size_px / max(size, 1)
+    factor = {"TOP": 1 - frac, "BOTTOM": frac, "LEFT": frac, "RIGHT": 1 - frac}[side]
+    before = {a.as_pointer() for a in window.screen.areas}
+    with _ov(window, area):
+        bpy.ops.screen.area_split(direction=direction, factor=factor)
+    return next(a for a in window.screen.areas if a.as_pointer() not in before)
+
+
+def role_now(area, name):
+    """The area becomes its role's editor in the same step it appears (no frame shows a stray editor)."""
+    area.type = "PROPERTIES"
+    roles.set_role(area, name)
+    try:
+        roles.hide_nav(area)
+    except RuntimeError:
+        pass
+
+
+def settle(window, *pairs):
+    """After the frame: make sure each area has its role and no tab column (set at once where Blender allowed)."""
+    for area, name in pairs:
+        for _ in range(20):
+            if roles.set_role(area, name):
+                break
+            yield
+        roles.hide_nav(area, window)
+
+
+def _add_column(window, width_px, side, main, bar):
+    """A column beside the viewport with its bottom strip, each one its final editor from the frame it appears in."""
+    view = biggest_view(window.screen)
+    col = split_now(window, view, "VERTICAL", px(width_px) + EDGE, side)
+    role_now(col, main)
+    yield                                                  # Blender lays the column out before it can be split
+    strip = split_now(window, col, "HORIZONTAL", px(MM_BAR_PX) + EDGE, "BOTTOM")
+    role_now(strip, bar)
+    yield
+    yield from settle(window, (col, main), (strip, bar))
+
+
 def add_assets(window):
     """The Asset Browser column, left of the viewport, with its bottom strip."""
-    screen = window.screen
-    ab = yield from split(window, biggest_view(screen), "VERTICAL", px(ASSETS_PX) + EDGE, "LEFT")
-    yield from make_role(window, ab, "ASSETS")
-    ab_bar = yield from split(window, ab, "HORIZONTAL", px(MM_BAR_PX) + EDGE, "BOTTOM")
-    yield from make_role(window, ab_bar, "AB_BAR")          # its bottom strip: view buttons and the Size bar
-    if len(roles.areas(screen, "ASSETS")) == 2:            # the split handed back the other half
-        yield from make_role(window, min(roles.areas(screen, "ASSETS"), key=lambda a: a.y), "AB_BAR")
+    yield from _add_column(window, ASSETS_PX, "LEFT", "ASSETS", "AB_BAR")
 
 
 def add_materials(window):
     """The Material Manager column, right of the viewport, with its bottom strip."""
-    screen = window.screen
-    mm = yield from split(window, biggest_view(screen), "VERTICAL", px(MATERIALS_PX) + EDGE, "RIGHT")
-    yield from make_role(window, mm, "MATERIALS")
-    bar = yield from split(window, mm, "HORIZONTAL", px(MM_BAR_PX) + EDGE, "BOTTOM")
-    yield from make_role(window, bar, "MM_BAR")
-    if len(roles.areas(screen, "MATERIALS")) == 2:         # the split handed back the other half
-        yield from make_role(window, min(roles.areas(screen, "MATERIALS"), key=lambda a: a.y), "MM_BAR")
+    yield from _add_column(window, MATERIALS_PX, "RIGHT", "MATERIALS", "MM_BAR")
 
 
 COLUMNS = {"MATERIALS": (add_materials, "MM_BAR"), "ASSETS": (add_assets, "AB_BAR")}
@@ -174,11 +206,11 @@ def column_steps(window, name, on):
     if on:
         yield from add(window)
     else:
-        for role in (bar, name):                           # the strip into its column, the column into the viewport
-            for a in roles.areas(screen, role):
+        for role in (bar, name):                           # the strip into its column, the column into the viewport,
+            for a in roles.areas(screen, role):            # in one step: no frame shows the column without its strip
                 with _ov(window, a):
                     bpy.ops.screen.area_close()
-                yield
+        yield
     if not intact(screen):                                 # the change did not land as planned: build it all
         yield from steps(window, materials=bool(roles.areas(screen, "MATERIALS")) if name != "MATERIALS" else on,
                          assets=bool(roles.areas(screen, "ASSETS")) if name != "ASSETS" else on)

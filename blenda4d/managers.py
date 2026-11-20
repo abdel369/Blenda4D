@@ -153,6 +153,7 @@ class BLENDA4D_OT_om_delete(bpy.types.Operator):
 class BLENDA4D_OT_om_fold(bpy.types.Operator):
     bl_idname = "blenda4d.om_fold"
     bl_label = "Fold"
+    bl_description = "Show or hide the objects under this one"
     name: bpy.props.StringProperty()
 
     def execute(self, context):
@@ -165,6 +166,7 @@ class BLENDA4D_OT_om_fold(bpy.types.Operator):
 class BLENDA4D_OT_om_expand(bpy.types.Operator):
     bl_idname = "blenda4d.om_expand"
     bl_label = "Expand"
+    bl_description = "Open or close every object that has objects under it"
     open: bpy.props.BoolProperty(default=True)
 
     def execute(self, context):
@@ -909,6 +911,7 @@ def draw_variations(layout, context):
 class BLENDA4D_OT_new_material(bpy.types.Operator):
     bl_idname = "blenda4d.new_material"
     bl_label = "New Material"
+    bl_description = "Make a new material"
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):

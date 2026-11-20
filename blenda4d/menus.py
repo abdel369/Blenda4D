@@ -44,6 +44,7 @@ def draw_items(layout, items):
 class BLENDA4D_OT_noop(bpy.types.Operator):
     bl_idname = "blenda4d.noop"
     bl_label = "Not available yet"
+    bl_description = "Not available yet"
     bl_options = {"INTERNAL"}
 
     def execute(self, context):

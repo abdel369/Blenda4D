@@ -227,6 +227,7 @@ def draw_subject(layout, context, _ob=None):
 class BLENDA4D_OT_mat_use_nodes(bpy.types.Operator):
     bl_idname = "blenda4d.mat_use_nodes"
     bl_label = "Use Nodes"
+    bl_description = "Make this material from nodes, so its channels can be edited here"
     bl_options = {"REGISTER", "UNDO", "INTERNAL"}
     name: bpy.props.StringProperty(options={"SKIP_SAVE"})
 

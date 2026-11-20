@@ -27,8 +27,17 @@ def active_tool(context):
 class BLENDA4D_OT_set_mode(bpy.types.Operator):
     bl_idname = "blenda4d.set_mode"
     bl_label = "Mode"
+    bl_description = "Work on whole objects, or on their points, edges or polygons"
     bl_options = {"REGISTER", "UNDO"}
     mode: bpy.props.EnumProperty(items=[("MODEL", "Model", ""), ("POINTS", "Points", ""), ("EDGES", "Edges", ""), ("POLYGONS", "Polygons", "")])
+
+    @classmethod
+    def description(cls, context, properties):
+        return {"MODEL": "Model: move, rotate and scale whole objects (Blender: Object Mode)",
+                "POINTS": "Points: edit the points of the selected object (Blender: Edit Mode, Vertex)",
+                "EDGES": "Edges: edit the edges of the selected object (Blender: Edit Mode, Edge)",
+                "POLYGONS": "Polygons: edit the polygons of the selected object (Blender: Edit Mode, Face)"}.get(
+            properties.mode, cls.bl_description)
 
     def execute(self, context):
         ob = context.active_object
@@ -49,7 +58,15 @@ class BLENDA4D_OT_set_mode(bpy.types.Operator):
 class BLENDA4D_OT_shading(bpy.types.Operator):
     bl_idname = "blenda4d.shading"
     bl_label = "Display"
+    bl_description = "How the viewport draws the scene"
     mode: bpy.props.StringProperty()
+
+    @classmethod
+    def description(cls, context, properties):
+        return {"WIREFRAME": "Wireframe: show only the edges",
+                "SOLID": "Solid: plain surfaces in the viewport's colours",
+                "MATERIAL": "Material Preview: the materials, lit by a preview light",
+                "RENDERED": "Rendered: the scene as the renderer draws it"}.get(properties.mode, cls.bl_description)
 
     def execute(self, context):
         sp = context.space_data if context.space_data and context.space_data.type == "VIEW_3D" else None
@@ -64,6 +81,7 @@ class BLENDA4D_OT_shading(bpy.types.Operator):
 class BLENDA4D_OT_overlay(bpy.types.Operator):
     bl_idname = "blenda4d.overlay"
     bl_label = "Viewport Option"
+    bl_description = "Show or hide this in the viewport"
     what: bpy.props.StringProperty()
 
     def execute(self, context):
@@ -82,6 +100,11 @@ class BLENDA4D_OT_axis_lock(bpy.types.Operator):
     bl_description = "Lock or unlock moving, scaling and rotating along this axis"
     axis: bpy.props.IntProperty()
 
+    @classmethod
+    def description(cls, context, properties):
+        a = "XYZ"[properties.axis] if 0 <= properties.axis < 3 else ""
+        return f"{a} Axis: lock or unlock moving, scaling and rotating along {a}" if a else cls.bl_description
+
     def execute(self, context):
         locks = context.window_manager.b4d_axis
         locks[self.axis] = not locks[self.axis]
@@ -93,6 +116,11 @@ class BLENDA4D_OT_toggle_column(bpy.types.Operator):
     bl_label = "Show / Hide"
     bl_description = "Show or hide this manager"
     name: bpy.props.StringProperty()
+
+    @classmethod
+    def description(cls, context, properties):
+        return {"MATERIALS": "Show or hide the Material Manager",
+                "ASSETS": "Show or hide the Asset Browser"}.get(properties.name, cls.bl_description)
 
     def execute(self, context):
         from . import build

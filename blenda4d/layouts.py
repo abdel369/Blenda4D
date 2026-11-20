@@ -48,6 +48,7 @@ def snapshot(window):
 class BLENDA4D_OT_layout_use(bpy.types.Operator):
     bl_idname = "blenda4d.layout_use"
     bl_label = "Use Layout"
+    bl_description = "Switch to this saved layout"
     name: bpy.props.StringProperty()
 
     def execute(self, context):
@@ -81,6 +82,7 @@ class BLENDA4D_OT_layout_save(bpy.types.Operator):
 class BLENDA4D_OT_layout_rename(bpy.types.Operator):
     bl_idname = "blenda4d.layout_rename"
     bl_label = "Rename Layout"
+    bl_description = "Give this saved layout another name"
     name: bpy.props.StringProperty(name="New Name")
 
     @classmethod
@@ -104,6 +106,7 @@ class BLENDA4D_OT_layout_rename(bpy.types.Operator):
 class BLENDA4D_OT_layout_delete(bpy.types.Operator):
     bl_idname = "blenda4d.layout_delete"
     bl_label = "Delete Layout"
+    bl_description = "Delete this saved layout"
 
     @classmethod
     def poll(cls, context):
@@ -123,6 +126,7 @@ class BLENDA4D_OT_layout_delete(bpy.types.Operator):
 class BLENDA4D_OT_layout_reset(bpy.types.Operator):
     bl_idname = "blenda4d.layout_reset"
     bl_label = "Reset to Default"
+    bl_description = "Put the Standard layout back as it was first built"
 
     def execute(self, context):
         from . import build
