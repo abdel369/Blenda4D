@@ -147,8 +147,8 @@ def steps(window, materials=False, assets=False):
     yield from make_role(window, managers, "OBJECTS")
     palette = yield from split(window, biggest_view(screen), "HORIZONTAL", px(PALETTE_PX) + EDGE, "TOP")
     yield from make_role(window, palette, "PALETTE")
-    modes = yield from split(window, biggest_view(screen), "VERTICAL", px(MODES_PX) + EDGE, "LEFT")
-    yield from make_role(window, modes, "MODES")
+    # the tools column is drawn in the viewport's own toolbar strip (bars.BLENDA4D_PT_view_tools), which keeps its
+    # width when the window is resized; a separate area would stretch with the window
     create = yield from split(window, biggest_view(screen), "VERTICAL", px(CREATE_PX) + EDGE, "RIGHT")
     yield from make_role(window, create, "CREATE")
     timeline = yield from split(window, biggest_view(screen), "HORIZONTAL", px(TIMELINE_PX) + hdr + EDGE, "BOTTOM")
@@ -189,7 +189,7 @@ def steps(window, materials=False, assets=False):
 
 def dress_view(area):
     v3d = area.spaces.active
-    for attr, want in (("show_region_ui", False), ("show_region_toolbar", False), ("show_region_header", True),
+    for attr, want in (("show_region_ui", False), ("show_region_toolbar", True), ("show_region_header", True),
                        ("show_region_tool_header", True), ("show_region_hud", False)):
         if getattr(v3d, attr) != want:
             setattr(v3d, attr, want)

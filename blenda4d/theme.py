@@ -43,6 +43,8 @@ def _set(owner, attr, value):
 def apply():
     th = bpy.context.preferences.themes[0]
     ui = th.user_interface
+    # the tools column lives in the viewport's toolbar strip: solid beside the view, not floating over it
+    _set(bpy.context.preferences.system, "use_region_overlap", False)
     for name in ("wcol_regular", "wcol_tool", "wcol_toolbar_item", "wcol_text", "wcol_num", "wcol_numslider",
                  "wcol_option", "wcol_toggle", "wcol_box", "wcol_menu", "wcol_pulldown", "wcol_menu_back",
                  "wcol_menu_item", "wcol_tab", "wcol_list_item", "wcol_scroll", "wcol_progress", "wcol_tooltip",

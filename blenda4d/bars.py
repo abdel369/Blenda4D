@@ -288,21 +288,88 @@ def _column(layout, scale=1.9):
     return col
 
 
+def draw_tools(col, context):
+    """The tools column: zoom, select, move, rotate, scale, then the modelling and spline tools."""
+    col.operator("view3d.zoom_border", text="", icon="VIEWZOOM")
+    tool = active_tool(context)
+    for t in MODES_TOOLS:
+        if t is None:
+            col.separator(factor=1.2)
+            continue
+        iv = icons.any_icon(TOOL_ICONS.get(t, "")) or tool_icon(TOOL_ICONS.get(t, ""))   # tinted accent, else Blender's
+        op = col.operator("wm.tool_set_by_id", text="", icon_value=iv, depress=(tool == t))
+        op.name, op.space_type = t, "VIEW_3D"          # the tool belongs to the viewport, not this panel
+
+
+
 class BLENDA4D_PT_modes(roles.RolePanel, bpy.types.Panel):
     bl_label = "Tools"
     role = "MODES"
 
     def draw(self, context):
-        col = _column(self.layout)
-        col.operator("view3d.zoom_border", text="", icon="VIEWZOOM")
-        tool = active_tool(context)
-        for t in MODES_TOOLS:
-            if t is None:
-                col.separator(factor=1.2)
-                continue
-            iv = icons.any_icon(TOOL_ICONS.get(t, "")) or tool_icon(TOOL_ICONS.get(t, ""))   # tinted accent, else Blender's
-            op = col.operator("wm.tool_set_by_id", text="", icon_value=iv, depress=(tool == t))
-            op.name, op.space_type = t, "VIEW_3D"          # the tool belongs to the viewport, not this panel
+        draw_tools(_column(self.layout), context)
+
+
+class BLENDA4D_PT_view_tools(bpy.types.Panel):
+    """The tools column inside the viewport's own toolbar strip, which Blender keeps at a fixed width when the
+    window is resized (a separate area would stretch with it)."""
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "TOOLS"
+    bl_label = "Blenda 4D Tools"
+    bl_options = {"HIDE_HEADER"}
+
+    @classmethod
+    def poll(cls, context):
+        from . import switch
+        return switch.is_on()
+
+    def draw(self, context):
+        col = self.layout.column(align=True)
+        col.scale_y = TOOLS_SCALE_Y
+        draw_tools(col, context)
+
+
+TOOLS_SCALE_Y = 2.0          # square buttons in the toolbar strip
+
+
+def _hide_blender_tools():
+    """While Blenda 4D is on, Blender's own tool list leaves the toolbar strip to the tools column."""
+    cls = getattr(bpy.types, "VIEW3D_PT_tools_active", None)
+    if cls is None or "poll" in _saved_poll:
+        return
+    _saved_poll["poll"] = cls.__dict__.get("poll")
+
+    def poll(c, context):
+        from . import switch
+        if switch.is_on():
+            return False
+        orig = _saved_poll.get("poll")
+        return orig.__func__(c, context) if orig is not None else True
+    cls.poll = classmethod(poll)
+    _reregister(cls)                     # Blender reads a panel's poll when the class is registered
+
+
+def _show_blender_tools():
+    cls = getattr(bpy.types, "VIEW3D_PT_tools_active", None)
+    if cls is None or "poll" not in _saved_poll:
+        return
+    orig = _saved_poll.pop("poll")
+    if orig is None:
+        del cls.poll
+    else:
+        cls.poll = orig
+    _reregister(cls)
+
+
+def _reregister(cls):
+    try:
+        bpy.utils.unregister_class(cls)
+        bpy.utils.register_class(cls)
+    except RuntimeError as ex:
+        print("Blenda 4D: toolbar panel", ex)
+
+
+_saved_poll = {}
 
 
 def _p(label, icon, kind):
@@ -429,7 +496,7 @@ class BLENDA4D_PT_create(roles.RolePanel, bpy.types.Panel):
 
 
 classes = (BLENDA4D_OT_set_mode, BLENDA4D_OT_shading, BLENDA4D_OT_overlay, BLENDA4D_OT_axis_lock, BLENDA4D_OT_toggle_column,
-           BLENDA4D_OT_create, *GROUP_MENUS, BLENDA4D_PT_doc_tabs, BLENDA4D_PT_palette, BLENDA4D_PT_modes, BLENDA4D_PT_create)
+           BLENDA4D_OT_create, *GROUP_MENUS, BLENDA4D_PT_doc_tabs, BLENDA4D_PT_palette, BLENDA4D_PT_modes, BLENDA4D_PT_view_tools, BLENDA4D_PT_create)
 
 
 def register():
@@ -438,9 +505,11 @@ def register():
         bpy.utils.register_class(c)
     bpy.types.WindowManager.b4d_axis = bpy.props.BoolVectorProperty(size=3, default=(True, True, True))
     override()
+    _hide_blender_tools()
 
 
 def unregister():
+    _show_blender_tools()
     restore()
     del bpy.types.WindowManager.b4d_axis
     for c in reversed(classes):
