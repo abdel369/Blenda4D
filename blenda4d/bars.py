@@ -233,9 +233,9 @@ class BLENDA4D_PT_palette(roles.RolePanel, bpy.types.Panel):
         top.separator(factor=0.6)
         tool = active_tool(context)
         g = top.row(align=True)
-        sb = g.row(align=True)
-        sb.scale_x = 1.4                                 # as wide as X, Y, Z: the large tool icon no longer spills past its highlight
-        _palette_button(sb, "wm.tool_set_by_id", icon_value=tool_icon("ops.generic.select_box"), depress=tool.startswith("builtin.select"), name="builtin.select_box", space_type="VIEW_3D")
+        # a picture icon, which fits its button exactly (Blender's large tool icon spilled past the highlight here)
+        sel_iv = icons.icon("ops.generic.select_box", "palette") or tool_icon("ops.generic.select_box")
+        _palette_button(g, "wm.tool_set_by_id", icon_value=sel_iv, depress=tool.startswith("builtin.select"), name="builtin.select_box", space_type="VIEW_3D")
         top.separator(factor=0.6)
         g = top.row(align=True)
         locks = context.window_manager.b4d_axis
