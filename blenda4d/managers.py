@@ -661,12 +661,11 @@ class BLENDA4D_OT_om_look_through(bpy.types.Operator):
         r3 = _region_3d(area)
         if r3 is None:
             return {"CANCELLED"}
+        from . import viewmenus
         if looking_through(context, ob):
-            r3.view_perspective = "PERSP"
+            viewmenus.back_to_editor(area, area.spaces.active)    # back where the editor camera was left
         else:
-            context.scene.camera = ob
-            r3.view_perspective = "CAMERA"
-            area.spaces.active.lock_camera = True             # navigating now moves this camera
+            viewmenus.look_through(area, area.spaces.active, ob)  # orbit / pan / zoom now move this camera
         for a in context.screen.areas:
             a.tag_redraw()
         return {"FINISHED"}

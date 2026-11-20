@@ -93,6 +93,36 @@ class BLENDA4D_OT_display_preset(bpy.types.Operator):
         return {"FINISHED"}
 
 
+_editor_view = {}           # viewport -> where its own (editor) camera was before a scene camera took over
+
+
+def look_through(area, sp, cam):
+    """Look through a scene camera: the editor camera's place is kept for the way back, and orbit / pan / zoom then
+    move the scene camera itself (Lock Camera to View)."""
+    rv = sp.region_3d
+    if rv.view_perspective != "CAMERA":
+        _editor_view[area.as_pointer()] = {"rot": rv.view_rotation.copy(), "loc": rv.view_location.copy(),
+                                           "dist": rv.view_distance, "persp": rv.view_perspective, "lens": sp.lens}
+    bpy.context.scene.camera = cam
+    rv.view_perspective = "CAMERA"
+    sp.lock_camera = True
+
+
+def back_to_editor(area, sp):
+    """Back to the viewport's own camera, where it was left."""
+    rv = sp.region_3d
+    st = _editor_view.pop(area.as_pointer(), None)
+    rv.view_perspective = st["persp"] if st else "PERSP"
+    if st:
+        rv.view_rotation, rv.view_location, rv.view_distance = st["rot"], st["loc"], st["dist"]
+        sp.lens = st["lens"]
+
+
+def _area_of(context, sp):
+    return next((a for a in context.screen.areas if a.type == "VIEW_3D" and len(a.spaces) and a.spaces.active == sp),
+                None)
+
+
 class BLENDA4D_OT_use_camera(bpy.types.Operator):
     bl_idname = "blenda4d.use_camera"
     bl_label = "Use Camera"
@@ -104,9 +134,9 @@ class BLENDA4D_OT_use_camera(bpy.types.Operator):
         sp = _space(context)
         if ob is None or ob.type != "CAMERA" or sp is None:
             return {"CANCELLED"}
-        context.scene.camera = ob
-        sp.region_3d.view_perspective = "CAMERA"
-        sp.lock_camera = True                                 # navigating now moves this camera
+        area = _area_of(context, sp)
+        if area is not None:
+            look_through(area, sp, ob)
         return {"FINISHED"}
 
 
@@ -119,8 +149,9 @@ class BLENDA4D_OT_default_camera(bpy.types.Operator):
         sp = _space(context)
         if sp is None:
             return {"CANCELLED"}
-        if sp.region_3d.view_perspective == "CAMERA":
-            sp.region_3d.view_perspective = "PERSP"
+        area = _area_of(context, sp)
+        if sp.region_3d.view_perspective == "CAMERA" and area is not None:
+            back_to_editor(area, sp)
         return {"FINISHED"}
 
 
