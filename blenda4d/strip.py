@@ -127,12 +127,12 @@ def _layout(region):
     items = _items()
     n = sum(1 for it in items if it)
     gaps = sum(1 for it in items if it is None)
-    cell = min(CELL * s, region.width - 2 * SIDE * s)
-    room = region.height - 2 * TOP * s - gaps * GAP * s
-    if n * cell > room:
-        cell = max(24 * s, room / n)
+    cell = min(CELL * s, region.width - 2 * SIDE * s)    # as big as the tools column's, at every scale; when the
+    total = n * cell + gaps * GAP * s + 2 * TOP * s       # strip is shorter it scrolls, as that column does
+    _state["max_scroll"] = max(0.0, total - region.height)
+    _state["scroll"] = min(max(_state.get("scroll", 0.0), 0.0), _state["max_scroll"])
     x0 = (region.width - cell) / 2
-    y = region.height - TOP * s
+    y = region.height - TOP * s + _state["scroll"]
     boxes = []
     for it in items:
         if it is None:
@@ -326,7 +326,28 @@ class BLENDA4D_OT_strip_click(bpy.types.Operator):
         return {"FINISHED"}
 
 
-classes = (BLENDA4D_OT_strip_hover, BLENDA4D_OT_strip_click)
+class BLENDA4D_OT_strip_scroll(bpy.types.Operator):
+    """Scroll the create column when it is taller than the strip"""
+    bl_idname = "blenda4d.strip_scroll"
+    bl_label = "Create column scroll"
+    bl_options = {"INTERNAL"}
+
+    def invoke(self, context, event):
+        if not switch.is_on() or not _strip_region(context) or not _state.get("max_scroll"):
+            return {"PASS_THROUGH"}
+        s = context.preferences.system.ui_scale
+        if event.type == "TRACKPADPAN":
+            step = (event.mouse_y - event.mouse_prev_y)
+        else:
+            step = (-1 if event.type == "WHEELUPMOUSE" else 1) * CELL * s
+        _state["scroll"] = min(max(_state.get("scroll", 0.0) + step, 0.0), _state["max_scroll"])
+        _state["hover"] = None
+        _tip.clear()
+        _redraw(context)
+        return {"FINISHED"}
+
+
+classes = (BLENDA4D_OT_strip_hover, BLENDA4D_OT_strip_click, BLENDA4D_OT_strip_scroll)
 
 
 def register():
@@ -339,6 +360,9 @@ def register():
         km = kc.keymaps.new(name="3D View Generic", space_type="VIEW_3D", region_type="WINDOW")
         _keymaps.append((km, km.keymap_items.new(BLENDA4D_OT_strip_click.bl_idname, "LEFTMOUSE", "PRESS", head=True)))
         _keymaps.append((km, km.keymap_items.new(BLENDA4D_OT_strip_hover.bl_idname, "MOUSEMOVE", "ANY", head=True)))
+        kmv = kc.keymaps.new(name="View2D Buttons List", space_type="EMPTY", region_type="WINDOW")   # before the
+        for ev in ("WHEELUPMOUSE", "WHEELDOWNMOUSE", "TRACKPADPAN"):                                # strip's scroll
+            _keymaps.append((kmv, kmv.keymap_items.new(BLENDA4D_OT_strip_scroll.bl_idname, ev, "ANY", head=True)))
         kmw = kc.keymaps.new(name="Window", space_type="EMPTY", region_type="WINDOW")
         _keymaps.append((kmw, kmw.keymap_items.new(BLENDA4D_OT_strip_hover.bl_idname, "MOUSEMOVE", "ANY")))
 
