@@ -582,7 +582,7 @@ class BLENDA4D_PT_objects(roles.RolePanel, bpy.types.Panel):
         col = layout.column(align=True)
         drop = context.window_manager.b4d_om_drop
         rows = visible_rows(context)
-        tags = max((len(_tags(ob)) for ob, _d in rows), default=0)   # every row keeps room for the most tags,
+        tags = max((len(_tags(ob)) + (ob.type == "CAMERA") for ob, _d in rows), default=0)   # every row keeps room for the most tags,
         split = _status_split(context, 3 + tags)                      # so the dots and checks stay in columns
         for ob, depth in rows:
             self._row(col, ob, depth, tags, split)
@@ -608,6 +608,9 @@ class BLENDA4D_PT_objects(roles.RolePanel, bpy.types.Panel):
         right.prop(ob, "hide_viewport", text="", emboss=False, icon="LAYER_ACTIVE" if not ob.hide_viewport else "LAYER_USED")
         right.prop(ob, "hide_render", text="", emboss=False, icon="LAYER_ACTIVE" if not ob.hide_render else "LAYER_USED")
         right.prop(ob, "b4d_enabled", text="", emboss=False, icon="CHECKMARK" if ob.b4d_enabled else "X")
+        if ob.type == "CAMERA":                            # the camera's view switch: filled while looking through it
+            right.operator("blenda4d.om_look_through", text="", emboss=False,
+                           icon="VIEW_CAMERA" if looking_through(bpy.context, ob) else "VIEW_CAMERA_UNSELECTED").name = ob.name
         for icon, mat, slot in _tags(ob):
             if mat is not None and OM_TAG_BUTTON:
                 OM_TAG_BUTTON[0](right, ob, slot, mat)
@@ -615,8 +618,44 @@ class BLENDA4D_PT_objects(roles.RolePanel, bpy.types.Panel):
                 right.label(text="", icon_value=right.icon(mat))
             else:
                 right.label(text="", icon=icon)
-        for _ in range(tag_room - len(_tags(ob))):
+        for _ in range(tag_room - len(_tags(ob)) - (ob.type == "CAMERA")):
             right.label(text="", icon="BLANK1")
+
+
+def _big_view(context):
+    views = [a for a in context.screen.areas if a.type == "VIEW_3D"]
+    return max(views, key=lambda a: a.width * a.height) if views else None
+
+
+def looking_through(context, ob):
+    """True while the viewport looks through this camera."""
+    if context.scene.camera != ob:
+        return False
+    area = _big_view(context)
+    return area is not None and area.spaces.active.region_3d.view_perspective == "CAMERA"
+
+
+class BLENDA4D_OT_om_look_through(bpy.types.Operator):
+    bl_idname = "blenda4d.om_look_through"
+    bl_label = "Look Through Camera"
+    bl_description = "Look through this camera in the viewport; click again to go back to the free view"
+    bl_options = {"REGISTER", "UNDO"}
+    name: bpy.props.StringProperty(options={"SKIP_SAVE"})
+
+    def execute(self, context):
+        ob = context.scene.objects.get(self.name)
+        area = _big_view(context)
+        if ob is None or ob.type != "CAMERA" or area is None:
+            return {"CANCELLED"}
+        r3 = area.spaces.active.region_3d
+        if looking_through(context, ob):
+            r3.view_perspective = "PERSP"
+        else:
+            context.scene.camera = ob
+            r3.view_perspective = "CAMERA"
+        for a in context.screen.areas:
+            a.tag_redraw()
+        return {"FINISHED"}
 
 
 # --- Attribute Manager ------------------------------------------------------------------------------------------
@@ -973,7 +1012,7 @@ class BLENDA4D_PT_assets(roles.RolePanel, bpy.types.Panel):
             b.prop_enum(wm, "b4d_ab_tab", tab, text=label, icon=icon)
 
 
-classes = (BLENDA4D_OT_size_step, BLENDA4D_OT_om_delete, BLENDA4D_OT_om_solo, BLENDA4D_OT_om_scroll_active, BLENDA4D_OT_om_select, BLENDA4D_OT_om_drag, BLENDA4D_OT_om_rename, BLENDA4D_OT_om_fold, BLENDA4D_OT_om_expand, BLENDA4D_OT_group, BLENDA4D_OT_new_material,
+classes = (BLENDA4D_OT_om_look_through, BLENDA4D_OT_size_step, BLENDA4D_OT_om_delete, BLENDA4D_OT_om_solo, BLENDA4D_OT_om_scroll_active, BLENDA4D_OT_om_select, BLENDA4D_OT_om_drag, BLENDA4D_OT_om_rename, BLENDA4D_OT_om_fold, BLENDA4D_OT_om_expand, BLENDA4D_OT_group, BLENDA4D_OT_new_material,
            BLENDA4D_OT_mat_pick, BLENDA4D_OT_mat_tag, *OM_MENUS, *AM_MENUS, *MM_MENUS, *AB_MENUS,
            *(menus.make_more(m) for m in (OM_MENUS, AM_MENUS, MM_MENUS)),
            BLENDA4D_PT_objects, BLENDA4D_PT_om_bar, BLENDA4D_PT_om_head, BLENDA4D_PT_attributes, BLENDA4D_PT_materials, BLENDA4D_PT_assets)

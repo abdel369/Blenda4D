@@ -346,7 +346,83 @@ def _px_update(self, context):
     _tag_redraw()
 
 
-classes = (BLENDA4D_OT_mm_apply, BLENDA4D_OT_mm_pick, BLENDA4D_OT_mm_delete, BLENDA4D_OT_mm_delete_unused,
+GRID_TOP = 4.9         # units from the panel's top to the first row of tiles (title, menus, tool row): measured
+NAME_UNITS = 1.0       # a tile's name button under its preview
+ROW_GAP = 0.25         # units between rows of tiles: measured (64 px tiles repeat every 89 px at 100%)
+
+
+def tile_at(context, x, y):
+    """(material, "name" | "preview") under region point x, y in the icon view, or (None, None) on empty space."""
+    wm = context.window_manager
+    mats = materials(context)
+    region = context.region
+    if wm.b4d_mm_view != "ICONS" or region is None:
+        return None, None
+    ui = context.preferences.system.ui_scale
+    unit = 20 * ui
+    vx, vy = region.view2d.region_to_view(x, y)
+    down = -vy                                      # view y runs down from 0 at the panel's top
+    px = wm.b4d_mm_px
+    avail = region.width / ui - 24
+    cw = px + 12
+    cols = max(1, int(avail // cw))
+    pitch = px * ui + (NAME_UNITS + ROW_GAP) * unit
+    top = GRID_TOP * unit
+    if down < top:
+        return None, None
+    row, dy = divmod(down - top, pitch)
+    slot = min(1.0, cols * cw / max(avail, 1)) * (region.width - 13 * ui) / cols   # one column's width
+    col = int((vx - 3.5 * ui) // slot)
+    if not 0 <= col < cols:
+        return None, None
+    centre = 3.5 * ui + (col + 0.5) * slot
+    i = int(row) * cols + col
+    if i >= len(mats) or abs(vx - centre) > px * ui / 2:
+        return None, None
+    if dy <= px * ui:
+        return mats[i], "preview"
+    if dy <= px * ui + NAME_UNITS * unit:
+        return mats[i], "name"
+    return None, None
+
+
+class BLENDA4D_OT_mm_double(bpy.types.Operator):
+    bl_idname = "blenda4d.mm_double"
+    bl_label = "Material Manager Double-Click"
+    bl_description = "Double-click a name to rename it; double-click empty space for a new material"
+    bl_options = {"UNDO", "INTERNAL"}
+    name: bpy.props.StringProperty(options={"SKIP_SAVE"})
+
+    @classmethod
+    def poll(cls, context):
+        return roles.role(context.area) == "MATERIALS"
+
+    def invoke(self, context, event):
+        mat, part = tile_at(context, event.mouse_region_x, event.mouse_region_y)
+        if mat is None:
+            bpy.ops.blenda4d.new_material()
+            _tag_redraw()
+            return {"FINISHED"}
+        if part != "name":
+            return {"PASS_THROUGH"}
+        self.name = mat.name
+        context.window_manager.b4d_material = mat.name
+        return context.window_manager.invoke_popup(self, width=max(160, context.window_manager.b4d_mm_px * 2))
+
+    def draw(self, context):
+        mat = bpy.data.materials.get(self.name)
+        if mat is not None:
+            self.layout.activate_init = True        # the field opens for typing with the whole name selected
+            self.layout.prop(mat, "name", text="", icon="MATERIAL")
+
+    def execute(self, context):
+        return {"FINISHED"}
+
+
+_keys = []
+
+
+classes = (BLENDA4D_OT_mm_double, BLENDA4D_OT_mm_apply, BLENDA4D_OT_mm_pick, BLENDA4D_OT_mm_delete, BLENDA4D_OT_mm_delete_unused,
            BLENDA4D_OT_mm_delete_duplicates, BLENDA4D_PT_mm_bar)
 
 
@@ -361,9 +437,22 @@ def register():
                                         update=_px_update)
     W.b4d_mm_search = bpy.props.BoolProperty(name="Search Materials", description="Search materials by name")
     W.b4d_mm_filter = bpy.props.StringProperty(name="Search", options={"TEXTEDIT_UPDATE"}, update=_px_update)
+    kc = bpy.context.window_manager.keyconfigs.addon
+    if kc is not None:
+        km = kc.keymaps.new(name="Property Editor", space_type="PROPERTIES")
+        _keys.append((km.name, km.keymap_items.new("blenda4d.mm_double", "LEFTMOUSE", "DOUBLE_CLICK").idname))
 
 
 def unregister():
+    kc = bpy.context.window_manager.keyconfigs.addon
+    if kc is not None:                               # looked up fresh: held keymap items can be freed at quit
+        for name, idname in _keys:
+            km = kc.keymaps.get(name)
+            if km is not None:
+                for kmi in list(km.keymap_items):
+                    if kmi.idname == idname:
+                        km.keymap_items.remove(kmi)
+    _keys.clear()
     W = bpy.types.WindowManager
     for n in ("b4d_mm_view", "b4d_mm_px", "b4d_mm_search", "b4d_mm_filter"):
         delattr(W, n)
