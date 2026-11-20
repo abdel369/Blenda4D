@@ -492,9 +492,9 @@ def draw_create(col, group_gap=0.8, strip=False):
         cell = col.column(align=True) if strip else col.row(align=True)   # a column fills the strip's width
         cell.active = op is not None                   # nothing behind it yet: shown dimmed, menu still opens
         if len(members) > 1:
-            o = cell.operator_menu_hold("blenda4d.create", text="", menu="BLENDA4D_MT_create_" + name, **(icons.strip_kw if strip else icons.kw)(icon, name))
+            o = cell.operator_menu_hold("blenda4d.create", text="", menu="BLENDA4D_MT_create_" + name, **icons.kw(icon, name))
         else:
-            o = cell.operator("blenda4d.create", text="", **(icons.strip_kw if strip else icons.kw)(icon, name))
+            o = cell.operator("blenda4d.create", text="", **icons.kw(icon, name))
         o.group = name
 
 

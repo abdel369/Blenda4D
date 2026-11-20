@@ -10,7 +10,6 @@ import bpy
 DIR = os.path.join(os.path.dirname(__file__), "icons")
 _pcoll = None
 _tools = {}          # tool icon name -> icon_value of its recoloured triangle copy
-_strip = {}          # "<icon>__<group>" -> icon_value of the triangle copy that fills a button (tools/make_strip_icons.py)
 
 
 def _load():
@@ -34,37 +33,13 @@ def _load():
                 _pcoll.load(f[:-4], os.path.join(DIR, f), "IMAGE")
             except Exception:
                 pass
-    _load_strip()
     return _pcoll
-
-
-def _load_strip():
-    if _strip:
-        return
-    folder = os.path.join(DIR, "strip")
-    try:
-        names = os.listdir(folder)
-    except OSError:
-        return
-    for f in names:
-        if f.endswith(".dat"):
-            try:
-                _strip[f[:-4]] = bpy.app.icons.new_triangles_from_file(os.path.join(folder, f))
-            except Exception:
-                pass
 
 
 def logo():
     """icon_value of the Blenda 4D mark (the top bar's first button), or 0."""
     p = _load().get("blenda_logo")
     return p.icon_id if p is not None else 0
-
-
-def strip_kw(name, group):
-    """Like kw(), but the triangle copy that fills its button (the create column in the viewport strip)."""
-    _load()
-    iv = _strip.get(f"{(name or '').lower()}__{group}")
-    return {"icon_value": iv} if iv else kw(name, group)
 
 
 def icon(name, group):
@@ -144,10 +119,4 @@ def unregister():
         except Exception:
             pass
     _tools.clear()
-    for iv in _strip.values():
-        try:
-            bpy.app.icons.release(iv)
-        except Exception:
-            pass
-    _strip.clear()
 _tools = {}          # tool icon name -> icon_value of its recoloured triangle copy
