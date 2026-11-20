@@ -829,6 +829,31 @@ FIELD_F = 0.2          # a number field's share of the rest; a menu's and a text
 MENU_F = 0.49
 
 
+_geo = {"page": 800.0}   # the page's width in pixels, set as the page is drawn
+
+
+def _s():
+    return bpy.context.preferences.system.ui_scale
+
+
+def _label_f():
+    """The label column: a quarter of the page, never narrower than a long label."""
+    return min(0.45, max(LABEL_F, 150 * _s() / max(_geo["page"], 1)))
+
+
+def _right_px():
+    return _geo["page"] * (1 - _label_f())
+
+
+def _field_f():
+    """A number field's share of the rest: short, never too short to show its number."""
+    return min(1.0, max(FIELD_F, 80 * _s() / max(_right_px(), 1)))
+
+
+def _menu_f():
+    return min(1.0, max(MENU_F, 170 * _s() / max(_right_px(), 1)))
+
+
 class PageCol:
     """A page's column: every prop() becomes one row of label (right-aligned, in the label column) and a short field,
     a checkbox without text where the fields start. Anything else goes straight to Blender's layout."""
@@ -853,7 +878,7 @@ class PageCol:
 
     def prop(self, owner, attr, text=None, expand=False, **kw):
         rna = owner.bl_rna.properties[attr]
-        split = self._layout.split(factor=LABEL_F)
+        split = self._layout.split(factor=_label_f())
         split.active = self.active
         lab = split.row()
         lab.alignment = "RIGHT"
@@ -864,14 +889,14 @@ class PageCol:
         elif rna.type == "BOOLEAN" and not getattr(rna, "is_array", False):
             right.prop(owner, attr, text="", **kw)
         else:
-            f = MENU_F if rna.type in ("ENUM", "POINTER", "STRING") else FIELD_F
+            f = _menu_f() if rna.type in ("ENUM", "POINTER", "STRING") else _field_f()
             sub = right.split(factor=f, align=True)
             sub.prop(owner, attr, text="", **kw)
             sub.label(text="")
 
 
 def _label_col(col, label, active=True):
-    split = col.split(factor=LABEL_F)
+    split = col.split(factor=_label_f())
     split.active = active
     lab = split.row()
     lab.alignment = "RIGHT"
@@ -891,13 +916,20 @@ def _field(col, label, owner, attr, menu=None, wide=False, active=True):
         right.prop(owner, attr, text="")
         return
     if wide:
-        sub = right.split(factor=MENU_F)
+        sub = right.split(factor=_menu_f())
         sub.prop(owner, attr, text="")
         sub.label(text="")
         return
-    pair = right.split(factor=FIELD_F)
+    if menu and _geo.get("narrow"):                   # a narrow page: the unit menu on a row of its own
+        sub = right.split(factor=_field_f())
+        sub.prop(owner, attr, text="")
+        sub.label(text="")
+        _field(col, menu[0].bl_rna.properties[menu[1]].name, menu[0], menu[1], wide=True, active=active)
+        return
+    pair = right.split(factor=_field_f())
     pair.prop(owner, attr, text="")
-    rest = pair.split(factor=0.45)
+    rest_px = _right_px() * (1 - _field_f())                 # the unit menu: never too narrow to show its unit
+    rest = pair.split(factor=min(1.0, max(0.45, 110 * _s() / max(rest_px, 1))))
     if menu:
         rest.prop(menu[0], menu[1], text="")
     else:
@@ -923,7 +955,7 @@ def draw_output(col, scene):
     h = rd.resolution_y * rd.resolution_percentage // 100
     _info(col, "Image Resolution:", f"{w} x {h} Pixel")
     _field(col, "Render Scale", rd, "resolution_percentage")
-    split = col.split(factor=LABEL_F)
+    split = col.split(factor=_label_f())
     lab = split.row()
     lab.alignment = "RIGHT"
     lab.prop(p, "show_region", text="", icon="DOWNARROW_HLT" if p.show_region else "RIGHTARROW", emboss=False)
@@ -1254,14 +1286,20 @@ class BLENDA4D_MT_rs_multipass(bpy.types.Menu):
 
 def draw_page(layout, context):
     scene, wm = context.scene, context.window_manager
-    split = layout.split(factor=0.3)
-    left = split.column()
+    width = context.region.width - 2 * 8 * _s()
+    if width < 760 * _s():                       # a narrow area: the lists go above the page instead of beside it
+        left, right = layout.column(), None
+        _geo["page"], _geo["narrow"] = width, True
+    else:
+        split = layout.split(factor=0.3)
+        left, right = split.column(), False
+        _geo["page"], _geo["narrow"] = width * 0.7, False
     top = left.row()
     top.use_property_split = True
     top.use_property_decorate = False
     top.prop(scene.render, "engine", text="Renderer")
     if len(wm.b4d_rs_pages):
-        left.template_list(BLENDA4D_UL_render_pages.bl_idname, "", wm, "b4d_rs_pages", wm, "b4d_rs_page", rows=len(PAGES))
+        left.template_list(BLENDA4D_UL_render_pages.bl_idname, "", wm, "b4d_rs_pages", wm, "b4d_rs_page", rows=len(PAGES))  # noqa
     row = left.row(align=True)                   # under the page list, as in the reference layout
     sub = row.row(align=True)
     sub.enabled = False                          # Blender has no render effects list to add from
@@ -1273,7 +1311,11 @@ def draw_page(layout, context):
     else:
         left.operator("blenda4d.rs_add", text="New Render Setting", icon="ADD")
     left.menu(BLENDA4D_MT_render_setting.bl_idname, text="Render Setting...")
-    right = split.column()
+    if right is None:
+        layout.separator(type="LINE")
+        right = layout.column()
+    else:
+        right = split.column()
     key = current_page(context)
     right.label(text=page_title(scene, key))
     PAGE_DRAW[key](PageCol(right.column()), scene)
