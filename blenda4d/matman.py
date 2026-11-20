@@ -461,6 +461,85 @@ class BLENDA4D_OT_mm_click(bpy.types.Operator):
         return {"FINISHED"}
 
 
+# --- tiles follow edits ---------------------------------------------------------------------------------------------
+# A tile copies Blender's own preview of the material; Blender re-renders that preview only when it draws the
+# material's icon itself, which the tiles never do. So an edited material asks for a new render here. (Blender's
+# change list leaves out materials no object uses, so the nodes are compared instead.)
+_stale = set()
+_wait = [0]
+
+
+_sigs = {}                   # material -> signature of what its preview shows
+
+
+def _value(v):
+    try:
+        return tuple(round(x, 5) for x in v)
+    except TypeError:
+        return round(v, 5) if isinstance(v, float) else v
+
+
+def _signature(mat):
+    """What the preview depends on: every node's kind, unlinked input values and the links."""
+    tree = mat.node_tree
+    if not mat.use_nodes or tree is None:
+        return hash((tuple(mat.diffuse_color), mat.metallic, mat.roughness))
+    parts = []
+    for n in tree.nodes:
+        parts.append(n.bl_idname)
+        for i in n.inputs:
+            if not i.is_linked and hasattr(i, "default_value"):
+                parts.append(_value(i.default_value))
+        img = getattr(n, "image", None)
+        if img is not None:
+            parts.append(img.name)
+    parts.extend((lk.from_socket.identifier, lk.from_node.name, lk.to_socket.identifier, lk.to_node.name) for lk in tree.links)
+    return hash(tuple(parts))
+
+
+def _watch():
+    """While a Material Manager is open: a material whose nodes changed gets a new preview render."""
+    wm = bpy.context.window_manager
+    if wm is None or not any(roles.role(a) == "MATERIALS" for w in wm.windows for a in w.screen.areas):
+        return 1.0
+    for mat in bpy.data.materials:
+        if mat.is_grease_pencil:
+            continue
+        sig = _signature(mat)
+        old = _sigs.get(mat.name)
+        _sigs[mat.name] = sig
+        if old is not None and old != sig:
+            _stale.add(mat.name)
+    if _stale and not bpy.app.timers.is_registered(_rerender):
+        bpy.app.timers.register(_rerender, first_interval=0.3)      # once the edit has settled
+    return 0.5
+
+
+def _rerender():
+    wm = bpy.context.window_manager
+    window = wm.windows[0] if wm and wm.windows else None
+    for name in list(_stale):
+        mat = bpy.data.materials.get(name)
+        if mat is None or window is None:
+            continue
+        try:
+            with bpy.context.temp_override(window=window, id=mat):
+                bpy.ops.ed.lib_id_generate_preview()
+        except (RuntimeError, TypeError):
+            pass
+    _stale.clear()
+    _wait[0] = 12                                    # redraw for a few seconds while the render finishes
+    if not bpy.app.timers.is_registered(_redraw_until_done):
+        bpy.app.timers.register(_redraw_until_done, first_interval=0.25)
+    return None
+
+
+def _redraw_until_done():
+    _tag_redraw()
+    _wait[0] -= 1
+    return 0.25 if _wait[0] > 0 else None
+
+
 _keys = []
 
 
@@ -479,6 +558,8 @@ def register():
                                         update=_px_update)
     W.b4d_mm_search = bpy.props.BoolProperty(name="Search Materials", description="Search materials by name")
     W.b4d_mm_filter = bpy.props.StringProperty(name="Search", options={"TEXTEDIT_UPDATE"}, update=_px_update)
+    if not bpy.app.timers.is_registered(_watch):
+        bpy.app.timers.register(_watch, first_interval=1.0, persistent=True)
     kc = bpy.context.window_manager.keyconfigs.addon
     if kc is not None:
         km = kc.keymaps.new(name="Property Editor", space_type="PROPERTIES")
@@ -488,6 +569,9 @@ def register():
 
 
 def unregister():
+    for t in (_watch, _rerender, _redraw_until_done):
+        if bpy.app.timers.is_registered(t):
+            bpy.app.timers.unregister(t)
     kc = bpy.context.window_manager.keyconfigs.addon
     if kc is not None:                               # looked up fresh: held keymap items can be freed at quit
         for name, idname in _keys:
