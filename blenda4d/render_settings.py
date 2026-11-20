@@ -50,8 +50,9 @@ PASSES = (("pass_z", "use_pass_z", "Depth"), ("pass_mist", "use_pass_mist", "Mis
 # (key, title, switch) of every section; switch = (owner kind, attribute) of the checkbox beside its list row
 PAGES = (("OUTPUT", "Output", None), ("SAVE", "Save", ("rs", "save")), ("MULTIPASS", "Multi-Pass", ("rs", "multipass")),
          ("AA", "Anti-Aliasing", None), ("OPTIONS", "Options", None), ("OVERRIDE", "Material Override", ("rs", "material_override")),
-         ("MOTION_BLUR", "Motion Blur", ("render", "use_motion_blur")), ("COLOR", "Color Management", None),
-         ("LIGHT_PATHS", "Light Paths", None), ("VOLUMES", "Volumes", None))
+         ("ENGINE", "Renderer", None))
+# the last page is the renderer's own, listed under its name
+ENGINE_NAMES = {"BLENDER_EEVEE": "EEVEE", "BLENDER_EEVEE_NEXT": "EEVEE", "CYCLES": "Cycles", "BLENDER_WORKBENCH": "Workbench"}
 
 # What a render setting stores: (owner, attribute). Owners are resolved by _owner().
 TRACK = (
@@ -89,6 +90,15 @@ TRACK = (
     ("eevee", "volumetric_tile_size"), ("eevee", "volumetric_samples"), ("eevee", "volumetric_sample_distribution"),
     ("eevee", "volumetric_start"), ("eevee", "volumetric_end"), ("eevee", "use_volumetric_shadows"),
     ("eevee", "volumetric_shadow_samples"),
+    ("cycles", "device"), ("cycles", "preview_adaptive_threshold"), ("cycles", "use_fast_gi"),
+    ("cycles", "preview_dicing_rate"), ("cycles", "dicing_rate"), ("cycles", "max_subdivisions"),
+    ("cycles", "film_exposure"), ("cycles", "film_transparent_glass"), ("cycles", "tile_size"),
+    ("cycles", "texture_limit_render"), ("render", "preview_pixel_size"),
+    ("eevee", "use_shadows"), ("eevee", "shadow_ray_count"), ("eevee", "shadow_step_count"),
+    ("eevee", "use_raytracing"), ("eevee", "use_fast_gi"),
+    ("display.shading", "light"), ("display.shading", "color_type"), ("display.shading", "show_backface_culling"),
+    ("display.shading", "show_xray"), ("display.shading", "show_shadows"), ("display.shading", "show_cavity"),
+    ("display.shading", "show_object_outline"), ("display.shading", "show_specular_highlight"),
 )
 # set before the rest: which values are allowed later depends on these
 FIRST = (("render", "engine"), ("display_device", "display_device"), ("view", "view_transform"),
@@ -113,6 +123,8 @@ def _owner(scene, kind):
         return scene.display
     if kind == "rs":
         return scene.b4d_render
+    if kind == "display.shading":
+        return scene.display.shading
     return getattr(scene, kind, None)          # "cycles" only exists while the Cycles add-on is on
 
 
@@ -462,14 +474,14 @@ class BLENDA4D_UL_render_sets(bpy.types.UIList):
 
 
 def page_shown(scene, key):
-    e = scene.render.engine
-    if key == "MOTION_BLUR":
-        return e != "BLENDER_WORKBENCH"
-    if key == "LIGHT_PATHS":
-        return e == "CYCLES" and getattr(scene, "cycles", None) is not None
-    if key == "VOLUMES":
-        return e == "BLENDER_EEVEE"
     return True
+
+
+def page_title(scene, key):
+    if key == "ENGINE":
+        e = scene.render.engine
+        return ENGINE_NAMES.get(e, e.replace("_", " ").title())
+    return next(p[1] for p in PAGES if p[0] == key)
 
 
 def _switch_owner(scene, switch):
@@ -488,7 +500,7 @@ class BLENDA4D_UL_render_pages(bpy.types.UIList):
             row.prop(_switch_owner(context.scene, page[2]), page[2][1], text="")
         else:
             row.label(text="", icon="BLANK1")
-        row.label(text=page[1])
+        row.label(text=page_title(context.scene, page[0]))
 
     def filter_items(self, context, data, propname):
         items = getattr(data, propname)
@@ -706,6 +718,8 @@ class BLENDA4D_OT_render_settings(bpy.types.Operator):
         ensure(context.scene)
         wm = context.window_manager
         ensure_pages(wm)
+        if roles.areas(context.screen, "OBJECTS"):           # Blenda's layout: in the viewport's place, under its tabs
+            return {"FINISHED"} if dock(context.window) else {"CANCELLED"}
         old = _window_with_role(context)
         if old is not None:                      # Blender cannot bring a window to the front: open it again
             with context.temp_override(window=old):
@@ -730,6 +744,72 @@ class BLENDA4D_OT_render_settings(bpy.types.Operator):
         return {"FINISHED"}
 
 
+def dock(window):
+    """Show Render Settings where the viewport is (the viewport tab row's middle tab). The area keeps its 3D view,
+    which comes back as it was when View is picked (show_view)."""
+    screen = window.screen
+    if roles.areas(screen, ROLE):
+        return True
+    views = [a for a in screen.areas if a.type == "VIEW_3D"]
+    if not views:
+        return False
+    area = max(views, key=lambda a: a.width * a.height)
+    area.type = "PROPERTIES"
+    tries = [0]
+
+    def finish():
+        try:
+            if not roles.set_role(area, ROLE) and tries[0] < 20:
+                tries[0] += 1
+                return 0.02
+            _header(area)
+            roles.hide_nav(area, window)
+            for a in screen.areas:
+                a.tag_redraw()
+        except (ReferenceError, RuntimeError):
+            pass
+        return None
+    if roles.set_role(area, ROLE):
+        _header(area)
+        roles.hide_nav(area, window)
+    else:
+        bpy.app.timers.register(finish, first_interval=0.02)
+    for a in screen.areas:
+        a.tag_redraw()
+    return True
+
+
+def _header(area):
+    """The docked page keeps a header, at the top as the viewport's is, for the tab row (bars.properties_header)."""
+    space = area.spaces.active
+    space.show_region_header = True
+    for region in area.regions:
+        if region.type == "HEADER" and region.alignment != "TOP":
+            try:
+                with bpy.context.temp_override(area=area, region=region):
+                    bpy.ops.screen.region_flip()
+            except RuntimeError:
+                pass
+
+
+def show_view(screen):
+    """Put the viewport back where Render Settings is shown."""
+    for a in roles.areas(screen, ROLE):
+        a.type = "VIEW_3D"
+    for a in screen.areas:
+        a.tag_redraw()
+
+
+class BLENDA4D_OT_view_tab(bpy.types.Operator):
+    bl_idname = "blenda4d.view_tab"
+    bl_label = "View"
+    bl_description = "Show the viewport"
+
+    def execute(self, context):
+        show_view(context.screen)
+        return {"FINISHED"}
+
+
 def _close_windows():
     wm = bpy.context.window_manager
     if wm is None:
@@ -744,7 +824,50 @@ def _close_windows():
 
 
 # --- pages -------------------------------------------------------------------------------------------------------
-LABEL_F = 0.4          # the label column, as Blender's own property-split rows
+LABEL_F = 0.27         # the label column: a quarter of the page, as in the reference layout
+FIELD_F = 0.2          # a number field's share of the rest; a menu's and a text field's (fields stay short)
+MENU_F = 0.49
+
+
+class PageCol:
+    """A page's column: every prop() becomes one row of label (right-aligned, in the label column) and a short field,
+    a checkbox without text where the fields start. Anything else goes straight to Blender's layout."""
+
+    def __init__(self, layout):
+        self._layout = layout
+        self.active = True
+
+    def __getattr__(self, name):
+        return getattr(self._layout, name)
+
+    def column(self, **kw):
+        kw.pop("heading", None)
+        sub = PageCol(self._layout.column(**kw))
+        sub.active = self.active
+        return sub
+
+    def row(self, **kw):
+        sub = PageCol(self._layout.column())
+        sub.active = self.active
+        return sub
+
+    def prop(self, owner, attr, text=None, expand=False, **kw):
+        rna = owner.bl_rna.properties[attr]
+        split = self._layout.split(factor=LABEL_F)
+        split.active = self.active
+        lab = split.row()
+        lab.alignment = "RIGHT"
+        lab.label(text=rna.name if text is None else text)
+        right = split.row(align=True)
+        if expand:
+            right.prop(owner, attr, expand=True, **kw)
+        elif rna.type == "BOOLEAN" and not getattr(rna, "is_array", False):
+            right.prop(owner, attr, text="", **kw)
+        else:
+            f = MENU_F if rna.type in ("ENUM", "POINTER", "STRING") else FIELD_F
+            sub = right.split(factor=f, align=True)
+            sub.prop(owner, attr, text="", **kw)
+            sub.label(text="")
 
 
 def _label_col(col, label, active=True):
@@ -764,13 +887,22 @@ def _info(col, label, text):
 def _field(col, label, owner, attr, menu=None, wide=False, active=True):
     """Label on the left, a short value field, and an optional dropdown beside it (Width + unit)."""
     right = _label_col(col, label, active)
-    if wide:
+    if owner.bl_rna.properties[attr].type == "BOOLEAN":
         right.prop(owner, attr, text="")
         return
-    pair = right.split(factor=0.4)
+    if wide:
+        sub = right.split(factor=MENU_F)
+        sub.prop(owner, attr, text="")
+        sub.label(text="")
+        return
+    pair = right.split(factor=FIELD_F)
     pair.prop(owner, attr, text="")
+    rest = pair.split(factor=0.45)
     if menu:
-        pair.prop(menu[0], menu[1], text="")
+        rest.prop(menu[0], menu[1], text="")
+    else:
+        rest.label(text="")
+    rest.label(text="")
 
 
 def _rows(col, owner, attrs):
@@ -820,20 +952,39 @@ def draw_output(col, scene):
     _field(col, "Annotations", p, "annotations", wide=True)
 
 
+def _group(col, text):
+    """A group heading on a page (Sampling, Light Paths ...)."""
+    col.separator(factor=0.3)
+    col.label(text=text)
+
+
+def _auto(col, owner, attr, label, active=True):
+    """One row for one of Blender's settings, left out when this Blender has no such setting."""
+    if owner is None or not hasattr(owner, attr):
+        return
+    row = col.row()
+    row.active = active
+    row.prop(owner, attr, text=label)
+
+
 def draw_save(col, scene):
     rd = scene.render
     img = rd.image_settings
-    col.prop(scene.b4d_render, "save", text="Save Still Renders")
+    _group(col, "Regular Image")
+    col.prop(scene.b4d_render, "save", text="Save")
     col.prop(rd, "filepath", text="File")
     col.prop(img, "file_format", text="Format")
-    col.row().prop(img, "color_mode", text="Color", expand=True)
     if len(img.bl_rna.properties["color_depth"].enum_items) > 1:
         col.row().prop(img, "color_depth", text="Depth", expand=True)
+    col.row().prop(img, "color_mode", text="Color Mode", expand=True)
     if img.file_format in {"JPEG", "WEBP", "AVIF", "JPEG2000"}:
         col.prop(img, "quality", text="Quality")
     elif img.file_format == "PNG":
         col.prop(img, "compression", text="Compression")
-    col.prop(rd, "film_transparent", text="Transparent Background")
+    col.prop(scene.view_settings, "view_transform", text="Image Color Profile")
+    col.prop(rd, "film_transparent", text="Alpha Channel")
+    col.prop(rd, "use_compositing", text="Compositing")
+    _group(col, "Files")
     col.prop(rd, "use_file_extension", text="File Extensions")
     col.prop(rd, "use_overwrite", text="Overwrite Existing Files")
     col.prop(rd, "use_placeholder", text="Placeholders")
@@ -841,6 +992,7 @@ def draw_save(col, scene):
 
 def draw_multipass(col, scene):
     p = scene.b4d_render
+    _group(col, "Multi-Pass Image")
     col.prop(p, "multipass")
     sub = col.column(heading="Passes")
     sub.active = p.multipass
@@ -853,47 +1005,41 @@ def draw_samples(col, scene):
     e = scene.render.engine
     cy = getattr(scene, "cycles", None)
     if e == "CYCLES" and cy is not None:
-        sub = col.column(align=True)
-        sub.prop(cy, "samples", text="Render Samples")
-        sub.prop(cy, "preview_samples", text="Viewport Samples")
+        col.prop(cy, "samples", text="Max Samples")
         col.prop(cy, "use_adaptive_sampling", text="Adaptive Sampling")
-        sub = col.column(align=True)
-        sub.active = cy.use_adaptive_sampling
-        sub.prop(cy, "adaptive_threshold", text="Noise Threshold")
-        sub.prop(cy, "adaptive_min_samples", text="Min Samples")
-        col.prop(cy, "time_limit", text="Time Limit")
-        col.prop(cy, "use_denoising", text="Denoise Render")
-        sub = col.column()
-        sub.active = cy.use_denoising
-        sub.prop(cy, "denoiser", text="Denoiser")
-        col.prop(cy, "use_preview_denoising", text="Denoise Viewport")
-        col.prop(cy, "pixel_filter_type", text="Pixel Filter")
-        col.prop(cy, "filter_width", text="Filter Width")
+        _auto(col, cy, "adaptive_threshold", "Noise Threshold", cy.use_adaptive_sampling)
+        col.prop(cy, "use_denoising", text="Denoise")
+        _auto(col, cy, "pixel_filter_type", "Pixel Filter")
+        _auto(col, cy, "filter_width", "Filter Width")
     elif e == "BLENDER_WORKBENCH":
-        col.prop(scene.display, "render_aa", text="Render")
+        col.prop(scene.display, "render_aa", text="Anti-Aliasing")
         col.prop(scene.display, "viewport_aa", text="Viewport")
     else:
-        sub = col.column(align=True)
-        sub.prop(scene.eevee, "taa_render_samples", text="Render Samples")
-        sub.prop(scene.eevee, "taa_samples", text="Viewport Samples")
+        col.prop(scene.eevee, "taa_render_samples", text="Samples")
         col.prop(scene.render, "filter_size", text="Filter Size")
 
 
 def draw_options(col, scene):
     rd = scene.render
+    cy = getattr(scene, "cycles", None)
+    if rd.engine != "BLENDER_WORKBENCH":
+        col.prop(rd, "use_motion_blur", text="Motion Blur")
+        _auto(col, rd, "motion_blur_shutter", "Shutter", rd.use_motion_blur)
+        _auto(col, rd, "motion_blur_position", "Shutter Position", rd.use_motion_blur)
+        col.separator(type="LINE")
     col.prop(rd, "use_simplify", text="Simplify")
-    sub = col.column(align=True)
-    sub.active = rd.use_simplify
-    sub.prop(rd, "simplify_subdivision_render", text="Max Subdivision")
-    sub.prop(rd, "simplify_child_particles_render", text="Child Particles")
+    _auto(col, rd, "simplify_subdivision_render", "Subdivision Level", rd.use_simplify)
+    _auto(col, rd, "simplify_child_particles_render", "Child Particles", rd.use_simplify)
+    if rd.engine == "CYCLES":
+        _auto(col, cy, "texture_limit_render", "Texture Limit", rd.use_simplify)
     col.separator(type="LINE")
     col.prop(rd, "threads_mode", text="Threads")
-    sub = col.column()
-    sub.active = rd.threads_mode == "FIXED"
-    sub.prop(rd, "threads", text="Thread Count")
-    col.prop(rd, "use_persistent_data", text="Keep Data Between Frames")
+    _auto(col, rd, "threads", "Thread Count", rd.threads_mode == "FIXED")
+    col.prop(rd, "use_persistent_data", text="Persistent Data")
     col.prop(rd, "dither_intensity", text="Dither")
-    col.prop(rd, "use_compositing", text="Compositing")
+    if rd.engine == "CYCLES" and cy is not None:
+        _auto(col, cy, "device", "Device")
+        _auto(col, cy, "max_bounces", "Light Paths")
 
 
 def draw_override(col, scene):
@@ -901,29 +1047,51 @@ def draw_override(col, scene):
     col.prop(p, "material_override")
     sub = col.column()
     sub.active = p.material_override
-    sub.prop(p, "override_material", text="Material")
+    sub.prop(p, "override_material", text="Custom Material")
 
 
-def draw_motion_blur(col, scene):
-    rd = scene.render
-    col.prop(rd, "use_motion_blur", text="Motion Blur")
-    col = col.column()
-    col.active = rd.use_motion_blur
-    col.prop(rd, "motion_blur_position", text="Position")
-    col.prop(rd, "motion_blur_shutter", text="Shutter")
+def draw_engine(col, scene):
+    """The renderer's own page: what artists change every day in plain sight; for Cycles, the rest of its settings
+    under Advanced, closed until opened."""
+    e = scene.render.engine
     cy = getattr(scene, "cycles", None)
-    if rd.engine == "CYCLES" and cy is not None:
-        col.prop(cy, "rolling_shutter_type", text="Rolling Shutter")
-        sub = col.column()
-        sub.active = rd.use_motion_blur and cy.rolling_shutter_type != "NONE"
-        sub.prop(cy, "rolling_shutter_duration", text="Rolling Duration")
-    elif rd.engine == "BLENDER_EEVEE":
-        col.prop(scene.eevee, "motion_blur_steps", text="Steps")
-        col.prop(scene.eevee, "motion_blur_max", text="Max Blur")
-        col.prop(scene.eevee, "motion_blur_depth_scale", text="Depth Scale")
-
-
-def draw_color(col, scene):
+    if e == "CYCLES" and cy is not None:
+        _draw_cycles(col, scene, cy)
+    elif e == "BLENDER_WORKBENCH":
+        wb = scene.display.shading
+        _group(col, "Lighting")
+        col.prop(wb, "light", text="Lighting")
+        col.prop(wb, "color_type", text="Color")
+        col.prop(scene.display, "render_aa", text="Anti-Aliasing")
+        _group(col, "Options")
+        for attr, label in (("show_backface_culling", "Backface Culling"), ("show_xray", "X-Ray"), ("show_shadows", "Shadow"),
+                            ("show_cavity", "Cavity"), ("show_object_outline", "Outline"),
+                            ("show_specular_highlight", "Specular Highlights")):
+            _auto(col, wb, attr, label)
+    else:
+        ee = scene.eevee
+        _group(col, "Sampling")
+        _auto(col, ee, "taa_render_samples", "Render Samples")
+        _auto(col, ee, "taa_samples", "Viewport Samples")
+        _group(col, "Shadows and Lighting")
+        _auto(col, ee, "use_shadows", "Shadows")
+        _auto(col, ee, "shadow_ray_count", "Shadow Rays")
+        _auto(col, ee, "shadow_step_count", "Shadow Steps")
+        _auto(col, ee, "use_raytracing", "Raytracing")
+        _auto(col, ee, "use_fast_gi", "Fast GI")
+        _group(col, "Volumes")
+        for attr, label in (("volumetric_tile_size", "Resolution"), ("volumetric_samples", "Steps"),
+                            ("volumetric_sample_distribution", "Distribution"), ("volumetric_start", "Start"),
+                            ("volumetric_end", "End"), ("use_volumetric_shadows", "Volume Shadows")):
+            _auto(col, ee, attr, label)
+        _auto(col, ee, "volumetric_shadow_samples", "Shadow Steps", getattr(ee, "use_volumetric_shadows", True))
+        _group(col, "Motion Blur")
+        _auto(col, ee, "motion_blur_steps", "Steps", scene.render.use_motion_blur)
+        _auto(col, ee, "motion_blur_max", "Max Blur", scene.render.use_motion_blur)
+        _group(col, "Film")
+        col.prop(scene.render, "filter_size", text="Filter Size")
+        col.prop(scene.render, "film_transparent", text="Transparent")
+    _group(col, "Color Management")
     col.prop(scene.display_settings, "display_device", text="Display")
     col.prop(scene.view_settings, "view_transform", text="View")
     col.prop(scene.view_settings, "look", text="Look")
@@ -931,36 +1099,157 @@ def draw_color(col, scene):
     col.prop(scene.view_settings, "gamma", text="Gamma")
 
 
-def draw_light_paths(col, scene):
-    cy = scene.cycles
-    sub = col.column(align=True)
-    _rows(sub, cy, (("max_bounces", "Total Bounces"), ("diffuse_bounces", "Diffuse"), ("glossy_bounces", "Glossy"),
-                    ("transmission_bounces", "Transmission"), ("volume_bounces", "Volume"),
-                    ("transparent_max_bounces", "Transparent")))
-    sub = col.column(align=True)
-    _rows(sub, cy, (("sample_clamp_direct", "Clamp Direct"), ("sample_clamp_indirect", "Clamp Indirect")))
-    col.prop(cy, "blur_glossy", text="Filter Glossy")
-    col.prop(cy, "caustics_reflective", text="Reflective Caustics")
-    col.prop(cy, "caustics_refractive", text="Refractive Caustics")
-
-
-def draw_volumes(col, scene):
-    ee = scene.eevee
-    col.prop(ee, "volumetric_tile_size", text="Resolution")
-    col.prop(ee, "volumetric_samples", text="Steps")
-    col.prop(ee, "volumetric_sample_distribution", text="Distribution")
-    sub = col.column(align=True)
-    sub.prop(ee, "volumetric_start", text="Start")
-    sub.prop(ee, "volumetric_end", text="End")
-    col.prop(ee, "use_volumetric_shadows", text="Volume Shadows")
-    sub = col.column()
-    sub.active = ee.use_volumetric_shadows
-    sub.prop(ee, "volumetric_shadow_samples", text="Shadow Steps")
+def _draw_cycles(col, scene, cy):
+    rd = scene.render
+    _group(col, "Sampling")
+    for attr, label, on in (("device", "Device", True), ("samples", "Render Samples", True),
+                            ("preview_samples", "Viewport Samples", True), ("use_adaptive_sampling", "Adaptive Sampling", True),
+                            ("adaptive_threshold", "Noise Threshold", cy.use_adaptive_sampling),
+                            ("adaptive_min_samples", "Min Samples", cy.use_adaptive_sampling),
+                            ("preview_adaptive_threshold", "Viewport Noise Threshold", True), ("time_limit", "Time Limit", True),
+                            ("use_denoising", "Denoise", True), ("denoiser", "Denoiser", cy.use_denoising),
+                            ("use_preview_denoising", "Viewport Denoise", True)):
+        _auto(col, cy, attr, label, on)
+    _group(col, "Light Paths")
+    for attr, label in (("max_bounces", "Max Bounces"), ("diffuse_bounces", "Diffuse"), ("glossy_bounces", "Glossy"),
+                        ("transmission_bounces", "Transmission"), ("volume_bounces", "Volume"),
+                        ("transparent_max_bounces", "Transparent"), ("caustics_reflective", "Caustics Reflective"),
+                        ("caustics_refractive", "Caustics Refractive"), ("blur_glossy", "Filter Glossy"),
+                        ("sample_clamp_direct", "Clamp Direct"), ("sample_clamp_indirect", "Clamp Indirect"),
+                        ("use_fast_gi", "Fast GI Approximation")):
+        _auto(col, cy, attr, label)
+    _group(col, "Subdivision")
+    _auto(col, cy, "preview_dicing_rate", "Viewport Dicing Rate")
+    _auto(col, cy, "dicing_rate", "Render Dicing Rate")
+    _auto(col, cy, "max_subdivisions", "Max Subdivisions")
+    _group(col, "Film")
+    _auto(col, cy, "film_exposure", "Exposure")
+    col.prop(rd, "film_transparent", text="Transparent")
+    _auto(col, cy, "film_transparent_glass", "Transparent Glass", rd.film_transparent)
+    _auto(col, cy, "pixel_filter_type", "Pixel Filter")
+    _auto(col, cy, "filter_width", "Filter Width")
+    _group(col, "Performance")
+    col.prop(rd, "use_persistent_data", text="Persistent Data")
+    col.prop(rd, "threads_mode", text="Threads")
+    _auto(col, cy, "tile_size", "Tile Size")
+    _auto(col, rd, "preview_pixel_size", "Viewport Pixel Size")
+    wm = bpy.context.window_manager
+    col.separator()
+    row = col._layout.row()
+    row.alignment = "LEFT"
+    row.prop(wm, "b4d_rs_advanced", text="Advanced", emboss=False,
+             icon="DOWNARROW_HLT" if wm.b4d_rs_advanced else "RIGHTARROW")
+    if not wm.b4d_rs_advanced:
+        return
+    on = cy.use_preview_denoising
+    _group(col, "Viewport Sampling")
+    _auto(col, cy, "use_preview_adaptive_sampling", "Adaptive Sampling")
+    _auto(col, cy, "preview_adaptive_min_samples", "Min Samples", getattr(cy, "use_preview_adaptive_sampling", True))
+    for attr, label in (("preview_denoiser", "Denoiser"), ("preview_denoising_input_passes", "Passes"),
+                        ("preview_denoising_prefilter", "Prefilter"), ("preview_denoising_quality", "Quality"),
+                        ("preview_denoising_start_sample", "Start Sample"), ("preview_denoising_use_gpu", "Use GPU")):
+        _auto(col, cy, attr, label, on)
+    on = cy.use_denoising
+    _group(col, "Render Denoising")
+    for attr, label in (("denoising_input_passes", "Passes"), ("denoising_prefilter", "Prefilter"),
+                        ("denoising_quality", "Quality"), ("denoising_use_gpu", "Use GPU")):
+        _auto(col, cy, attr, label, on)
+    _group(col, "Path Guiding")
+    _auto(col, cy, "use_guiding", "Path Guiding")
+    on = getattr(cy, "use_guiding", False)
+    for attr, label in (("guiding_training_samples", "Training Samples"), ("use_surface_guiding", "Surface Guiding"),
+                        ("use_volume_guiding", "Volume Guiding")):
+        _auto(col, cy, attr, label, on)
+    _group(col, "Lights")
+    _auto(col, cy, "use_light_tree", "Light Tree")
+    _auto(col, cy, "light_sampling_threshold", "Light Threshold")
+    _group(col, "Sampling Pattern")
+    for attr, label in (("sampling_pattern", "Pattern"), ("seed", "Seed"), ("use_animated_seed", "Animated Seed"),
+                        ("scrambling_distance", "Scrambling Distance"), ("auto_scrambling_distance", "Automatic Scrambling"),
+                        ("preview_scrambling_distance", "Viewport Scrambling"), ("min_light_bounces", "Min Light Bounces"),
+                        ("min_transparent_bounces", "Min Transparent Bounces"), ("use_layer_samples", "Layer Samples"),
+                        ("use_pixel_jitter", "Pixel Jitter"), ("use_sample_subset", "Sample Subset")):
+        _auto(col, cy, attr, label)
+    on = getattr(cy, "use_sample_subset", False)
+    _auto(col, cy, "sample_offset", "Subset Offset", on)
+    _auto(col, cy, "sample_subset_length", "Subset Length", on)
+    _group(col, "Fast GI")
+    on = getattr(cy, "use_fast_gi", False)
+    _auto(col, cy, "fast_gi_method", "Method", on)
+    _auto(col, cy, "ao_bounces", "Viewport Bounces", on)
+    _auto(col, cy, "ao_bounces_render", "Render Bounces", on)
+    world = scene.world.light_settings if scene.world is not None else None
+    _auto(col, world, "ao_factor", "AO Factor", on)
+    _auto(col, world, "distance", "AO Distance", on)
+    _group(col, "Subdivision")
+    _auto(col, cy, "offscreen_dicing_scale", "Offscreen Scale")
+    _auto(col, cy, "dicing_camera", "Dicing Camera")
+    _group(col, "Volumes")
+    for attr, label in (("volume_step_rate", "Step Rate Render"), ("volume_preview_step_rate", "Step Rate Viewport"),
+                        ("volume_max_steps", "Max Steps"), ("volume_biased", "Biased")):
+        _auto(col, cy, attr, label)
+    curves = getattr(scene, "cycles_curves", None)
+    _group(col, "Hair Curves")
+    _auto(col, curves, "shape", "Shape")
+    _auto(col, curves, "subdivisions", "Curve Subdivisions")
+    _group(col, "Film")
+    _auto(col, cy, "film_transparent_roughness", "Roughness Threshold",
+          rd.film_transparent and getattr(cy, "film_transparent_glass", False))
+    on = rd.use_motion_blur
+    _group(col, "Motion Blur")
+    col.prop(rd, "use_motion_blur", text="Motion Blur")
+    _auto(col, rd, "motion_blur_shutter", "Shutter", on)
+    _auto(col, rd, "motion_blur_position", "Shutter Position", on)
+    _auto(col, cy, "rolling_shutter_type", "Rolling Shutter", on)
+    _auto(col, cy, "rolling_shutter_duration", "Rolling Shutter Duration", on)
+    on = rd.use_simplify
+    _group(col, "Simplify")
+    for owner, attr, label in ((rd, "simplify_subdivision", "Viewport Subdivision"),
+                               (rd, "simplify_child_particles", "Viewport Child Particles"),
+                               (rd, "simplify_child_particles_render", "Render Child Particles"),
+                               (cy, "texture_limit", "Viewport Texture Limit"), (rd, "simplify_volumes", "Volume Resolution"),
+                               (rd, "use_simplify_normals", "Normals"), (cy, "use_camera_cull", "Camera Culling"),
+                               (cy, "use_distance_cull", "Distance Culling")):
+        _auto(col, owner, attr, label, on)
+    _auto(col, cy, "camera_cull_margin", "Camera Cull Margin", on and getattr(cy, "use_camera_cull", False))
+    _auto(col, cy, "distance_cull_margin", "Cull Distance", on and getattr(cy, "use_distance_cull", False))
+    _group(col, "Threads and Memory")
+    _auto(col, rd, "threads", "Thread Count", rd.threads_mode == "FIXED")
+    _auto(col, rd, "use_texture_cache", "Texture Cache")
+    _auto(col, rd, "use_auto_generate_texture_cache", "Generate Cache Files")
+    _group(col, "Acceleration Structure")
+    for attr, label in (("debug_use_spatial_splits", "Spatial Splits"), ("debug_use_hair_bvh", "Hair BVH"),
+                        ("debug_use_compact_bvh", "Compact BVH"), ("debug_bvh_time_steps", "Motion Steps")):
+        _auto(col, cy, attr, label)
+    bake = rd.bake
+    _group(col, "Bake")
+    _auto(col, cy, "bake_type", "Bake Type")
+    for attr, label in (("view_from", "View From"), ("use_selected_to_active", "Selected to Active"), ("use_cage", "Cage"),
+                        ("cage_object", "Cage Object"), ("cage_extrusion", "Extrusion"), ("max_ray_distance", "Max Ray Distance"),
+                        ("target", "Target"), ("use_clear", "Clear Image"), ("margin_type", "Margin Type"), ("margin", "Margin"),
+                        ("use_pass_direct", "Direct"), ("use_pass_indirect", "Indirect"), ("use_pass_color", "Color"),
+                        ("use_pass_diffuse", "Diffuse"), ("use_pass_glossy", "Glossy"), ("use_pass_transmission", "Transmission"),
+                        ("use_pass_emit", "Emit"), ("normal_space", "Normal Space"), ("normal_r", "Swizzle R"),
+                        ("normal_g", "Swizzle G"), ("normal_b", "Swizzle B"), ("displacement_space", "Displacement Space"),
+                        ("use_lores_mesh", "Low Resolution Mesh"), ("use_multires", "Multires")):
+        _auto(col, bake, attr, label)
+    col.operator("object.bake", text="Bake")
 
 
 PAGE_DRAW = {"OUTPUT": draw_output, "SAVE": draw_save, "MULTIPASS": draw_multipass, "AA": draw_samples,
-             "OPTIONS": draw_options, "OVERRIDE": draw_override, "MOTION_BLUR": draw_motion_blur, "COLOR": draw_color,
-             "LIGHT_PATHS": draw_light_paths, "VOLUMES": draw_volumes}
+             "OPTIONS": draw_options, "OVERRIDE": draw_override, "ENGINE": draw_engine}
+
+
+class BLENDA4D_MT_rs_multipass(bpy.types.Menu):
+    bl_idname = "BLENDA4D_MT_rs_multipass"
+    bl_label = "Multi-Pass"
+
+    def draw(self, context):
+        p = context.scene.b4d_render
+        self.layout.prop(p, "multipass")
+        self.layout.separator()
+        for prop, _attr, label in PASSES:
+            self.layout.prop(p, prop, text=label)
 
 
 def draw_page(layout, context):
@@ -972,8 +1261,12 @@ def draw_page(layout, context):
     top.use_property_decorate = False
     top.prop(scene.render, "engine", text="Renderer")
     if len(wm.b4d_rs_pages):
-        left.template_list(BLENDA4D_UL_render_pages.bl_idname, "", wm, "b4d_rs_pages", wm, "b4d_rs_page",
-                           rows=len([p for p in PAGES if page_shown(scene, p[0])]))
+        left.template_list(BLENDA4D_UL_render_pages.bl_idname, "", wm, "b4d_rs_pages", wm, "b4d_rs_page", rows=len(PAGES))
+    row = left.row(align=True)                   # under the page list, as in the reference layout
+    sub = row.row(align=True)
+    sub.enabled = False                          # Blender has no render effects list to add from
+    sub.operator("blenda4d.noop", text="Effect...")
+    row.menu(BLENDA4D_MT_rs_multipass.bl_idname, text="Multi-Pass...")
     left.separator(factor=2.0)
     if len(sets(scene)):
         left.template_list(BLENDA4D_UL_render_sets.bl_idname, "", scene, "b4d_rsets", scene, "b4d_rs_index", rows=4)
@@ -982,11 +1275,8 @@ def draw_page(layout, context):
     left.menu(BLENDA4D_MT_render_setting.bl_idname, text="Render Setting...")
     right = split.column()
     key = current_page(context)
-    right.label(text=next(p[1] for p in PAGES if p[0] == key))
-    col = right.column()
-    col.use_property_split = True
-    col.use_property_decorate = False
-    PAGE_DRAW[key](col, scene)
+    right.label(text=page_title(scene, key))
+    PAGE_DRAW[key](PageCol(right.column()), scene)
 
 
 class BLENDA4D_PT_render_settings(roles.RolePanel, bpy.types.Panel):
@@ -1008,10 +1298,10 @@ def _commit_on_save(*_args):
             print("Blenda 4D: render setting not stored:", ex)
 
 
-CLASSES = (BLENDA4D_RenderProps, BLENDA4D_RenderSet, BLENDA4D_RenderPage, BLENDA4D_UL_render_sets,
+CLASSES = (BLENDA4D_MT_rs_multipass, BLENDA4D_RenderProps, BLENDA4D_RenderSet, BLENDA4D_RenderPage, BLENDA4D_UL_render_sets,
            BLENDA4D_UL_render_pages, BLENDA4D_OT_rs_add, BLENDA4D_OT_rs_duplicate, BLENDA4D_OT_rs_remove,
            BLENDA4D_OT_rs_move, BLENDA4D_OT_rs_rename, BLENDA4D_MT_render_setting, BLENDA4D_OT_render,
-           BLENDA4D_OT_render_settings, BLENDA4D_PT_render_settings)
+           BLENDA4D_OT_render_settings, BLENDA4D_OT_view_tab, BLENDA4D_PT_render_settings)
 HANDLERS = (("save_pre", _commit_on_save), ("render_complete", _restore), ("render_cancel", _restore))
 
 
@@ -1035,6 +1325,8 @@ def register():
     WM = bpy.types.WindowManager
     WM.b4d_rs_pages = bpy.props.CollectionProperty(type=BLENDA4D_RenderPage)
     WM.b4d_rs_page = bpy.props.IntProperty(name="Section", default=0)
+    WM.b4d_rs_advanced = bpy.props.BoolProperty(name="Advanced", default=False,
+                                                description="Show the rest of the renderer's settings")
     for name, fn in HANDLERS:
         if fn not in getattr(bpy.app.handlers, name):
             getattr(bpy.app.handlers, name).append(fn)
@@ -1042,6 +1334,11 @@ def register():
 
 
 def unregister():
+    try:
+        for w in bpy.context.window_manager.windows:
+            show_view(w.screen)
+    except Exception as ex:
+        print("Blenda 4D: viewport not put back:", ex)
     try:
         _close_windows()
     except Exception as ex:
@@ -1052,7 +1349,7 @@ def unregister():
             getattr(bpy.app.handlers, name).remove(fn)
     if bpy.app.timers.is_registered(_fill_pages):
         bpy.app.timers.unregister(_fill_pages)
-    for T, names in ((bpy.types.WindowManager, ("b4d_rs_page", "b4d_rs_pages")),
+    for T, names in ((bpy.types.WindowManager, ("b4d_rs_advanced", "b4d_rs_page", "b4d_rs_pages")),
                      (bpy.types.Scene, ("b4d_rs_loaded", "b4d_rs_index", "b4d_rsets", "b4d_render"))):
         for name in names:
             if hasattr(T, name):

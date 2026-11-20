@@ -147,8 +147,10 @@ def view_tabs(self, context):
     """The viewport's tab row: View | Render Settings | Render Viewer."""
     layout = self.layout
     row = layout.row(align=True)
-    row.operator("blenda4d.noop", text="View", depress=True)
-    row.operator("blenda4d.render_settings", text="Render Settings")
+    row.alignment = "LEFT"
+    docked = bool(roles.areas(context.screen, "RENDER"))
+    row.operator("blenda4d.view_tab", text="View", depress=not docked)
+    row.operator("blenda4d.render_settings", text="Render Settings", depress=docked)
     row.operator("render.view_show", text="Render Viewer")
 
 
@@ -173,8 +175,15 @@ def timeline_header(self, context):
     layout.prop(scene, "frame_end", text="")
 
 
+def properties_header(self, context):
+    """Render Settings shown in the viewport's place keeps the viewport's tab row in its header."""
+    if roles.role(context.area) == "RENDER":
+        return view_tabs(self, context)
+    return _saved["PROPERTIES_HT_header"](self, context)
+
+
 _saved = {}
-OVERRIDES = (("TOPBAR_HT_upper_bar", "draw_left", topbar_left), ("TOPBAR_HT_upper_bar", "draw_right", topbar_right),
+OVERRIDES = (("PROPERTIES_HT_header", "draw", properties_header), ("TOPBAR_HT_upper_bar", "draw_left", topbar_left), ("TOPBAR_HT_upper_bar", "draw_right", topbar_right),
              ("VIEW3D_HT_header", "draw", view_tabs), ("VIEW3D_HT_tool_header", "draw", view_header),
              ("DOPESHEET_HT_header", "draw", timeline_header))
 

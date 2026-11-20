@@ -131,6 +131,8 @@ def _zoom(window, area, n):
 
 def steps(window, materials=False, assets=False):
     screen = window.screen
+    from . import render_settings
+    render_settings.show_view(screen)                     # Render Settings in the viewport's place: viewport back first
     # 1. everything back into one viewport
     for _ in range(40):
         extra = [a for a in screen.areas if a.type != "VIEW_3D"] + \

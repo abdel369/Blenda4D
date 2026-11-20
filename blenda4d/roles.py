@@ -36,7 +36,12 @@ def role(area):
     if area is None or area.type != "PROPERTIES":
         return None
     space = area.spaces.active
-    if space.show_region_header or not getattr(space, "show_properties_tool", True):
+    if not getattr(space, "show_properties_tool", True):
+        return None
+    if space.show_region_header:               # only Render Settings, shown in the viewport's place, keeps its header:
+        if getattr(space, "show_properties_render", False) and "RENDER" in ROLE_FLAGS:   # the viewport's tab row
+            on = [name for name, flag in ROLE_FLAGS.items() if getattr(space, flag, False)]
+            return "RENDER" if on == ["RENDER"] else None
         return None
     on = [name for name, flag in ROLE_FLAGS.items() if getattr(space, flag, False)]
     return on[0] if len(on) == 1 else None
