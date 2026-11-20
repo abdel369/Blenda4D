@@ -108,17 +108,6 @@ MAIN = {
     "Help": [item("Blender Manual", "wm.url_open_preset", "HELP", type="MANUAL"), item("About Blender", "wm.splash_about", "BLENDER")],
 }
 
-VIEW = {
-    "View": [item("Frame All", "view3d.view_all", "VIEWZOOM"), item("Frame Selected", "view3d.view_selected"), SEP,
-             item("Perspective", "view3d.view_persportho"), item("Top", "view3d.view_axis", type="TOP"),
-             item("Front", "view3d.view_axis", type="FRONT"), item("Right", "view3d.view_axis", type="RIGHT")],
-    "Cameras": [item("Default Camera", "view3d.view_persportho"), item("Use Scene Camera", "view3d.view_camera", "OUTLINER_OB_CAMERA")],
-    "Display": [item("Wireframe", "blenda4d.shading", "SHADING_WIRE", mode="WIREFRAME"), item("Solid", "blenda4d.shading", "SHADING_SOLID", mode="SOLID"),
-                item("Material", "blenda4d.shading", "SHADING_TEXTURE", mode="MATERIAL"), item("Rendered", "blenda4d.shading", "SHADING_RENDERED", mode="RENDERED")],
-    "Options": [item("Toggle Grid", "blenda4d.overlay", "GRID", what="show_floor"), item("Toggle Axes", "blenda4d.overlay", what="show_axis_x")],
-    "Filter": [item("Show Everything", "blenda4d.overlay", what="show_extras")],
-    "Panel": [item("Toggle Quad View", "screen.region_quadview", "VIEW_ORTHO")],
-}
 
 
 def _make(label, items, prefix):
@@ -136,7 +125,7 @@ def _make(label, items, prefix):
 
 
 MAIN_CLASSES = [_make(k, v, "main") for k, v in MAIN.items()]
-VIEW_CLASSES = [_make(k, v, "view") for k, v in VIEW.items()]
+from .viewmenus import OPS as VIEW_OPS, VIEW_CLASSES  # noqa: E402  the viewport's own menus (viewmenus.py)
 
 
 def menu_bar(layout, classes, labels=None):
@@ -157,7 +146,7 @@ def simple_menu(label, items, manager="mgr"):
     return _make(label, items, manager)
 
 
-classes = (BLENDA4D_OT_noop, *MAIN_CLASSES, *VIEW_CLASSES)
+classes = (BLENDA4D_OT_noop, *VIEW_OPS, *MAIN_CLASSES, *VIEW_CLASSES)
 
 
 def register():
