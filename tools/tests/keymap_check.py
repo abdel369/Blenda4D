@@ -38,9 +38,10 @@ def first(kc, km_name, key, **mods):
     return None
 
 
-blenda4d.register()
 kcs = bpy.context.window_manager.keyconfigs
-before = kcs.active.name
+before = kcs.active.name                       # the key map before the add-on: what the Blender switch gives back
+blenda4d.register()
+check(kcs.active.name == "Blenda_4D", "turning the add-on on makes Blenda 4D the key map at once (active: %s)" % kcs.active.name)
 # listed for as long as the add-on is installed, in either mode (keymap.add_preset_path)
 check(any(os.path.isfile(os.path.join(d, "Blenda_4D.py")) for d in bpy.utils.preset_paths("keyconfig")),
       "preset listed once the add-on is on, before Blenda mode")

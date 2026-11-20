@@ -77,6 +77,14 @@ def _use_blenda_keys():
     activate(NAME)
 
 
+def choose_at_start():
+    """With the add-on on, Blenda 4D is the key map from the start: add-ons register after Blender has loaded the saved
+    key map and before it builds the splash, so switching here makes the splash's Keymap show Blenda 4D. The key map
+    in use until now is remembered for the Blender switch."""
+    if _keyconfigs() is not None:
+        _use_blenda_keys()
+
+
 def _restore_keys():
     if active_name() != NAME:
         return                               # the person picked another key map themselves: leave it

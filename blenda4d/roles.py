@@ -33,9 +33,11 @@ def _flags(space):
 
 
 def role(area):
-    if area is None or area.type != "PROPERTIES":
-        return None
+    if area is None or area.type != "PROPERTIES" or not len(area.spaces):
+        return None                            # an area being changed can have no editor yet: never read it
     space = area.spaces.active
+    if space is None:
+        return None
     if not getattr(space, "show_properties_tool", True):
         return None
     if space.show_region_header:               # only Render Settings, shown in the viewport's place, keeps its header:

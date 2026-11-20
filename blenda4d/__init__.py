@@ -30,9 +30,12 @@ def register():
     settings.register()
     switch.register()
     try:                                                  # before Blender first draws its splash
-        switch.splash(settings.get().mode)
+        on = settings.get().mode
     except (KeyError, AttributeError):
-        switch.splash(True)
+        on = True
+    switch.splash(on)
+    if on:                                                # the Blenda 4D key map, chosen before Blender loads one,
+        keymap.choose_at_start()                          # so the splash's Keymap shows it too
     if _after_load not in bpy.app.handlers.load_post:
         bpy.app.handlers.load_post.append(_after_load)
     bpy.app.timers.register(_start, first_interval=0.5)

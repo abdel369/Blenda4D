@@ -375,7 +375,7 @@ def _tags(ob):
 
 def _main_view(context):
     """The largest 3D view in the window, with its drawing region."""
-    views = [a for a in context.window.screen.areas if a.type == "VIEW_3D"]
+    views = [a for a in context.window.screen.areas if a.type == "VIEW_3D" and len(a.spaces)]
     if not views:
         return None, None
     area = max(views, key=lambda a: a.width * a.height)
@@ -384,7 +384,8 @@ def _main_view(context):
 
 def _in_solo(context):
     area, _ = _main_view(context)
-    return area is not None and area.spaces.active.local_view is not None
+    r3 = _region_3d(area)                                  # None while the area is being changed
+    return r3 is not None and area.spaces.active.local_view is not None
 
 
 class BLENDA4D_OT_om_solo(bpy.types.Operator):
@@ -623,16 +624,24 @@ class BLENDA4D_PT_objects(roles.RolePanel, bpy.types.Panel):
 
 
 def _big_view(context):
-    views = [a for a in context.screen.areas if a.type == "VIEW_3D"]
+    views = [a for a in context.screen.areas if a.type == "VIEW_3D" and len(a.spaces)]
     return max(views, key=lambda a: a.width * a.height) if views else None
+
+
+def _region_3d(area):
+    """The 3D view's view data, or None while the area is being changed (it can have no editor then)."""
+    if area is None or not len(area.spaces):
+        return None
+    space = area.spaces.active
+    return getattr(space, "region_3d", None) if space is not None and space.type == "VIEW_3D" else None
 
 
 def looking_through(context, ob):
     """True while the viewport looks through this camera."""
     if context.scene.camera != ob:
         return False
-    area = _big_view(context)
-    return area is not None and area.spaces.active.region_3d.view_perspective == "CAMERA"
+    r3 = _region_3d(_big_view(context))
+    return r3 is not None and r3.view_perspective == "CAMERA"
 
 
 class BLENDA4D_OT_om_look_through(bpy.types.Operator):
@@ -647,7 +656,9 @@ class BLENDA4D_OT_om_look_through(bpy.types.Operator):
         area = _big_view(context)
         if ob is None or ob.type != "CAMERA" or area is None:
             return {"CANCELLED"}
-        r3 = area.spaces.active.region_3d
+        r3 = _region_3d(area)
+        if r3 is None:
+            return {"CANCELLED"}
         if looking_through(context, ob):
             r3.view_perspective = "PERSP"
         else:
