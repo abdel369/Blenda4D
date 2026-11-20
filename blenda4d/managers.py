@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """The managers: Object Manager, Attribute Manager (follows the selection), Material Manager, Asset Browser,
 Variations. Each is a panel drawn with Blender's UI elements in its own role area."""
+import math
 import time
 
 import bpy
@@ -214,7 +215,9 @@ def visible_rows(context):
 
 def row_height():
     s = bpy.context.preferences.system
-    return round(18 * s.ui_scale) + 2 * s.pixel_size
+    # Blender's own row height (U.widget_unit): C rounding, half away from zero. Python's round() rounds halves to even,
+    # so at scales where 18 * scale ends in .5 (e.g. 125% on Windows) the rows came out a pixel short and drifted (#4).
+    return int(math.floor(18 * s.ui_scale + 0.5) + 2 * s.pixel_size)
 
 
 def row_at(context, region, mouse_y):
