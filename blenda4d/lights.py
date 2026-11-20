@@ -362,7 +362,10 @@ def draw_rows(col, rows):
             _, owner, attr, label, active = r
             row = col.row()
             row.active = bool(active)
-            row.prop(owner, attr, text=label)
+            if owner.bl_rna.properties[attr].type == "BOOLEAN":
+                row.prop(owner, attr, text=label, toggle=0, icon="NONE")   # a checkbox, never an icon button
+            else:
+                row.prop(owner, attr, text=label)
 
 
 def _page(rows_fn):

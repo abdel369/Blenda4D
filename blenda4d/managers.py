@@ -506,13 +506,15 @@ class BLENDA4D_PT_objects(roles.RolePanel, bpy.types.Panel):
         layout.separator(factor=0.3)
         col = layout.column(align=True)
         drop = context.window_manager.b4d_om_drop
-        for ob, depth in visible_rows(context):
-            self._row(col, ob, depth)
+        rows = visible_rows(context)
+        tags = max((len(_tags(ob)) for ob, _d in rows), default=0)   # every row keeps room for the most tags,
+        for ob, depth in rows:                                        # so the dots and checks stay in columns
+            self._row(col, ob, depth, tags)
 
         if drop == TOP_LEVEL:
             col.label(text="Move to top level", icon="TRIA_UP")
 
-    def _row(self, col, ob, depth):
+    def _row(self, col, ob, depth, tag_room=0):
         row = col.row(align=True)
         if depth:
             row.separator(factor=1.6 * depth)
@@ -536,6 +538,8 @@ class BLENDA4D_PT_objects(roles.RolePanel, bpy.types.Panel):
                 right.label(text="", icon_value=right.icon(mat))
             else:
                 right.label(text="", icon=icon)
+        for _ in range(tag_room - len(_tags(ob))):
+            right.label(text="", icon="BLANK1")
 
 
 # --- Attribute Manager ------------------------------------------------------------------------------------------
