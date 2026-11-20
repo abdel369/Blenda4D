@@ -29,12 +29,17 @@ def register():
     keymap.add_preset_path()
     settings.register()
     switch.register()
+    try:                                                  # before Blender first draws its splash
+        switch.splash(settings.get().mode)
+    except (KeyError, AttributeError):
+        switch.splash(True)
     if _after_load not in bpy.app.handlers.load_post:
         bpy.app.handlers.load_post.append(_after_load)
     bpy.app.timers.register(_start, first_interval=0.5)
 
 
 def unregister():
+    switch.splash(False)
     if _after_load in bpy.app.handlers.load_post:
         bpy.app.handlers.load_post.remove(_after_load)
     switch.unregister()

@@ -4,6 +4,8 @@
 On: Blenda's bars, managers and theme go in, and a "Blenda 4D" workspace with Blenda's layout is made and shown (the
 workspace the person was in is remembered). Off: everything Blenda registered is taken back, the theme is restored,
 the remembered workspace comes back and the Blenda workspace is removed, so the file is as it was."""
+import os
+
 import bpy
 
 from . import bars, build, coords, kinds, layouts, managers, matman, menus, primitives, roles, theme
@@ -111,7 +113,30 @@ def _screen_chrome(on):
         _saved_prefs.clear()
 
 
+SPLASH = os.path.join(os.path.dirname(__file__), "splash.jpg")
+_splash_saved = []
+
+
+def splash(on):
+    """Blenda 4D's picture on Blender's splash while Blenda mode is on. Blender reads the BLENDER_CUSTOM_SPLASH
+    environment variable each time it draws the splash (wm_splash_screen.cc, wm_block_splash_image); a value the
+    person set themselves is kept and put back."""
+    key = "BLENDER_CUSTOM_SPLASH"
+    if on and os.path.exists(SPLASH):
+        if not _splash_saved:
+            _splash_saved.append(os.environ.get(key))
+        if _splash_saved[0] is None:                      # never over a splash the person chose
+            os.environ[key] = SPLASH
+    elif not on and _splash_saved:
+        old = _splash_saved.pop()
+        if old is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = old
+
+
 def set_mode(on):
+    splash(on)
     if on and not _on[0]:
         _register_mode()
         theme.apply()
