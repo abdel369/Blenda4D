@@ -72,6 +72,9 @@ def manager_title(layout, title, right_tabs=None):
 
 
 # --- Object Manager -------------------------------------------------------------------------------------------------
+CAMERA_PAGES = {}            # tab -> fn(col, ob): the camera's own pages (cameras.py)
+CAMERA_TABS = []             # its extra tabs after Basic, Coord., Object
+CAMERA_TITLES = {}
 AM_SUBJECTS = {}             # "TAG" -> fn(layout, context, ob) -> True when it drew the page (wm.b4d_am_subject "TAG:...")
 OM_TAG_BUTTON = []           # [fn(layout, ob, slot_index, material)]: draws a material swatch as a clickable tag
 _clicks = ["", 0.0]          # last Object Manager click: row name, time (two on one row = rename)
@@ -599,6 +602,8 @@ def _page_tabs(ob):
     tabs = list(TABS_COMMON)
     if ob.type == "MESH":
         tabs.append(("PHONG", "Phong", ""))
+    if ob.type == "CAMERA" and CAMERA_PAGES:
+        tabs += CAMERA_TABS
     if ob.type == "LIGHT":
         tabs[2] = ("OBJECT", "General", "")
         tabs += [("DETAILS", "Details", ""), ("SHADOW", "Shadow", "")]
@@ -784,14 +789,22 @@ class BLENDA4D_PT_attributes(roles.RolePanel, bpy.types.Panel):
         label = (kinds.KINDS[own]["label"] if own else
                  (primitives.PRIMS[kind][1] + " Object") if kind else TYPE_LABEL.get(ob.type, "Object"))
         head.label(text=f"{label} [{ob.name}]", **type_icon_kw(ob))
-        layout.row(align=True).prop(wm, "b4d_am_tab", expand=True)
+        if len(_page_tabs(ob)) > 5:                       # many pages: tabs wrap onto two rows of four
+            tg = layout.grid_flow(row_major=True, columns=4, even_columns=True, align=True)
+            for key, label, _d in _page_tabs(ob):
+                tg.prop_enum(wm, "b4d_am_tab", key, text=label)
+        else:
+            layout.row(align=True).prop(wm, "b4d_am_tab", expand=True)
         tab = wm.b4d_am_tab
         tabs = [t[0] for t in _page_tabs(ob)]
         if tab not in tabs:
             tab = "OBJECT" if "OBJECT" in tabs else tabs[min(2, len(tabs) - 1)]
         layout.separator(factor=0.5)
         page = kinds.KINDS[own]["pages"].get(tab) if own else None
-        title = (kinds.KINDS[own]["titles"].get(tab) if own else None) or {
+        if page is None and ob.type == "CAMERA" and tab in CAMERA_PAGES:
+            page = CAMERA_PAGES[tab]
+        title = (kinds.KINDS[own]["titles"].get(tab) if own else None) or (
+            CAMERA_TITLES.get(tab) if ob.type == "CAMERA" else None) or {
             "BASIC": "Basic Properties", "COORD": "Coordinates", "OBJECT": "Object Properties", "PHONG": "Phong",
             "DETAILS": "Details", "SHADOW": "Shadow"}.get(tab, dict((t[0], t[1]) for t in _page_tabs(ob)).get(tab, tab))
         layout.label(text=title)
