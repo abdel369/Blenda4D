@@ -85,7 +85,7 @@ def row_y(i):
     from blenda4d import managers
     r = om_region()
     h = managers.row_height()
-    vy = -(managers.ROWS_TOP_UNITS + i + 0.5) * h
+    vy = -(managers.rows_top() + i + 0.5) * h
     return r.y + int(r.view2d.view_to_region(0, vy, clip=False)[1])
 
 

@@ -190,6 +190,7 @@ class BLENDA4D_OT_group(bpy.types.Operator):
 
 
 TOP_LEVEL = "\x00top"
+ROWS_TOP_APART = 0.35        # with the title, menus and tools in their own strip above (OM_HEAD)
 ROWS_TOP_UNITS = 4.40        # where the first object row starts, in row heights below the top of the panel area (measured
 #                               on Blender 5.2 and 5.3, Mac, Windows and Linux, at every Size: icon centres sit at 4.40 + i + 0.5)
 STRIPE = (0.02, 0.02, 0.02, 1.0)      # added to every other Object Manager row: +5 grey levels, as in the original (Joseph, Nov 19)
@@ -214,6 +215,16 @@ def visible_rows(context):
     return out
 
 
+def head_apart(screen):
+    return any(roles.role(a) == "OM_HEAD" for a in screen.areas)
+
+
+def rows_top(screen=None):
+    """Where the first object row starts, in row heights below the top of the Object Manager's panel area."""
+    screen = screen or bpy.context.window.screen
+    return ROWS_TOP_APART if head_apart(screen) else ROWS_TOP_UNITS
+
+
 def row_height():
     s = bpy.context.preferences.system
     # Blender's own row height (U.widget_unit): C rounding, half away from zero. Python's round() rounds halves to even,
@@ -225,7 +236,7 @@ def row_at(context, region, mouse_y):
     """Index of the Object Manager row under a window y (len(rows) or more = below the last row, -1 = above)."""
     y = region.view2d.region_to_view(0, mouse_y - region.y)[1]
     h = row_height()
-    return int((-y - ROWS_TOP_UNITS * h) // h)
+    return int((-y - rows_top() * h) // h)
 
 
 def object_at(context, event):
@@ -413,7 +424,7 @@ class BLENDA4D_OT_om_scroll_active(bpy.types.Operator):
         if ob not in rows:
             return {"CANCELLED"}
         h = row_height()
-        row_top = -(ROWS_TOP_UNITS + rows.index(ob)) * h
+        row_top = -(rows_top() + rows.index(ob)) * h
         v2d = region.view2d
         top = v2d.region_to_view(0, region.height)[1]
         bottom = v2d.region_to_view(0, 0)[1]
@@ -487,36 +498,66 @@ class BLENDA4D_PT_om_bar(roles.RolePanel, bpy.types.Panel):
         size_bar(row, "b4d_om_zoom")
 
 
+def _status_split(context, buttons):
+    """The split factor that leaves exactly `buttons` icon widths (plus a little room) for the status side of a row,
+    whatever the panel width and the Size (zoom)."""
+    region = context.region
+    try:
+        v2d = region.view2d
+        zoom = (v2d.view_to_region(0, 0, clip=False)[1] - v2d.view_to_region(0, -1000, clip=False)[1]) / 1000
+    except (AttributeError, ZeroDivisionError):
+        zoom = 1.0
+    width = region.width / max(zoom, 0.01)               # the panel's width in layout units
+    need = buttons * row_height() + row_height() * 0.6
+    return max(0.25, min(0.9, 1 - need / max(width, 1)))
+
+
+def draw_om_head(layout, context):
+    """The Object Manager's title, menus, search and tool row."""
+    manager_title(layout, "Objects")
+    sp = layout.split(factor=0.915, align=True)     # menus on the left, the search box at the right edge
+    bar = sp.row(align=True)
+    bar.label(text="", icon="COLLAPSEMENU")
+    menus.menu_bar(bar, OM_MENUS)
+    sp.prop(context.window_manager, "b4d_om_search", text="", icon="VIEWZOOM")
+    tools = layout.split(factor=0.2, align=True).row(align=True)   # the tool row: scroll to the active object, solo
+    tools.operator("blenda4d.om_scroll_active", text="", icon="ZOOM_SELECTED", emboss=False)
+    tools.operator("blenda4d.om_solo", text="", icon="SELECT_INTERSECT", emboss=False,
+                   depress=_in_solo(context))
+
+
+class BLENDA4D_PT_om_head(roles.RolePanel, bpy.types.Panel):
+    """The Object Manager's top strip, an area of its own so the Size slider zooms only the object rows."""
+    bl_label = "Object Manager"
+    role = "OM_HEAD"
+
+    def draw(self, context):
+        draw_om_head(self.layout, context)
+
+
 class BLENDA4D_PT_objects(roles.RolePanel, bpy.types.Panel):
     bl_label = "Objects"
     role = "OBJECTS"
 
     def draw(self, context):
         layout = self.layout
-        manager_title(layout, "Objects")
-        bar = layout.row(align=True)
-        bar.label(text="", icon="COLLAPSEMENU")
-        menus.menu_bar(bar, OM_MENUS)
-        bar.separator_spacer()
-        bar.prop(context.window_manager, "b4d_om_search", text="", icon="VIEWZOOM")
-        tools = layout.row(align=True)                  # the tool row: scroll to the active object, solo
-        tools.alignment = "LEFT"
-        tools.operator("blenda4d.om_scroll_active", text="", icon="ZOOM_SELECTED", emboss=False)
-        tools.operator("blenda4d.om_solo", text="", icon="SELECT_INTERSECT", emboss=False,
-                       depress=_in_solo(context))
-        layout.separator(factor=0.3)
+        if not head_apart(context.window.screen):          # a layout saved before the head had its own strip
+            draw_om_head(layout, context)
+            layout.separator(factor=0.3)
         col = layout.column(align=True)
         drop = context.window_manager.b4d_om_drop
         rows = visible_rows(context)
         tags = max((len(_tags(ob)) for ob, _d in rows), default=0)   # every row keeps room for the most tags,
-        for ob, depth in rows:                                        # so the dots and checks stay in columns
-            self._row(col, ob, depth, tags)
+        split = _status_split(context, 3 + tags)                      # so the dots and checks stay in columns
+        for ob, depth in rows:
+            self._row(col, ob, depth, tags, split)
 
         if drop == TOP_LEVEL:
             col.label(text="Move to top level", icon="TRIA_UP")
 
-    def _row(self, col, ob, depth, tag_room=0):
-        row = col.row(align=True)
+    def _row(self, col, ob, depth, tag_room=0, split=0.6):
+        sp = col.split(factor=split, align=True)          # name side | a fixed-width status side: a long name or a
+        row = sp.row(align=True)                          # larger Size never squeezes the dots and checks together
         if depth:
             row.separator(factor=1.6 * depth)
         if ob.children:
@@ -527,7 +568,7 @@ class BLENDA4D_PT_objects(roles.RolePanel, bpy.types.Panel):
         name = row.row(align=True)
         name.alignment = "LEFT"
         name.label(text=ob.name, **type_icon_kw(ob))     # a label, so a press here can start a drag (see om_drag)
-        right = row.row(align=True)
+        right = sp.row(align=True)
         right.alignment = "RIGHT"
         right.prop(ob, "hide_viewport", text="", emboss=False, icon="LAYER_ACTIVE" if not ob.hide_viewport else "LAYER_USED")
         right.prop(ob, "hide_render", text="", emboss=False, icon="LAYER_ACTIVE" if not ob.hide_render else "LAYER_USED")
@@ -887,7 +928,7 @@ class BLENDA4D_PT_assets(roles.RolePanel, bpy.types.Panel):
 
 classes = (BLENDA4D_OT_size_step, BLENDA4D_OT_om_delete, BLENDA4D_OT_om_solo, BLENDA4D_OT_om_scroll_active, BLENDA4D_OT_om_select, BLENDA4D_OT_om_drag, BLENDA4D_OT_om_rename, BLENDA4D_OT_om_fold, BLENDA4D_OT_om_expand, BLENDA4D_OT_group, BLENDA4D_OT_new_material,
            BLENDA4D_OT_mat_pick, BLENDA4D_OT_mat_tag, *OM_MENUS, *AM_MENUS, *MM_MENUS, *AB_MENUS,
-           BLENDA4D_PT_objects, BLENDA4D_PT_om_bar, BLENDA4D_PT_attributes, BLENDA4D_PT_materials, BLENDA4D_PT_assets)
+           BLENDA4D_PT_objects, BLENDA4D_PT_om_bar, BLENDA4D_PT_om_head, BLENDA4D_PT_attributes, BLENDA4D_PT_materials, BLENDA4D_PT_assets)
 
 
 def _vis_get(attr):
@@ -951,8 +992,8 @@ def _draw_rows():
     rows = visible_rows(context)
     i = 0
     while True:
-        top = region.view2d.view_to_region(0, -(ROWS_TOP_UNITS + i) * h, clip=False)[1]
-        bottom = region.view2d.view_to_region(0, -(ROWS_TOP_UNITS + i + 1) * h, clip=False)[1]   # zoomed rows are taller
+        top = region.view2d.view_to_region(0, -(rows_top() + i) * h, clip=False)[1]
+        bottom = region.view2d.view_to_region(0, -(rows_top() + i + 1) * h, clip=False)[1]   # zoomed rows are taller
         if bottom > region.height:           # above the visible part: skip on
             i += 1
             continue
