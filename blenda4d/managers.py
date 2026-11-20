@@ -190,7 +190,8 @@ class BLENDA4D_OT_group(bpy.types.Operator):
 
 
 TOP_LEVEL = "\x00top"
-ROWS_TOP_UNITS = 4.15        # where the first object row starts, in row heights below the top of the panel area
+ROWS_TOP_UNITS = 4.40        # where the first object row starts, in row heights below the top of the panel area (measured
+#                               on Blender 5.2 and 5.3, Mac, Windows and Linux, at every Size: icon centres sit at 4.40 + i + 0.5)
 STRIPE = (0.02, 0.02, 0.02, 1.0)      # added to every other Object Manager row: +5 grey levels, as in the original (Joseph, Nov 19)
 
 
