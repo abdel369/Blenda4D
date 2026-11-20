@@ -41,8 +41,9 @@ def first(kc, km_name, key, **mods):
 blenda4d.register()
 kcs = bpy.context.window_manager.keyconfigs
 before = kcs.active.name
-check(not any(os.path.isfile(os.path.join(d, "Blenda_4D.py")) for d in bpy.utils.preset_paths("keyconfig")),
-      "preset not listed before Blenda mode")
+# listed for as long as the add-on is installed, in either mode (keymap.add_preset_path)
+check(any(os.path.isfile(os.path.join(d, "Blenda_4D.py")) for d in bpy.utils.preset_paths("keyconfig")),
+      "preset listed once the add-on is on, before Blenda mode")
 switch.set_mode(True)
 listed = [os.path.join(d, f) for d in bpy.utils.preset_paths("keyconfig") for f in os.listdir(d) if f.endswith(".py")]
 print("keyconfig presets:", [os.path.basename(p) for p in listed])
@@ -122,8 +123,8 @@ check(find(kc, "3D View", "transform.translate", "G") is not None or
 # Blender switch puts back the key map that was there before
 switch.set_mode(False)
 check(kcs.active.name == before, f"Blender switch restores '{before}' (active: {kcs.active.name})")
-check(keymap.PRESET not in [os.path.join(d, f) for d in bpy.utils.preset_paths("keyconfig") for f in os.listdir(d)],
-      "preset folder unregistered after Blender switch")
+check(keymap.PRESET in [os.path.join(d, f) for d in bpy.utils.preset_paths("keyconfig") for f in os.listdir(d)],
+      "preset still listed after the Blender switch (the add-on is still installed)")
 check("Blenda_4D" not in kcs, "Blenda key configuration removed after Blender switch")
 # a key map the person picked in Blenda mode is left alone by the switch
 switch.set_mode(True)
@@ -134,5 +135,7 @@ switch.set_mode(True)
 check(kcs.active.name == "Blenda_4D", "Blenda mode on again selects Blenda 4D")
 switch.set_mode(False)
 check(kcs.active.name == "Industry_Compatible", "...and the switch back restores Industry Compatible")
-print("KEYMAP CHECK", "PASSED" if not FAIL else "FAILED %d" % len(FAIL), flush=True)
 blenda4d.unregister()
+check(keymap.PRESET not in [os.path.join(d, f) for d in bpy.utils.preset_paths("keyconfig") for f in os.listdir(d)],
+      "preset folder unregistered when the add-on is turned off")
+print("KEYMAP CHECK", "PASSED" if not FAIL else "FAILED %d" % len(FAIL), flush=True)
