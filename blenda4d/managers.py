@@ -128,6 +128,23 @@ class BLENDA4D_OT_om_select(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class BLENDA4D_OT_om_delete(bpy.types.Operator):
+    bl_idname = "blenda4d.om_delete"
+    bl_label = "Delete"
+    bl_description = "Delete the selected objects"
+    bl_options = {"UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        return roles.role(context.area) == "OBJECTS" and any(o.select_get() for o in context.view_layer.objects)
+
+    def execute(self, context):
+        if context.mode != "OBJECT":
+            bpy.ops.object.mode_set(mode="OBJECT")
+        context.window_manager.b4d_am_subject = ""
+        return bpy.ops.object.delete(confirm=False)
+
+
 class BLENDA4D_OT_om_fold(bpy.types.Operator):
     bl_idname = "blenda4d.om_fold"
     bl_label = "Fold"
@@ -839,7 +856,7 @@ class BLENDA4D_PT_assets(roles.RolePanel, bpy.types.Panel):
             b.prop_enum(wm, "b4d_ab_tab", tab, text=label, icon=icon)
 
 
-classes = (BLENDA4D_OT_om_solo, BLENDA4D_OT_om_scroll_active, BLENDA4D_OT_om_select, BLENDA4D_OT_om_drag, BLENDA4D_OT_om_rename, BLENDA4D_OT_om_fold, BLENDA4D_OT_om_expand, BLENDA4D_OT_group, BLENDA4D_OT_new_material,
+classes = (BLENDA4D_OT_om_delete, BLENDA4D_OT_om_solo, BLENDA4D_OT_om_scroll_active, BLENDA4D_OT_om_select, BLENDA4D_OT_om_drag, BLENDA4D_OT_om_rename, BLENDA4D_OT_om_fold, BLENDA4D_OT_om_expand, BLENDA4D_OT_group, BLENDA4D_OT_new_material,
            BLENDA4D_OT_mat_pick, BLENDA4D_OT_mat_tag, *OM_MENUS, *AM_MENUS, *MM_MENUS, *AB_MENUS,
            BLENDA4D_PT_objects, BLENDA4D_PT_om_bar, BLENDA4D_PT_attributes, BLENDA4D_PT_materials, BLENDA4D_PT_assets)
 
@@ -947,6 +964,8 @@ def _add_keymap():
     _keymaps.append((km, km.keymap_items.new("blenda4d.om_select", "LEFTMOUSE", "CLICK", shift=True)))
     _keymaps.append((km, km.keymap_items.new("blenda4d.om_rename", "LEFTMOUSE", "DOUBLE_CLICK")))
     _keymaps.append((km, km.keymap_items.new("blenda4d.om_rename", "F2", "PRESS")))
+    for key in ("DEL", "BACK_SPACE"):                      # Delete and Backspace delete the selection (issue #2)
+        _keymaps.append((km, km.keymap_items.new("blenda4d.om_delete", key, "PRESS")))
 
 
 def unregister():
