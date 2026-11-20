@@ -306,6 +306,7 @@ def dress_view(area):
         if getattr(v3d, attr) != want:
             setattr(v3d, attr, want)
     v3d.show_gizmo_navigate = False
+    v3d.lock_camera = True          # looking through a camera, orbit / pan / zoom move the camera itself
     v3d.overlay.show_text = False
     v3d.overlay.show_stats = False
 

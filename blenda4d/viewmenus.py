@@ -106,6 +106,7 @@ class BLENDA4D_OT_use_camera(bpy.types.Operator):
             return {"CANCELLED"}
         context.scene.camera = ob
         sp.region_3d.view_perspective = "CAMERA"
+        sp.lock_camera = True                                 # navigating now moves this camera
         return {"FINISHED"}
 
 

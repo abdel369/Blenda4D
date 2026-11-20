@@ -666,6 +666,7 @@ class BLENDA4D_OT_om_look_through(bpy.types.Operator):
         else:
             context.scene.camera = ob
             r3.view_perspective = "CAMERA"
+            area.spaces.active.lock_camera = True             # navigating now moves this camera
         for a in context.screen.areas:
             a.tag_redraw()
         return {"FINISHED"}
