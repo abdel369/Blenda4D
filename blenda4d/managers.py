@@ -12,7 +12,7 @@ TYPE_ICON = {"MESH": "MESH_CUBE", "CURVE": "CURVE_BEZCURVE", "SURFACE": "OUTLINE
              "FONT": "OUTLINER_OB_FONT", "EMPTY": "OUTLINER_OB_EMPTY", "LIGHT": "LIGHT_AREA", "CAMERA": "OUTLINER_OB_CAMERA",
              "ARMATURE": "OUTLINER_OB_ARMATURE", "LATTICE": "OUTLINER_OB_LATTICE", "VOLUME": "OUTLINER_OB_VOLUME",
              "POINTCLOUD": "OUTLINER_OB_POINTCLOUD", "CURVES": "OUTLINER_OB_CURVES", "GREASEPENCIL": "OUTLINER_OB_GREASEPENCIL"}
-TYPE_LABEL = {"MESH": "Polygon Object", "CURVE": "Spline", "FONT": "Text", "EMPTY": "Null", "LIGHT": "Light Object",
+TYPE_LABEL = {"MESH": "Polygon Object", "CURVE": "Spline", "FONT": "Text Spline Object", "EMPTY": "Null", "LIGHT": "Light Object",
               "CAMERA": "Camera Object", "ARMATURE": "Joint", "LATTICE": "FFD", "VOLUME": "Volume", "SURFACE": "Surface",
               "META": "Metaball", "POINTCLOUD": "Point Cloud", "CURVES": "Hair", "GREASEPENCIL": "Sketch"}
 
@@ -73,6 +73,7 @@ def manager_title(layout, title, right_tabs=None):
 
 # --- Object Manager -------------------------------------------------------------------------------------------------
 CAMERA_PAGES = {}            # tab -> fn(col, ob): the camera's own pages (cameras.py)
+FONT_PAGE = []               # [fn(col, ob)]: the text object's Object page (texts.py)
 CAMERA_TABS = []             # its extra tabs after Basic, Coord., Object
 CAMERA_TITLES = {}
 AM_SUBJECTS = {}             # "TAG" -> fn(layout, context, ob) -> True when it drew the page (wm.b4d_am_subject "TAG:...")
@@ -748,6 +749,8 @@ def page_object(col, ob):
         col.prop(d, "dimensions", text="Type")
         col.prop(d, "extrude", text="Extrude")
         col.prop(d, "bevel_depth", text="Thickness")
+    elif ob.type == "FONT" and FONT_PAGE:
+        FONT_PAGE[0](col, ob)
     elif ob.type == "FONT":
         col.prop(d, "body", text="Text")
         col.prop(d, "size", text="Height")
