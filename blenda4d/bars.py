@@ -274,8 +274,8 @@ class BLENDA4D_PT_palette(roles.RolePanel, bpy.types.Panel):
             topbar.draw(top, context)
         end = whole.row(align=True)
         end.alignment = "RIGHT"
-        end.scale_y = 1.5
-        end.scale_x = 1.5
+        end.scale_y = 1.2                                # the same size as the buttons on the left
+        end.scale_x = 1.2
         g = end.row(align=True)
         _palette_button(g, "blenda4d.toggle_column", "MATERIAL", depress=bool(roles.areas(screen, "MATERIALS")), name="MATERIALS")
         _palette_button(g, "screen.userpref_show", "PREFERENCES")
