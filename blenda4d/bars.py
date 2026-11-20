@@ -311,11 +311,12 @@ class BLENDA4D_PT_modes(roles.RolePanel, bpy.types.Panel):
 
 
 class BLENDA4D_PT_view_tools(bpy.types.Panel):
-    """The tools column inside the viewport's own toolbar strip, which Blender keeps at a fixed width when the
-    window is resized (a separate area would stretch with it)."""
+    """The create column inside the viewport's own toolbar strip, which Blender keeps at a fixed width when the
+    window is resized or a neighbouring edge is dragged (a separate area would stretch). The strip sits on the
+    viewport's right edge (build.dress_view), beside the managers, where the create column belongs."""
     bl_space_type = "VIEW_3D"
     bl_region_type = "TOOLS"
-    bl_label = "Blenda 4D Tools"
+    bl_label = "Blenda 4D Create"
     bl_options = {"HIDE_HEADER"}
 
     @classmethod
@@ -324,12 +325,13 @@ class BLENDA4D_PT_view_tools(bpy.types.Panel):
         return switch.is_on()
 
     def draw(self, context):
-        col = self.layout.column(align=True)
-        col.scale_y = TOOLS_SCALE_Y
-        draw_tools(col, context)
+        col = self.layout.column(align=True)           # joined buttons, a clear gap between groups
+        col.scale_y = STRIP_SCALE_Y
+        draw_create(col, group_gap=STRIP_GROUP_GAP, strip=True)
 
 
-TOOLS_SCALE_Y = 2.0          # square buttons in the toolbar strip
+STRIP_SCALE_Y = 2.0          # square buttons in the strip, as tall as they are wide
+STRIP_GROUP_GAP = 0.8
 
 
 def _hide_blender_tools():
@@ -474,25 +476,30 @@ def _group_menu(group):
 GROUP_MENUS = [_group_menu(g) for g in GROUPS]
 
 
+def draw_create(col, group_gap=0.8, strip=False):
+    """The create column: one button per group (press and hold for the whole group)."""
+    for g in CREATE_GROUPS:
+        if g is None:
+            col.separator(factor=group_gap)
+            continue
+        name, members = g
+        label, icon, op, props = members[min(_head.get(name, 0), len(members) - 1)]
+        cell = col.column(align=True) if strip else col.row(align=True)   # a column fills the strip's width
+        cell.active = op is not None                   # nothing behind it yet: shown dimmed, menu still opens
+        if len(members) > 1:
+            o = cell.operator_menu_hold("blenda4d.create", text="", menu="BLENDA4D_MT_create_" + name, **(icons.strip_kw if strip else icons.kw)(icon, name))
+        else:
+            o = cell.operator("blenda4d.create", text="", **(icons.strip_kw if strip else icons.kw)(icon, name))
+        o.group = name
+
+
 class BLENDA4D_PT_create(roles.RolePanel, bpy.types.Panel):
     bl_label = "Create"
     role = "CREATE"
 
     def draw(self, context):
-        col = _column(self.layout, CREATE_SCALE)
-        for g in CREATE_GROUPS:
-            if g is None:
-                col.separator(factor=0.8)
-                continue
-            name, members = g
-            label, icon, op, props = members[min(_head.get(name, 0), len(members) - 1)]
-            cell = col.row(align=True)
-            cell.active = op is not None                   # nothing behind it yet: shown dimmed, menu still opens
-            if len(members) > 1:
-                o = cell.operator_menu_hold("blenda4d.create", text="", menu="BLENDA4D_MT_create_" + name, **icons.kw(icon, name))
-            else:
-                o = cell.operator("blenda4d.create", text="", **icons.kw(icon, name))
-            o.group = name
+        draw_create(_column(self.layout, CREATE_SCALE))
+
 
 
 classes = (BLENDA4D_OT_set_mode, BLENDA4D_OT_shading, BLENDA4D_OT_overlay, BLENDA4D_OT_axis_lock, BLENDA4D_OT_toggle_column,

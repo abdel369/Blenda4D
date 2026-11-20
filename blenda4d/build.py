@@ -17,6 +17,7 @@ TIMELINE_PX = 64
 TOOL_ZOOM = {"MODES": 3, "CREATE": 8, "PALETTE": 7}   # zoom steps (as Ctrl+scroll): larger icons, boxes stay square
 MODES_PX = 70                 # with the 3-step zoom and 1.9 tall buttons: square boxes, icon evenly inside
 CREATE_PX = 70
+STRIP_ZOOM = 3               # zoom steps of the create column's strip: buttons as big as the tools column's
 MANAGERS_PX = 330
 MATERIALS_PX = 230
 MM_BAR_PX = 30
@@ -148,10 +149,10 @@ def steps(window, materials=False, assets=False):
     yield from make_role(window, managers, "OBJECTS")
     palette = yield from split(window, biggest_view(screen), "HORIZONTAL", px(PALETTE_PX) + EDGE, "TOP")
     yield from make_role(window, palette, "PALETTE")
-    # the tools column is drawn in the viewport's own toolbar strip (bars.BLENDA4D_PT_view_tools), which keeps its
-    # width when the window is resized; a separate area would stretch with the window
-    create = yield from split(window, biggest_view(screen), "VERTICAL", px(CREATE_PX) + EDGE, "RIGHT")
-    yield from make_role(window, create, "CREATE")
+    modes = yield from split(window, biggest_view(screen), "VERTICAL", px(MODES_PX) + EDGE, "LEFT")
+    yield from make_role(window, modes, "MODES")
+    # the create column is drawn in the viewport's own toolbar strip (bars.BLENDA4D_PT_view_tools), moved to the
+    # viewport's right edge: the strip keeps its width when the window is resized; a separate area would stretch
     timeline = yield from split(window, biggest_view(screen), "HORIZONTAL", px(TIMELINE_PX) + hdr + EDGE, "BOTTOM")
     timeline.type = "DOPESHEET_EDITOR"
     timeline.ui_type = "TIMELINE"
@@ -182,10 +183,27 @@ def steps(window, materials=False, assets=False):
         yield from make_role(window, head, "OM_HEAD")
         if len(roles.areas(screen, "OBJECTS")) == 2:       # the split handed back the other half
             yield from make_role(window, max(roles.areas(screen, "OBJECTS"), key=lambda a: a.y), "OM_HEAD")
-    # 3. the viewport and timeline lose Blender's own chrome
+    # 3. the viewport and timeline lose Blender's own chrome; the toolbar strip moves to the viewport's right edge
     for a in screen.areas:
         if a.type == "VIEW_3D":
             dress_view(a)
+            tools = _region(a, "TOOLS")
+            if tools is not None and tools.alignment != "RIGHT":
+                try:
+                    with _ov(window, a, "TOOLS"):
+                        bpy.ops.screen.region_flip()
+                except RuntimeError as ex:
+                    print("Blenda 4D: could not move the toolbar strip", ex)
+                yield
+            if tools is not None:                          # start the strip's view fresh after the move, then zoom
+                try:                                       # it so its buttons are as big as the tools column's
+                    with _ov(window, a, "TOOLS"):
+                        bpy.ops.view2d.reset()
+                        for _ in range(STRIP_ZOOM):
+                            bpy.ops.view2d.zoom_in()
+                except RuntimeError:
+                    pass
+                yield
         elif a.type == "DOPESHEET_EDITOR":
             st = a.spaces.active
             st.show_region_channels = False
