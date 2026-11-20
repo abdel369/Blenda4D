@@ -450,17 +450,39 @@ class BLENDA4D_OT_om_scroll_active(bpy.types.Operator):
         return {"FINISHED"}
 
 
+ZOOM_LIMIT = 2.0             # Blender's own largest zoom for this kind of area
+
+
+def _om_fit_zoom(context, region):
+    """The largest zoom at which the widest row (indent, icons, its name and the status columns) still fits the
+    Object Manager's width, so a larger Size never pushes anything out of the panel."""
+    import blf
+    rows = visible_rows(context)
+    h = row_height()
+    style = context.preferences.ui_styles[0].widget
+    blf.size(0, style.points * context.preferences.system.ui_scale)
+    widest = 0.0
+    for ob, depth in rows:
+        widest = max(widest, h * (2.4 + 0.8 * depth) + blf.dimensions(0, ob.name)[0])
+    tags = max((len(_tags(ob)) for ob, _d in rows), default=0)
+    content = widest + (3 + tags) * h + 1.2 * h
+    return max(1.0, min(ZOOM_LIMIT, region.width / max(content, 1.0)))
+
+
 def _om_zoom(self, context):
-    """The size slider: Blender's own area zoom (as Ctrl+scroll), so names, icons and rows grow together."""
+    """The size slider: Blender's own area zoom (as Ctrl+scroll), so names, icons and rows grow together, smoothly
+    from the normal size up to the largest size at which every row still fits the panel."""
     area = next((a for a in context.window.screen.areas if roles.role(a) == "OBJECTS"), None)
     region = next((r for r in area.regions if r.type == "WINDOW"), None) if area else None
     if region is None:
         return
+    target = 1.0 + (_om_fit_zoom(context, region) - 1.0) * self.b4d_om_zoom / 100.0
+    fac = (1.0 - 1.0 / target) / 2.0                     # Blender's zoom_in: new scale = 1 / (1 - 2 * fac)
     with context.temp_override(area=area, region=region):
         try:
             bpy.ops.view2d.reset()
-            for _ in range(self.b4d_om_zoom):
-                bpy.ops.view2d.zoom_in()
+            if fac > 0.0005:
+                bpy.ops.view2d.zoom_in(zoomfacx=fac, zoomfacy=fac)
         except RuntimeError as ex:
             print("Blenda 4D: Object Manager size", ex)
     area.tag_redraw()
@@ -471,12 +493,13 @@ class BLENDA4D_OT_size_step(bpy.types.Operator):
     bl_label = "Size"
     bl_description = "Make the names and icons smaller or larger"
     prop: bpy.props.StringProperty(options={"SKIP_SAVE"})
-    step: bpy.props.IntProperty(default=1, options={"SKIP_SAVE"})
+    step: bpy.props.FloatProperty(default=1.0, options={"SKIP_SAVE"})
 
     def execute(self, context):
         wm = context.window_manager
         rna = wm.bl_rna.properties[self.prop]
-        setattr(wm, self.prop, max(rna.hard_min, min(rna.hard_max, getattr(wm, self.prop) + self.step)))
+        v = max(rna.hard_min, min(rna.hard_max, getattr(wm, self.prop) + self.step))
+        setattr(wm, self.prop, int(round(v)) if rna.type == "INT" else v)
         return {"FINISHED"}
 
 
@@ -498,7 +521,7 @@ class BLENDA4D_PT_om_bar(roles.RolePanel, bpy.types.Panel):
         sp = self.layout.split(factor=0.35)              # a short slider on the right, as in the Material Manager
         sp.label(text="")
         row = sp.row(align=True)                         # zoom out / Size / zoom in: says what it does at a glance
-        size_bar(row, "b4d_om_zoom")
+        size_bar(row, "b4d_om_zoom", step=10)
 
 
 def _status_split(context, buttons):
@@ -973,8 +996,10 @@ def register():
     O.b4d_vis_render = bpy.props.EnumProperty(items=vis, get=_vis_get("hide_render"), set=_vis_set("hide_render"))
     W.b4d_om_search = bpy.props.StringProperty(name="Search", options={"TEXTEDIT_UPDATE"})
     W.b4d_om_drop = bpy.props.StringProperty()
-    W.b4d_om_zoom = bpy.props.IntProperty(name="Size", description="Size of the Object Manager's names and icons",
-                                          default=0, min=0, max=8, update=_om_zoom)
+    W.b4d_om_zoom = bpy.props.FloatProperty(name="Size", description="Size of the Object Manager's names and icons, "
+                                            "up to the largest that still fits the panel",
+                                            default=0.0, min=0.0, max=100.0, subtype="PERCENTAGE", precision=0,
+                                            update=_om_zoom)
     W.b4d_am_tab = bpy.props.EnumProperty(items=_tab_items, name="Page")
     W.b4d_right_tab = bpy.props.EnumProperty(items=[("ATTRIBUTES", "Attributes", ""), ("VARIATIONS", "Variations", "")])
     W.b4d_material = bpy.props.StringProperty()
