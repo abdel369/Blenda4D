@@ -369,7 +369,7 @@ def tile_at(context, x, y):
     pitch = px * ui + (NAME_UNITS + ROW_GAP) * unit
     top = GRID_TOP * unit
     if down < top:
-        return None, None
+        return None, "above"                        # the title, menus and tool row
     row, dy = divmod(down - top, pitch)
     slot = min(1.0, cols * cw / max(avail, 1)) * (region.width - 13 * ui) / cols   # one column's width
     col = int((vx - 3.5 * ui) // slot)
@@ -399,6 +399,8 @@ class BLENDA4D_OT_mm_double(bpy.types.Operator):
 
     def invoke(self, context, event):
         mat, part = tile_at(context, event.mouse_region_x, event.mouse_region_y)
+        if part == "above":
+            return {"PASS_THROUGH"}
         if mat is None:
             bpy.ops.blenda4d.new_material()
             _tag_redraw()
@@ -424,10 +426,45 @@ class BLENDA4D_OT_mm_double(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class BLENDA4D_OT_mm_click(bpy.types.Operator):
+    bl_idname = "blenda4d.mm_click"
+    bl_label = "Material Manager Click"
+    bl_description = "Click a material to select it; click empty space to select none"
+    bl_options = {"INTERNAL"}
+
+    @classmethod
+    def poll(cls, context):
+        return roles.role(context.area) == "MATERIALS"
+
+    def invoke(self, context, event):
+        mat, part = tile_at(context, event.mouse_region_x, event.mouse_region_y)
+        if part == "above" or (mat is None and context.window_manager.b4d_mm_view != "ICONS"):
+            return {"PASS_THROUGH"}
+        wm = context.window_manager
+        from . import matpage
+        if mat is None:                             # empty space: no material selected, the object shows again
+            wm.b4d_material = ""
+            if wm.b4d_am_subject.startswith(matpage.SUBJECT + ":"):
+                wm.b4d_am_subject = ""
+        else:
+            wm.b4d_material = mat.name
+            matpage.show(context, mat)
+            if event.shift:                         # as Shift-clicking its name: onto the selected objects
+                for ob in context.selected_objects:
+                    if hasattr(ob.data, "materials"):
+                        if ob.data.materials:
+                            ob.data.materials[0] = mat
+                        else:
+                            ob.data.materials.append(mat)
+        for a in context.screen.areas:
+            a.tag_redraw()
+        return {"FINISHED"}
+
+
 _keys = []
 
 
-classes = (BLENDA4D_OT_mm_double, BLENDA4D_OT_mm_apply, BLENDA4D_OT_mm_pick, BLENDA4D_OT_mm_delete, BLENDA4D_OT_mm_delete_unused,
+classes = (BLENDA4D_OT_mm_click, BLENDA4D_OT_mm_double, BLENDA4D_OT_mm_apply, BLENDA4D_OT_mm_pick, BLENDA4D_OT_mm_delete, BLENDA4D_OT_mm_delete_unused,
            BLENDA4D_OT_mm_delete_duplicates, BLENDA4D_PT_mm_bar)
 
 
@@ -446,6 +483,8 @@ def register():
     if kc is not None:
         km = kc.keymaps.new(name="Property Editor", space_type="PROPERTIES")
         _keys.append((km.name, km.keymap_items.new("blenda4d.mm_double", "LEFTMOUSE", "DOUBLE_CLICK").idname))
+        for shift in (False, True):
+            _keys.append((km.name, km.keymap_items.new("blenda4d.mm_click", "LEFTMOUSE", "CLICK", shift=shift).idname))
 
 
 def unregister():
