@@ -403,8 +403,13 @@ class BLENDA4D_OT_mm_double(bpy.types.Operator):
             bpy.ops.blenda4d.new_material()
             _tag_redraw()
             return {"FINISHED"}
-        if part != "name":
-            return {"PASS_THROUGH"}
+        if part != "name":                          # the preview: the material's page in the Attribute Manager
+            from . import matpage
+            context.window_manager.b4d_material = mat.name
+            matpage.show(context, mat)
+            for a in context.screen.areas:
+                a.tag_redraw()
+            return {"FINISHED"}
         self.name = mat.name
         context.window_manager.b4d_material = mat.name
         return context.window_manager.invoke_popup(self, width=max(160, context.window_manager.b4d_mm_px * 2))

@@ -848,10 +848,12 @@ class BLENDA4D_PT_attributes(roles.RolePanel, bpy.types.Panel):
         menus.menu_bar(bar, AM_MENUS, avail=menus.panel_width(1.0, _icon_px()))
         ob = context.view_layer.objects.active
         layout.separator(factor=0.3)
+        fn = AM_SUBJECTS.get(wm.b4d_am_subject.partition(":")[0])
+        if fn is not None and wm.b4d_am_subject.startswith("MAT:") and fn(layout, context, ob):
+            return                                         # a material picked in the Material Manager
         if ob is None:
             layout.label(text="Nothing selected")
             return
-        fn = AM_SUBJECTS.get(wm.b4d_am_subject.partition(":")[0])
         if fn is not None and fn(layout, context, ob):
             return
         head = layout.row(align=True)
@@ -916,6 +918,8 @@ class BLENDA4D_OT_mat_pick(bpy.types.Operator):
         if mat is None:
             return {"CANCELLED"}
         context.window_manager.b4d_material = mat.name
+        from . import matpage
+        matpage.show(context, mat)                         # the Attribute Manager shows the material
         if event.shift:
             for ob in context.selected_objects:
                 if hasattr(ob.data, "materials"):
