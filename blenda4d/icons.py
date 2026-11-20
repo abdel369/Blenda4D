@@ -54,6 +54,12 @@ def _load_strip():
                 pass
 
 
+def logo():
+    """icon_value of the Blenda 4D mark (the top bar's first button), or 0."""
+    p = _load().get("blenda_logo")
+    return p.icon_id if p is not None else 0
+
+
 def strip_kw(name, group):
     """Like kw(), but the triangle copy that fills its button (the create column in the viewport strip)."""
     _load()

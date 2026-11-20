@@ -104,6 +104,9 @@ class BLENDA4D_OT_toggle_column(bpy.types.Operator):
 # --- header draws --------------------------------------------------------------------------------------------------
 def topbar_left(self, context):
     layout = self.layout
+    lv = icons.logo()                                    # the Blenda 4D mark where Blender shows its logo, opening the
+    if lv:                                               # same app menu (splash, about, install application templates)
+        layout.menu("TOPBAR_MT_blender", text="", icon_value=lv)
     row = layout.row(align=True)
     row.operator("ed.undo", text="", icon="LOOP_BACK", emboss=False)
     row.operator("ed.redo", text="", icon="LOOP_FORWARDS", emboss=False)
