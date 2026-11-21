@@ -60,6 +60,12 @@ MM_MENUS = [menus.simple_menu(n, [I("New Material", "blenda4d.new_material", "AD
             for n in ("Create", "Edit", "View", "Select", "Material")]
 
 
+MANAGER_TIPS = {"Objects": "Object Manager: every object in the scene, how they are grouped, and their tags",
+                "Attributes": "Attribute Manager: the settings of what is selected",
+                "Materials": "Material Manager: the scene's materials",
+                "Asset Browser": "Asset Browser: models, materials and more to add to the scene"}
+
+
 def manager_title(layout, title, right_tabs=None):
     """The manager's own tab strip: its name (and the other managers grouped with it)."""
     row = layout.row(align=True)
@@ -68,7 +74,7 @@ def manager_title(layout, title, right_tabs=None):
         wm = bpy.context.window_manager
         row.prop(wm, right_tabs, expand=True)
     else:
-        row.operator("blenda4d.noop", text=title, depress=True)
+        row.operator("blenda4d.title", text=title, depress=True).what = MANAGER_TIPS.get(title, title)
 
 
 # --- Object Manager -------------------------------------------------------------------------------------------------
@@ -861,6 +867,9 @@ class BLENDA4D_PT_attributes(roles.RolePanel, bpy.types.Panel):
         menus.menu_bar(bar, AM_MENUS, avail=menus.panel_width(1.0, _icon_px()))
         ob = context.view_layer.objects.active
         layout.separator(factor=0.3)
+        from . import phong
+        if phong.draw_page(layout, context):              # the Phong Break Selection tool's options
+            return
         fn = AM_SUBJECTS.get(wm.b4d_am_subject.partition(":")[0])
         if fn is not None and wm.b4d_am_subject.startswith("MAT:") and fn(layout, context, ob):
             return                                         # a material picked in the Material Manager
@@ -974,6 +983,10 @@ class BLENDA4D_PT_materials(roles.RolePanel, bpy.types.Panel):
 
 
 # --- Asset Browser (layout per the approved mock-up; Blender's asset libraries underneath) ------------------------
+AB_TIPS = {"AUTO": "Assets that suit what is selected", "ALL": "Every asset", "MODELS": "Objects to add to the scene",
+           "MATERIALS": "Materials", "MEDIA": "Images, movies and sounds", "NODES": "Node groups",
+           "OPERATORS": "Saved commands", "SCENES": "Whole scenes and templates", "PRESETS": "Saved settings",
+           "HDRIS": "Environment images that light the scene", "POSES": "Character poses", "BRUSHES": "Sculpt and paint brushes"}
 AB_TABS = (("AUTO", "Auto"), ("ALL", "All"), ("MODELS", "Models"), ("MATERIALS", "Materials"), ("MEDIA", "Media"), ("NODES", "Nodes"),
            ("OPERATORS", "Operators"), ("SCENES", "Scenes"), ("PRESETS", "Presets"), ("HDRIS", "HDRIs"), ("POSES", "Poses"), ("BRUSHES", "Brushes"))
 AB_GREY = {"MEDIA", "OPERATORS", "PRESETS"}
@@ -1058,23 +1071,24 @@ def register():
     for c in classes:
         bpy.utils.register_class(c)
     O, W = bpy.types.Object, bpy.types.WindowManager
-    vis = [("DEFAULT", "Default", ""), ("ON", "On", ""), ("OFF", "Off", "")]
-    O.b4d_om_closed = bpy.props.BoolProperty(default=False)
-    O.b4d_enabled = bpy.props.BoolProperty(name="Enabled", get=lambda self: self.get("_b4d_enabled", True), set=_enabled_set)
-    O.b4d_vis_editor = bpy.props.EnumProperty(items=vis, get=_vis_get("hide_viewport"), set=_vis_set("hide_viewport"))
-    O.b4d_vis_render = bpy.props.EnumProperty(items=vis, get=_vis_get("hide_render"), set=_vis_set("hide_render"))
-    W.b4d_om_search = bpy.props.StringProperty(name="Search", options={"TEXTEDIT_UPDATE"})
-    W.b4d_om_drop = bpy.props.StringProperty()
+    vis = [("DEFAULT", "Default", "Shown as usual"), ("ON", "On", "Shown"), ("OFF", "Off", "Hidden")]
+    O.b4d_om_closed = bpy.props.BoolProperty(description='Whether the objects under this one are folded away in the Object Manager', default=False)
+    O.b4d_enabled = bpy.props.BoolProperty(description='Switch the object on or off in the viewport and in renders', name="Enabled", get=lambda self: self.get("_b4d_enabled", True), set=_enabled_set)
+    O.b4d_vis_editor = bpy.props.EnumProperty(description='Show or hide the object in the viewport (Blender: Hide in Viewport)', items=vis, get=_vis_get("hide_viewport"), set=_vis_set("hide_viewport"))
+    O.b4d_vis_render = bpy.props.EnumProperty(description='Show or hide the object in renders (Blender: Disable in Renders)', items=vis, get=_vis_get("hide_render"), set=_vis_set("hide_render"))
+    W.b4d_om_search = bpy.props.StringProperty(description='Show only objects whose name contains this', name="Search", options={"TEXTEDIT_UPDATE"})
+    W.b4d_om_drop = bpy.props.StringProperty(description='Where a dragged object will be dropped', )
     W.b4d_om_zoom = bpy.props.FloatProperty(name="Size", description="Size of the Object Manager's names and icons, "
                                             "up to the largest that still fits the panel",
                                             default=0.0, min=0.0, max=100.0, subtype="PERCENTAGE", precision=0,
                                             update=_om_zoom)
-    W.b4d_am_tab = bpy.props.EnumProperty(items=_tab_items, name="Page")
-    W.b4d_right_tab = bpy.props.EnumProperty(items=[("ATTRIBUTES", "Attributes", ""), ("VARIATIONS", "Variations", "")])
-    W.b4d_material = bpy.props.StringProperty()
-    W.b4d_am_subject = bpy.props.StringProperty()      # what the Attribute Manager shows besides the object (a tag)
-    W.b4d_ab_tab = bpy.props.EnumProperty(items=[(k, l, "") for k, l in AB_TABS], default="ALL")
-    W.b4d_ab_search = bpy.props.StringProperty(name="Search")
+    W.b4d_am_tab = bpy.props.EnumProperty(description='The page of settings the Attribute Manager shows', items=_tab_items, name="Page")
+    W.b4d_right_tab = bpy.props.EnumProperty(description='Show the Attribute Manager or the Variations', items=[("ATTRIBUTES", "Attributes", "The selected object's, tag's or material's settings"),
+                                                ("VARIATIONS", "Variations", "Versions of the scene to switch between")])
+    W.b4d_material = bpy.props.StringProperty(description='The material selected in the Material Manager', )
+    W.b4d_am_subject = bpy.props.StringProperty(description='What the Attribute Manager shows besides the object: a tag or a material', )      # what the Attribute Manager shows besides the object (a tag)
+    W.b4d_ab_tab = bpy.props.EnumProperty(description='Which kind of asset the Asset Browser lists', items=[(k, l, AB_TIPS.get(k, f"Show {l.lower()}")) for k, l in AB_TABS], default="ALL")
+    W.b4d_ab_search = bpy.props.StringProperty(description='Show only assets whose name contains this', name="Search")
     _add_keymap()
     _draw.append(bpy.types.SpaceProperties.draw_handler_add(_draw_rows, (), "WINDOW", "POST_PIXEL"))
 

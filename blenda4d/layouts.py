@@ -138,6 +138,7 @@ class BLENDA4D_OT_layout_reset(bpy.types.Operator):
 class BLENDA4D_MT_layouts(bpy.types.Menu):
     bl_idname = "BLENDA4D_MT_layouts"
     bl_label = "Layout"
+    bl_description = "Switch, save and manage layouts"
 
     def draw(self, context):
         layout = self.layout

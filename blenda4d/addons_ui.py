@@ -138,6 +138,7 @@ class _Proxy:
 class BLENDA4D_MT_addons_add(bpy.types.Menu):
     bl_idname = "BLENDA4D_MT_addons_add"
     bl_label = "Add Menu Items"
+    bl_description = "What your other add-ons put in Blender's Add menu"
 
     def draw(self, context):
         _draw_group(self, context, "ADD")
@@ -146,6 +147,7 @@ class BLENDA4D_MT_addons_add(bpy.types.Menu):
 class BLENDA4D_MT_addons_object(bpy.types.Menu):
     bl_idname = "BLENDA4D_MT_addons_object"
     bl_label = "Object Menu Items"
+    bl_description = "What your other add-ons put in Blender's Object menu"
 
     def draw(self, context):
         _draw_group(self, context, "OBJECT")

@@ -598,7 +598,7 @@ ORDER = ("subdivision", "extrude", "lathe", "loft", "sweep", "boolean", "connect
 def _props():
     O = bpy.types.Object
     P = bpy.props
-    O.b4d_sub_type = P.EnumProperty(name="Type", items=[("CATMULL_CLARK", "Smooth", "Rounds the surface"),
+    O.b4d_sub_type = P.EnumProperty(description='How the surface is divided: rounded, or kept as it is with only more polygons', name="Type", items=[("CATMULL_CLARK", "Smooth", "Rounds the surface"),
                                                         ("SIMPLE", "Flat", "Adds polygons without rounding")], default="CATMULL_CLARK", update=_update)
     O.b4d_sub_view = P.IntProperty(name="Viewport Level", default=2, min=0, max=6, update=_update,
                                    description="How often the surface is divided in the viewport")
@@ -606,11 +606,11 @@ def _props():
                                      description="How often the surface is divided when rendering")
     O.b4d_sub_pre = P.IntProperty(name="Flat Pre-Subdivision", default=0, min=0, max=6, update=_update,
                                   description="Divide without rounding first: keeps the form closer to the cage")
-    O.b4d_sub_uv = P.EnumProperty(name="UV Smoothing", items=[("PRESERVE_BOUNDARIES", "Keep Borders", "Smooth UVs, keep their borders"),
+    O.b4d_sub_uv = P.EnumProperty(description='How the texture layout follows the smoothed surface', name="UV Smoothing", items=[("PRESERVE_BOUNDARIES", "Keep Borders", "Smooth UVs, keep their borders"),
                                                               ("SMOOTH_ALL", "Smooth All", "Smooth UVs everywhere"),
                                                               ("PRESERVE_CORNERS", "Keep Corners", "Smooth UVs, keep their corners"),
                                                               ("NONE", "None", "UVs are not smoothed")], default="PRESERVE_BOUNDARIES", update=_update)
-    O.b4d_sub_boundary = P.EnumProperty(name="Open Edges", items=[("ALL", "Smooth", "Open edges are rounded too"),
+    O.b4d_sub_boundary = P.EnumProperty(description='Whether open edges are rounded along with the rest', name="Open Edges", items=[("ALL", "Smooth", "Open edges are rounded too"),
                                                                  ("PRESERVE_CORNERS", "Keep Corners", "Corners of open edges stay sharp")],
                                         default="ALL", update=_update)
     O.b4d_sub_creases = P.BoolProperty(name="Use Creases", default=True, update=_update, description="Edges marked with a crease stay sharper")
@@ -618,12 +618,12 @@ def _props():
                                          description="How many polygons are taken away")
     O.b4d_red_triangulate = P.BoolProperty(name="Triangulate", default=False, update=_update, description="Make the result all triangles")
     O.b4d_red_symmetry = P.BoolProperty(name="Symmetric", default=False, update=_update, description="Reduce both sides of an axis alike")
-    O.b4d_red_axis = P.EnumProperty(name="Axis", items=[("X", "X", ""), ("Y", "Y", ""), ("Z", "Z", "")], default="X", update=_update)
-    O.b4d_rm_target = P.EnumProperty(name="Target", items=[("DENSITY", "Density", "Blocks set by a share of the object's size"),
+    O.b4d_red_axis = P.EnumProperty(description='The axis the reduced object stays mirrored across', name="Axis", items=[("X", "X", "Mirror across X"), ("Y", "Y", "Mirror across Y"), ("Z", "Z", "Mirror across Z")], default="X", update=_update)
+    O.b4d_rm_target = P.EnumProperty(description='Set the new polygon size by density or by a polygon count', name="Target", items=[("DENSITY", "Density", "Blocks set by a share of the object's size"),
                                                            ("COUNT", "Polygon Count", "Aim for about this many polygons")], default="DENSITY", update=_update)
     O.b4d_rm_density = P.FloatProperty(name="Density", default=100.0, min=1.0, max=10000.0, update=_update,
                                        description="100 % is about 20 blocks across the object")
-    O.b4d_rm_count = P.IntProperty(name="Polygon Count", default=1000, min=1, max=900000, update=_update)
+    O.b4d_rm_count = P.IntProperty(description='How many polygons the result has', name="Polygon Count", default=1000, min=1, max=900000, update=_update)
     O.b4d_rm_smooth = P.IntProperty(name="Smoothing Steps", default=0, min=0, max=100, update=_update, description="Relax the new mesh")
 
 

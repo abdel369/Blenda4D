@@ -29,10 +29,12 @@ PRESETS = (("CUSTOM", "Custom", 0, 0), ("HD720", "1280 x 720 (HD)", 1280, 720), 
            ("DCI4K", "4096 x 2160 (4K)", 4096, 2160), ("SQ1080", "1080 x 1080 (Square)", 1080, 1080),
            ("VERT1080", "1080 x 1920 (Vertical)", 1080, 1920), ("SOCIAL", "1080 x 1350 (Portrait 4:5)", 1080, 1350),
            ("VGA", "640 x 480", 640, 480), ("SD", "720 x 576 (SD)", 720, 576))
-SIZE_UNITS = (("PX", "Pixels", ""), ("CM", "cm", ""), ("MM", "mm", ""), ("IN", "Inches", ""), ("PT", "Points", ""),
-              ("PC", "Picas", ""))
+SIZE_UNITS = (("PX", "Pixels", "Width and height in pixels"), ("CM", "cm", "As a print size in centimetres"),
+              ("MM", "mm", "As a print size in millimetres"), ("IN", "Inches", "As a print size in inches"),
+              ("PT", "Points", "As a print size in points (72 to the inch)"),
+              ("PC", "Picas", "As a print size in picas (6 to the inch)"))
 PER_INCH = {"CM": 2.54, "MM": 25.4, "IN": 1.0, "PT": 72.0, "PC": 6.0}
-DPI_UNITS = (("IN", "Pixels/Inch (DPI)", ""), ("CM", "Pixels/cm", ""))
+DPI_UNITS = (("IN", "Pixels/Inch (DPI)", "Resolution in pixels per inch"), ("CM", "Pixels/cm", "Resolution in pixels per centimetre"))
 FILM = (("CUSTOM", "Custom", 0.0), ("SQUARE", "Square (1:1)", 1.0), ("STD", "Standard (4:3)", 4 / 3),
         ("HDTV", "HDTV (16:9)", 16 / 9), ("PHOTO", "Photo (3:2)", 1.5), ("PORTRAIT", "Portrait (4:5)", 0.8),
         ("VERT", "Vertical (9:16)", 9 / 16), ("WIDE", "Widescreen (1.85:1)", 1.85), ("SCOPE", "Scope (2.39:1)", 2.39))
@@ -324,8 +326,17 @@ def _override_changed(self, _context):
             vl.material_override = mat
 
 
+PASS_TIPS = {"Depth": "How far each pixel is from the camera", "Mist": "A fog-like fade with distance",
+             "Normal": "Which way each surface faces", "Ambient Occlusion": "Soft shadowing in corners and creases",
+             "Diffuse Color": "The plain surface colours without lighting", "Glossy Color": "The colour of reflections",
+             "Emission": "Light given off by glowing surfaces", "Environment": "The background and sky alone",
+             "Object Index": "A number per object, for picking objects out later",
+             "Material Index": "A number per material, for picking materials out later"}
+
+
 def _pass(name):
-    return bpy.props.BoolProperty(name=name, default=False, update=_passes_changed)
+    return bpy.props.BoolProperty(name=name, default=False, update=_passes_changed,
+                                  description=f"{name} pass: {PASS_TIPS.get(name, name)} (saved as its own image layer)")
 
 
 class BLENDA4D_RenderProps(bpy.types.PropertyGroup):
@@ -345,49 +356,49 @@ class BLENDA4D_RenderProps(bpy.types.PropertyGroup):
                                       description="Render the extra image passes ticked on the Multi-Pass page")
     material_override: bpy.props.BoolProperty(name="Material Override", default=False, update=_override_changed,
                                               description="Render every object with one material")
-    override_material: bpy.props.PointerProperty(type=bpy.types.Material, name="Material", update=_override_changed)
+    override_material: bpy.props.PointerProperty(description='The material every object renders with while Material Override is on', type=bpy.types.Material, name="Material", update=_override_changed)
     lock_ratio: bpy.props.BoolProperty(name="Lock Ratio", default=False,
                                        description="Changing the width or height keeps the picture's proportions")
-    dpi: bpy.props.FloatProperty(name="Resolution", default=72.0, min=1.0, update=_dpi_changed)
-    dpi_unit: bpy.props.EnumProperty(name="Resolution Unit", items=DPI_UNITS, default="IN")
+    dpi: bpy.props.FloatProperty(description='Pixels per inch or per cm saved in the image; sets its print size', name="Resolution", default=72.0, min=1.0, update=_dpi_changed)
+    dpi_unit: bpy.props.EnumProperty(description='Measure the resolution per inch or per centimetre', name="Resolution Unit", items=DPI_UNITS, default="IN")
     size_unit: bpy.props.EnumProperty(name="Size Unit", items=SIZE_UNITS, default="PX",
                                       description="Show the width and height in pixels or as a print size at this resolution")
     use_scene_fps: bpy.props.BoolProperty(name="Use Scene Frame Rate", default=True,
                                             description="Render at the scene's frame rate; off, render at the rate below")
-    fps: bpy.props.IntProperty(name="Frame Rate", default=30, min=1, max=1000)
-    frame_range: bpy.props.EnumProperty(name="Frame Range", items=FRAME_RANGES, default="CURRENT")
-    frame_from: bpy.props.IntProperty(name="From", default=0)
-    frame_to: bpy.props.IntProperty(name="To", default=0)
-    frame_step: bpy.props.IntProperty(name="Frame Step", default=1, min=1)
+    fps: bpy.props.IntProperty(description="Frames per second for this render when the scene's own rate is not used", name="Frame Rate", default=30, min=1, max=1000)
+    frame_range: bpy.props.EnumProperty(description='Which frames are rendered', name="Frame Range", items=FRAME_RANGES, default="CURRENT")
+    frame_from: bpy.props.IntProperty(description='The first frame rendered when the range is Manual', name="From", default=0)
+    frame_to: bpy.props.IntProperty(description='The last frame rendered when the range is Manual', name="To", default=0)
+    frame_step: bpy.props.IntProperty(description='Render every nth frame', name="Frame Step", default=1, min=1)
     annotations: bpy.props.StringProperty(name="Annotations", default="", description="A note kept with this render setting")
     show_region: bpy.props.BoolProperty(name="Region Borders", default=False, description="Show the region's borders")
     # the fields the Output page shows
-    v_preset: bpy.props.EnumProperty(name="Preset", items=[(r[0], r[1], "") for r in PRESETS], get=_preset_get, set=_preset_set)
-    v_width: bpy.props.IntProperty(name="Width", min=4, soft_max=16384, subtype="PIXEL",
+    v_preset: bpy.props.EnumProperty(description='A common image size; picking one sets the width and height', name="Preset", items=[(r[0], r[1], "Size set by hand" if r[0] == "CUSTOM" else f"Set the image to {r[1]}") for r in PRESETS], get=_preset_get, set=_preset_set)
+    v_width: bpy.props.IntProperty(description='The image width in pixels', name="Width", min=4, soft_max=16384, subtype="PIXEL",
                                    get=lambda s: _sc(s).render.resolution_x, set=_w_set)
-    v_height: bpy.props.IntProperty(name="Height", min=4, soft_max=16384, subtype="PIXEL",
+    v_height: bpy.props.IntProperty(description='The image height in pixels', name="Height", min=4, soft_max=16384, subtype="PIXEL",
                                     get=lambda s: _sc(s).render.resolution_y, set=_h_set)
-    v_phys_w: bpy.props.FloatProperty(name="Width", precision=2, min=0.0, get=lambda s: _sc(s).render.resolution_x / _per_unit(s),
+    v_phys_w: bpy.props.FloatProperty(description='The image width as a print size at the resolution below', name="Width", precision=2, min=0.0, get=lambda s: _sc(s).render.resolution_x / _per_unit(s),
                                       set=lambda s, v: _w_set(s, round(v * _per_unit(s))))
-    v_phys_h: bpy.props.FloatProperty(name="Height", precision=2, min=0.0, get=lambda s: _sc(s).render.resolution_y / _per_unit(s),
+    v_phys_h: bpy.props.FloatProperty(description='The image height as a print size at the resolution below', name="Height", precision=2, min=0.0, get=lambda s: _sc(s).render.resolution_y / _per_unit(s),
                                       set=lambda s, v: _h_set(s, round(v * _per_unit(s))))
     v_dpi: bpy.props.FloatProperty(name="Resolution", precision=0, min=1.0, get=_dpi_v_get, set=_dpi_v_set,
                                    description="Pixels per inch or per cm, saved into the images; sets the print size")
     v_film: bpy.props.FloatProperty(name="Film Aspect", precision=4, min=0.001, max=1000.0, get=_film_get, set=_film_set,
                                     description="Width divided by height; changing it changes the height")
-    v_film_p: bpy.props.EnumProperty(name="Film Aspect Preset", items=[(r[0], r[1], "") for r in FILM],
+    v_film_p: bpy.props.EnumProperty(description='A common image shape; picking one sets the height from the width', name="Film Aspect Preset", items=[(r[0], r[1], "Shape set by hand" if r[0] == "CUSTOM" else f"Make the image {r[1]}") for r in FILM],
                                      get=lambda s: _table_get(FILM, _film_get(s)), set=lambda s, i: i and _film_set(s, FILM[i][2]))
     v_pix: bpy.props.FloatProperty(name="Pixel Aspect", precision=3, min=0.001, max=1000.0, get=_pix_get, set=_pix_set,
                                    description="Shape of one pixel: 1 is square, above 1 is wider than tall")
-    v_pix_p: bpy.props.EnumProperty(name="Pixel Aspect Preset", items=[(r[0], r[1], "") for r in PIXEL],
+    v_pix_p: bpy.props.EnumProperty(description='A common pixel shape: square, or stretched for anamorphic film', name="Pixel Aspect Preset", items=[(r[0], r[1], "Pixel shape set by hand" if r[0] == "CUSTOM" else f"{r[1]} pixels") for r in PIXEL],
                                     get=lambda s: _table_get(PIXEL, _pix_get(s)), set=lambda s, i: i and _pix_set(s, PIXEL[i][2]))
-    v_left: bpy.props.IntProperty(name="Left Border", min=0, get=_border("border_min_x", False, True)[0], set=_border("border_min_x", False, True)[1])
-    v_right: bpy.props.IntProperty(name="Right Border", min=0, get=_border("border_max_x", True, True)[0], set=_border("border_max_x", True, True)[1])
-    v_top: bpy.props.IntProperty(name="Top Border", min=0, get=_border("border_max_y", True, False)[0], set=_border("border_max_y", True, False)[1])
-    v_bottom: bpy.props.IntProperty(name="Bottom Border", min=0, get=_border("border_min_y", False, False)[0], set=_border("border_min_y", False, False)[1])
-    v_from: bpy.props.IntProperty(name="From", get=_span_get(0), set=_span_set("frame_from"))
-    v_to: bpy.props.IntProperty(name="To", get=_span_get(1), set=_span_set("frame_to"))
-    v_step: bpy.props.IntProperty(name="Frame Step", min=1, get=_span_get(2), set=_span_set("frame_step"))
+    v_left: bpy.props.IntProperty(description='Pixels from the left edge where the render region starts', name="Left Border", min=0, get=_border("border_min_x", False, True)[0], set=_border("border_min_x", False, True)[1])
+    v_right: bpy.props.IntProperty(description='Pixels from the right edge where the render region ends', name="Right Border", min=0, get=_border("border_max_x", True, True)[0], set=_border("border_max_x", True, True)[1])
+    v_top: bpy.props.IntProperty(description='Pixels from the top edge where the render region starts', name="Top Border", min=0, get=_border("border_max_y", True, False)[0], set=_border("border_max_y", True, False)[1])
+    v_bottom: bpy.props.IntProperty(description='Pixels from the bottom edge where the render region ends', name="Bottom Border", min=0, get=_border("border_min_y", False, False)[0], set=_border("border_min_y", False, False)[1])
+    v_from: bpy.props.IntProperty(description='The first frame rendered', name="From", get=_span_get(0), set=_span_set("frame_from"))
+    v_to: bpy.props.IntProperty(description='The last frame rendered', name="To", get=_span_get(1), set=_span_set("frame_to"))
+    v_step: bpy.props.IntProperty(description='Render every nth frame', name="Frame Step", min=1, get=_span_get(2), set=_span_set("frame_step"))
 
 
 # --- the list of render settings -------------------------------------------------------------------------------
@@ -459,11 +470,11 @@ def _select(scene, index):
 
 class BLENDA4D_RenderSet(bpy.types.PropertyGroup):
     name: bpy.props.StringProperty(name="Name", default=DEFAULT_NAME)
-    values: bpy.props.StringProperty(default="{}")
+    values: bpy.props.StringProperty(description='The values this render setting keeps', default="{}")
 
 
 class BLENDA4D_RenderPage(bpy.types.PropertyGroup):
-    key: bpy.props.StringProperty()
+    key: bpy.props.StringProperty(description='Which page or item this row stands for', )
 
 
 class BLENDA4D_UL_render_sets(bpy.types.UIList):
@@ -625,6 +636,7 @@ class BLENDA4D_OT_rs_rename(bpy.types.Operator):
 class BLENDA4D_MT_render_setting(bpy.types.Menu):
     bl_idname = "BLENDA4D_MT_render_setting"
     bl_label = "Render Setting"
+    bl_description = "Add, copy, rename and remove render settings"
 
     def draw(self, context):
         lay = self.layout
@@ -1275,6 +1287,7 @@ PAGE_DRAW = {"OUTPUT": draw_output, "SAVE": draw_save, "MULTIPASS": draw_multipa
 class BLENDA4D_MT_rs_multipass(bpy.types.Menu):
     bl_idname = "BLENDA4D_MT_rs_multipass"
     bl_label = "Multi-Pass"
+    bl_description = "Switch extra image passes on or off"
 
     def draw(self, context):
         p = context.scene.b4d_render
@@ -1360,13 +1373,13 @@ def register():
     for cls in CLASSES:
         bpy.utils.register_class(cls)
     S = bpy.types.Scene
-    S.b4d_render = bpy.props.PointerProperty(type=BLENDA4D_RenderProps)
-    S.b4d_rsets = bpy.props.CollectionProperty(type=BLENDA4D_RenderSet)
-    S.b4d_rs_index = bpy.props.IntProperty(name="Render Setting", default=0, update=_picked)
-    S.b4d_rs_loaded = bpy.props.IntProperty(default=0)
+    S.b4d_render = bpy.props.PointerProperty(description="This scene's render settings as Render Settings shows them", type=BLENDA4D_RenderProps)
+    S.b4d_rsets = bpy.props.CollectionProperty(description='The saved render settings of this scene', type=BLENDA4D_RenderSet)
+    S.b4d_rs_index = bpy.props.IntProperty(description='The render setting in use', name="Render Setting", default=0, update=_picked)
+    S.b4d_rs_loaded = bpy.props.IntProperty(description='Which saved render setting the scene shows (kept so switching never writes old values back)', default=0)
     WM = bpy.types.WindowManager
-    WM.b4d_rs_pages = bpy.props.CollectionProperty(type=BLENDA4D_RenderPage)
-    WM.b4d_rs_page = bpy.props.IntProperty(name="Section", default=0)
+    WM.b4d_rs_pages = bpy.props.CollectionProperty(description='The pages of Render Settings', type=BLENDA4D_RenderPage)
+    WM.b4d_rs_page = bpy.props.IntProperty(description='The page of Render Settings that is shown', name="Section", default=0)
     WM.b4d_rs_advanced = bpy.props.BoolProperty(name="Advanced", default=False,
                                                 description="Show the rest of the renderer's settings")
     for name, fn in HANDLERS:

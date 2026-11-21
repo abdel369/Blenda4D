@@ -70,6 +70,8 @@ class BLENDA4D_OT_display_preset(bpy.types.Operator):
             return {"CANCELLED"}
         sh, ov = sp.shading, sp.overlay
         k = self.kind
+        # lines over shaded objects are dark (the theme's wire colour); Lines and Hidden Line draw light lines
+        sh.wireframe_color_type = "OBJECT" if k in ("LINES", "HIDDEN") else "THEME"
         if k == "LINES":
             sh.type = "WIREFRAME"
             ov.show_wireframes = False
@@ -121,6 +123,22 @@ def back_to_editor(area, sp):
 def _area_of(context, sp):
     return next((a for a in context.screen.areas if a.type == "VIEW_3D" and len(a.spaces) and a.spaces.active == sp),
                 None)
+
+
+class BLENDA4D_OT_render_still(bpy.types.Operator):
+    bl_idname = "blenda4d.render_still"
+    bl_label = "Render"
+    bl_description = "Render the current frame and show it in a render window"
+    use_viewport: bpy.props.BoolProperty(default=False, options={"SKIP_SAVE"})
+
+    @classmethod
+    def description(cls, context, properties):
+        if properties.use_viewport:
+            return "Render the current frame as this viewport sees it, and show it in a render window"
+        return "Render the current frame through the scene camera, and show it in a render window"
+
+    def execute(self, context):
+        return bpy.ops.render.render("INVOKE_DEFAULT", use_viewport=self.use_viewport)
 
 
 class BLENDA4D_OT_use_camera(bpy.types.Operator):
@@ -187,6 +205,7 @@ class BLENDA4D_OT_show_types(bpy.types.Operator):
 class BLENDA4D_MT_view_view(bpy.types.Menu):
     bl_idname = "BLENDA4D_MT_view_view"
     bl_label = "View"
+    bl_description = "Frame, zoom and turn the view"
 
     def draw(self, context):
         layout = self.layout
@@ -205,7 +224,7 @@ class BLENDA4D_MT_view_view(bpy.types.Menu):
         layout.operator("view3d.render_border", text="Render Region")
         layout.operator("view3d.clear_render_border", text="Clear Render Region")
         layout.operator("render.opengl", text="Viewport Render Image", icon="RENDER_STILL")
-        layout.operator("render.render", text="Render Image", icon="RENDER_STILL").use_viewport = True
+        layout.operator("blenda4d.render_still", text="Render Image", icon="RENDER_STILL").use_viewport = True
         layout.separator()
         if sp is not None:
             layout.prop(sp, "lock_camera", text="Lock Camera to View")
@@ -217,6 +236,7 @@ class BLENDA4D_MT_view_view(bpy.types.Menu):
 class BLENDA4D_MT_view_cameras(bpy.types.Menu):
     bl_idname = "BLENDA4D_MT_view_cameras"
     bl_label = "Cameras"
+    bl_description = "Look through a camera or the viewport's own"
 
     def draw(self, context):
         layout = self.layout
@@ -257,6 +277,7 @@ class BLENDA4D_MT_view_cameras(bpy.types.Menu):
 class BLENDA4D_MT_view_display(bpy.types.Menu):
     bl_idname = "BLENDA4D_MT_view_display"
     bl_label = "Display"
+    bl_description = "How the viewport draws the scene"
 
     def draw(self, context):
         layout = self.layout
@@ -298,6 +319,7 @@ class BLENDA4D_MT_view_display(bpy.types.Menu):
 class BLENDA4D_MT_view_options(bpy.types.Menu):
     bl_idname = "BLENDA4D_MT_view_options"
     bl_label = "Options"
+    bl_description = "Grid, axes and other things the viewport shows"
 
     def draw(self, context):
         layout = self.layout
@@ -349,6 +371,7 @@ GEOMETRY = {"show_object_viewport_mesh", "show_object_viewport_curve", "show_obj
 class BLENDA4D_MT_view_filter(bpy.types.Menu):
     bl_idname = "BLENDA4D_MT_view_filter"
     bl_label = "Filter"
+    bl_description = "Which kinds of objects the viewport shows"
 
     def draw(self, context):
         layout = self.layout
@@ -367,6 +390,7 @@ class BLENDA4D_MT_view_filter(bpy.types.Menu):
 class BLENDA4D_MT_view_panel(bpy.types.Menu):
     bl_idname = "BLENDA4D_MT_view_panel"
     bl_label = "Panel"
+    bl_description = "Viewport layouts: one view or four"
 
     def draw(self, context):
         layout = self.layout
@@ -380,4 +404,4 @@ class BLENDA4D_MT_view_panel(bpy.types.Menu):
 
 VIEW_CLASSES = [BLENDA4D_MT_view_view, BLENDA4D_MT_view_cameras, BLENDA4D_MT_view_display, BLENDA4D_MT_view_options,
                 BLENDA4D_MT_view_filter, BLENDA4D_MT_view_panel]
-OPS = (BLENDA4D_OT_display_preset, BLENDA4D_OT_use_camera, BLENDA4D_OT_default_camera, BLENDA4D_OT_projection, BLENDA4D_OT_show_types)
+OPS = (BLENDA4D_OT_render_still, BLENDA4D_OT_display_preset, BLENDA4D_OT_use_camera, BLENDA4D_OT_default_camera, BLENDA4D_OT_projection, BLENDA4D_OT_show_types)

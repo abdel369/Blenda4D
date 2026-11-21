@@ -55,10 +55,10 @@ def _set_size(self, value):
 
 def register():
     O = bpy.types.Object
-    O.b4d_pos = bpy.props.FloatVectorProperty(name="Position", size=3, get=_get_pos, set=_set_pos, precision=2, subtype="XYZ")
-    O.b4d_rot = bpy.props.FloatVectorProperty(name="Rotation", size=3, get=_get_rot, set=_set_rot, precision=2, subtype="XYZ")
-    O.b4d_scale = bpy.props.FloatVectorProperty(name="Scale", size=3, get=_get_scale, set=_set_scale, precision=3, subtype="XYZ")
-    O.b4d_size = bpy.props.FloatVectorProperty(name="Size", size=3, get=_get_size, set=_set_size, precision=2, subtype="XYZ")
+    O.b4d_pos = bpy.props.FloatVectorProperty(description="Where the object is (Blenda shows Blender's Z as Y)", name="Position", size=3, get=_get_pos, set=_set_pos, precision=2, subtype="XYZ")
+    O.b4d_rot = bpy.props.FloatVectorProperty(description="How the object is turned, in degrees (Blenda shows Blender's Z as Y)", name="Rotation", size=3, get=_get_rot, set=_set_rot, precision=2, subtype="XYZ")
+    O.b4d_scale = bpy.props.FloatVectorProperty(description="How much the object is stretched along each axis (Blenda shows Blender's Z as Y)", name="Scale", size=3, get=_get_scale, set=_set_scale, precision=3, subtype="XYZ")
+    O.b4d_size = bpy.props.FloatVectorProperty(description="The object's size along each axis (Blenda shows Blender's Z as Y)", name="Size", size=3, get=_get_size, set=_set_size, precision=2, subtype="XYZ")
 
 
 def unregister():

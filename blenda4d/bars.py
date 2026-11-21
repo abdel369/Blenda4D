@@ -94,6 +94,114 @@ class BLENDA4D_OT_overlay(bpy.types.Operator):
         return {"FINISHED"}
 
 
+# --- tool buttons outside the 3D view ------------------------------------------------------------------------------
+# Blender's tool buttons (wm.tool_set_by_id) look the tool up in the editor they sit in. Blenda's tools column and
+# command bar are Properties areas and its menus sit in the top bar, which have no tools of their own, so a button
+# naming the 3D view as its space read "Unsupported context" (interface_region_tooltip.cc) and one naming none found
+# nothing. While Blenda 4D is on, Blender's lookup treats those places as the 3D view: the buttons stay Blender's own
+# (drawn as tool buttons) and their tooltips show the tool's own name and description.
+_tool_fns = {}
+
+
+def _as_view3d(context, space_type):
+    if space_type == "TOPBAR":
+        return "VIEW_3D"
+    if space_type == "PROPERTIES" and roles.role(getattr(context, "area", None)) is not None:
+        return "VIEW_3D"
+    return space_type
+
+
+def _find_any_mode(space_type, idname):
+    """The tool with this id in any of the editor's modes (Blender's own lookups only search the current mode)."""
+    import bl_ui.space_toolsystem_common as tsc
+    T = tsc.ToolSelectPanelHelper
+    cls = T._tool_class_from_space_type(space_type)
+    if cls is None:
+        return None
+    for _mode, tools in cls.tools_all():
+        for item in T._tools_flatten_with_dynamic(tools, context=None):
+            if item is not None and getattr(item, "idname", None) == idname:
+                return item
+    return None
+
+
+def _item_any_mode(context, space_type, idname):
+    return _find_any_mode(space_type, idname)
+
+
+def _description_any_mode(context, space_type, idname):
+    item = _find_any_mode(space_type, idname)
+    if item is None:
+        return False
+    desc = item.description
+    if callable(desc):
+        try:
+            return desc(context, item, None) or ""
+        except Exception:
+            desc = None
+    if isinstance(desc, str):
+        return desc
+    operator = item.operator
+    if operator is None and item.keymap:                     # a tool run through its own key map (Inset, Bevel ...)
+        for kc in (context.window_manager.keyconfigs.active, context.window_manager.keyconfigs.default):
+            km = kc.keymaps.get(item.keymap[0]) if kc else None
+            kmi = next((k for k in km.keymap_items if k.active), None) if km else None
+            if kmi is not None:
+                operator = kmi.idname
+                break
+    if operator:
+        try:
+            import _bpy
+            return _bpy.ops.get_rna_type(operator).description
+        except Exception:
+            pass
+    return ""
+
+
+def _group_any_mode(context, space_type, idname, **_kw):
+    item = _find_any_mode(space_type, idname)
+    return (item,) if item is not None else ()
+
+
+def _tool_lookup_patch(on):
+    import bl_ui.space_toolsystem_common as tsc
+    T = tsc.ToolSelectPanelHelper
+    if on:
+        if _tool_fns:
+            return
+        # the one lookup everything uses (tooltip title and description, shortcut, keymaps)
+        orig_cls = T._tool_class_from_space_type
+        _tool_fns["_tool_class_from_space_type"] = orig_cls
+        T._tool_class_from_space_type = staticmethod(lambda space_type: orig_cls(_as_view3d(bpy.context, space_type)))
+        # tooltips: a tool of another mode (Extrude while modelling objects) is found there, not "Internal error!"
+        for n, fallback in (("item_from_id", _item_any_mode), ("description_from_id", _description_any_mode),
+                            ("item_group_from_id", _group_any_mode)):
+            orig = getattr(tsc, n)
+
+            def tip(context, space_type, idname, *args, _orig=orig, _fallback=fallback, _n=n, **kw):
+                found = _orig(context, space_type, idname, *args, **kw)
+                if found in (None, False) or (_n == "item_group_from_id" and not found):
+                    return _fallback(context, space_type, idname)
+                return found
+            _tool_fns[n] = orig
+            setattr(tsc, n, tip)
+        # activating: the viewport's tool is set, not one for this editor
+        for n in ("activate_by_id", "activate_by_id_or_cycle"):
+            orig = getattr(tsc, n)
+
+            def wrapped(context, space_type, *args, _orig=orig, **kw):
+                return _orig(context, _as_view3d(context, space_type), *args, **kw)
+            _tool_fns[n] = orig
+            setattr(tsc, n, wrapped)
+    else:
+        for n, orig in _tool_fns.items():
+            if n == "_tool_class_from_space_type":
+                T._tool_class_from_space_type = staticmethod(orig)
+            else:
+                setattr(tsc, n, orig)
+        _tool_fns.clear()
+
+
 class BLENDA4D_OT_axis_lock(bpy.types.Operator):
     bl_idname = "blenda4d.axis_lock"
     bl_label = "Axis"
@@ -220,6 +328,7 @@ OVERRIDES = (("PROPERTIES_HT_header", "draw", properties_header), ("TOPBAR_HT_up
 
 def override():
     from . import own_draw
+    _tool_lookup_patch(True)
     for cls_name, attr, fn in OVERRIDES:
         cls = getattr(bpy.types, cls_name)
         key = f"{cls_name}.{attr}" if attr != "draw" else cls_name
@@ -233,6 +342,7 @@ def override():
 
 def restore():
     from . import own_draw
+    _tool_lookup_patch(False)
     for cls_name, attr, fn in OVERRIDES:
         cls = getattr(bpy.types, cls_name)
         key = f"{cls_name}.{attr}" if attr != "draw" else cls_name
@@ -255,7 +365,8 @@ class BLENDA4D_PT_doc_tabs(roles.RolePanel, bpy.types.Panel):
         name = bpy.path.basename(bpy.data.filepath) or "Untitled"
         b = row.row(align=True)
         b.ui_units_x = 16
-        b.operator("blenda4d.noop", text=name, depress=True)
+        b.operator("blenda4d.title", text=name, depress=True).what = (
+            f"The open file: {bpy.data.filepath}" if bpy.data.filepath else "This scene has not been saved yet")
         row.operator("wm.read_homefile", text="", icon="ADD", emboss=False)
 
 
@@ -289,7 +400,7 @@ class BLENDA4D_PT_palette(roles.RolePanel, bpy.types.Panel):
         g = top.row(align=True)
         # a picture icon, which fits its button exactly (Blender's large tool icon spilled past the highlight here)
         sel_iv = icons.icon("ops.generic.select_box", "palette") or tool_icon("ops.generic.select_box")
-        _palette_button(g, "wm.tool_set_by_id", icon_value=sel_iv, depress=tool.startswith("builtin.select"), name="builtin.select_box", space_type="VIEW_3D")
+        _palette_button(g, "wm.tool_set_by_id", icon_value=sel_iv, depress=tool.startswith("builtin.select"), name="builtin.select_box")
         top.separator(factor=PALETTE_GAP)
         g = top.row(align=True)
         locks = context.window_manager.b4d_axis
@@ -353,7 +464,7 @@ def draw_tools(col, context):
         name = TOOL_ICONS.get(t, "")
         iv = icons.tool_shape(name) or tool_icon(name)    # tinted tool shape, else Blender's: all drawn the same size
         op = col.operator("wm.tool_set_by_id", text="", icon_value=iv, depress=(tool == t))
-        op.name, op.space_type = t, "VIEW_3D"          # the tool belongs to the viewport, not this panel
+        op.name = t                                    # no space type: Blender's lookup finds the viewport's tools
 
 
 
@@ -516,6 +627,14 @@ class BLENDA4D_OT_create(bpy.types.Operator):
         return {"FINISHED"}
 
 
+GROUP_TIPS = {"null": "Empty objects that hold and move other objects", "splines": "Lines and curves to draw with",
+              "shapes": "Ready-made spline shapes", "text": "Text objects", "generators": "Objects that build geometry from their children",
+              "volume": "Volume objects", "moclone": "Clone objects in arrays, grids and patterns",
+              "deformers": "Objects that bend, twist and shape their parent", "effectors": "Objects that move clones",
+              "fields": "Areas that limit where an effect works", "environment": "Floor, sky and background",
+              "camera": "Cameras", "lights": "Lights"}
+
+
 def _group_menu(group):
     idname = "BLENDA4D_MT_create_" + group
 
@@ -525,7 +644,8 @@ def _group_menu(group):
             row.enabled = op is not None
             o = row.operator("blenda4d.create", text=label, **icons.kw(icon, group))
             o.group, o.index = group, i
-    return type(idname, (bpy.types.Menu,), {"bl_idname": idname, "bl_label": group.title(), "draw": draw})
+    return type(idname, (bpy.types.Menu,), {"bl_idname": idname, "bl_label": group.title(), "draw": draw,
+                                            "bl_description": GROUP_TIPS.get(group, f"Create {group}")})
 
 
 GROUP_MENUS = [_group_menu(g) for g in GROUPS]
@@ -565,7 +685,7 @@ def register():
     icons.register()
     for c in classes:
         bpy.utils.register_class(c)
-    bpy.types.WindowManager.b4d_axis = bpy.props.BoolVectorProperty(size=3, default=(True, True, True))
+    bpy.types.WindowManager.b4d_axis = bpy.props.BoolVectorProperty(description='Which axes moving, rotating and scaling may use: X, Y, Z', size=3, default=(True, True, True))
     override()
     _hide_blender_tools()
     from . import strip                                  # the create column, drawn into the viewport's toolbar strip

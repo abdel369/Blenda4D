@@ -399,6 +399,13 @@ def _creator(kind):
 
 
 # --- menu settings (stored as whole numbers in the custom properties) -------------------------------------------
+MENU_TIPS = {"b4d_def_mode": "Where the deformer acts: inside its box, or beyond it too",
+             "b4d_def_origin": "The point the deformer works from",
+             "b4d_def_wrap_mode": "How the object is wrapped around the shape",
+             "b4d_def_shape": "The shape the object is wrapped onto",
+             "b4d_def_along": "The direction the effect runs along"}
+
+
 def _menu(key, name, items):
     items = tuple((ident, label, tip, i) for i, (ident, label, tip) in enumerate(items))
 
@@ -408,7 +415,7 @@ def _menu(key, name, items):
     def put(self, v):
         self[key] = int(v)
         self.update_tag()
-    return bpy.props.EnumProperty(name=name, items=items, get=get, set=put)
+    return bpy.props.EnumProperty(name=name, items=items, get=get, set=put, description=MENU_TIPS.get(key, name))
 
 
 def _lattice_size_get(self):
@@ -454,7 +461,7 @@ def _menus():
         "b4d_def_grid": bpy.props.FloatVectorProperty(
             name="Grid Size", size=3, get=_lattice_size_get, set=_lattice_size_set, precision=1, step=100,
             description="Size of the lattice cage in centimetres"),
-        "b4d_def_interp": bpy.props.EnumProperty(name="Interpolation", get=_interp_get, set=_interp_set, items=(
+        "b4d_def_interp": bpy.props.EnumProperty(name="Interpolation", description="How the effect eases between its ends", get=_interp_get, set=_interp_set, items=(
             ("KEY_LINEAR", "Linear", "Straight between grid points", 0),
             ("KEY_CARDINAL", "Cardinal", "Curved, passing close to the points", 1),
             ("KEY_BSPLINE", "Smooth", "Smooth and soft", 2))),

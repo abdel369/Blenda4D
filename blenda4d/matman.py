@@ -10,8 +10,9 @@ import bpy
 from . import menus, roles
 
 PX_MIN, PX_MAX = 20, 160
-VIEWS = (("LIST", "List View", "", "LONGDISPLAY", 0), ("ICONS", "Icon View", "", "IMGDISPLAY", 1),
-         ("LAYERS", "Layer View", "", "RENDERLAYERS", 2))
+VIEWS = (("LIST", "List View", "Material names in a list", "LONGDISPLAY", 0),
+         ("ICONS", "Icon View", "Material previews in a grid", "IMGDISPLAY", 1),
+         ("LAYERS", "Layer View", "Material names in a list, each with the textures it uses", "RENDERLAYERS", 2))
 
 
 def current(context):
@@ -553,11 +554,11 @@ def register():
     for c in classes:
         bpy.utils.register_class(c)
     W = bpy.types.WindowManager
-    W.b4d_mm_view = bpy.props.EnumProperty(name="View", items=VIEWS, default="ICONS", update=_px_update)
-    W.b4d_mm_px = bpy.props.IntProperty(name="Preview Size", default=64, min=PX_MIN, max=PX_MAX, subtype="PIXEL",
+    W.b4d_mm_view = bpy.props.EnumProperty(description='Show materials as previews, as a list, or as a list with their textures', name="View", items=VIEWS, default="ICONS", update=_px_update)
+    W.b4d_mm_px = bpy.props.IntProperty(description='How large the material previews are', name="Preview Size", default=64, min=PX_MIN, max=PX_MAX, subtype="PIXEL",
                                         update=_px_update)
     W.b4d_mm_search = bpy.props.BoolProperty(name="Search Materials", description="Search materials by name")
-    W.b4d_mm_filter = bpy.props.StringProperty(name="Search", options={"TEXTEDIT_UPDATE"}, update=_px_update)
+    W.b4d_mm_filter = bpy.props.StringProperty(description='Show only materials whose name contains this', name="Search", options={"TEXTEDIT_UPDATE"}, update=_px_update)
     if not bpy.app.timers.is_registered(_watch):
         bpy.app.timers.register(_watch, first_interval=1.0, persistent=True)
     kc = bpy.context.window_manager.keyconfigs.addon

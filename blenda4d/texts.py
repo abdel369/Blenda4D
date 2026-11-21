@@ -112,10 +112,10 @@ def _plane_set(self, v):
 def register():
     bpy.utils.register_class(BLENDA4D_OT_add_text)
     T = bpy.types.TextCurve
-    T.b4d_align = bpy.props.EnumProperty(name="Align", items=ALIGN, get=_align_get, set=_align_set)
+    T.b4d_align = bpy.props.EnumProperty(description='Line up the lines of text on the left, in the middle or on the right', name="Align", items=ALIGN, get=_align_get, set=_align_set)
     T.b4d_height = bpy.props.FloatProperty(name="Height", subtype="DISTANCE", unit="LENGTH", get=_height_get,
                                            set=_height_set, description="Height of the letters (Blender: Size)")
-    bpy.types.Object.b4d_text_plane = bpy.props.EnumProperty(
+    bpy.types.Object.b4d_text_plane = bpy.props.EnumProperty(description='The plane the letters lie in: XY faces the front, ZY the side, XZ lies on the floor', 
         name="Plane", items=[(k, k, f"Letters in the {k} plane") for k in PLANES], get=_plane_get, set=_plane_set)
     managers.FONT_PAGE[:] = [page_object]
     from . import bars

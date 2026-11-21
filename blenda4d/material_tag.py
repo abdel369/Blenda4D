@@ -540,8 +540,8 @@ classes = (BLENDA4D_PG_mat_tag, BLENDA4D_OT_mat_tag_pick, BLENDA4D_OT_mat_tag_fi
 def register():
     for c in classes:
         bpy.utils.register_class(c)
-    bpy.types.Object.b4d_mat_tags = bpy.props.CollectionProperty(type=BLENDA4D_PG_mat_tag)
-    bpy.types.WindowManager.b4d_tag_tab = bpy.props.EnumProperty(items=TABS, default="TAG", name="Page")
+    bpy.types.Object.b4d_mat_tags = bpy.props.CollectionProperty(description="The object's material tags", type=BLENDA4D_PG_mat_tag)
+    bpy.types.WindowManager.b4d_tag_tab = bpy.props.EnumProperty(description="The page of the tag's settings that is shown", items=TABS, default="TAG", name="Page")
     from . import managers
     managers.AM_SUBJECTS[SUBJECT] = draw_subject
     managers.OM_TAG_BUTTON[:] = [om_tag_button]

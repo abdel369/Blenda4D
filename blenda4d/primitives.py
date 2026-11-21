@@ -1517,7 +1517,7 @@ def register():
     bpy.app.timers.register(upgrade_groups, first_interval=0.5)      # a file named on the command line loads before the kit
     for c in classes:
         bpy.utils.register_class(c)
-    bpy.types.Object.b4d_relief_file = bpy.props.StringProperty(name="Texture", subtype="FILE_PATH", update=_relief_file)
+    bpy.types.Object.b4d_relief_file = bpy.props.StringProperty(description='The picture whose brightness raises the surface (Blender: Displace texture image)', name="Texture", subtype="FILE_PATH", update=_relief_file)
 
 
 def unregister():

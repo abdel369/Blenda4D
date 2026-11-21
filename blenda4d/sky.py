@@ -406,8 +406,8 @@ def register():
     from . import sky_resolution
     sky_resolution.register()
     S = bpy.types.Scene
-    S.b4d_sky_world = bpy.props.PointerProperty(type=bpy.types.World)
-    S.b4d_sky_prev_world = bpy.props.PointerProperty(type=bpy.types.World)
+    S.b4d_sky_world = bpy.props.PointerProperty(description='The world the Sky object made', type=bpy.types.World)
+    S.b4d_sky_prev_world = bpy.props.PointerProperty(description='The world in use before the Sky object, put back when the Sky is deleted', type=bpy.types.World)
     S.b4d_sky_color = bpy.props.FloatVectorProperty(
         name="Sky Color", subtype="COLOR", size=3, min=0.0, max=1.0, default=GREY, update=_changed,
         description="The sky's colour when it has no HDRI, and what the camera sees with Hide from Camera on")

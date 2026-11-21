@@ -41,6 +41,21 @@ def draw_items(layout, items):
                 pass
 
 
+class BLENDA4D_OT_title(bpy.types.Operator):
+    """A tab's name (the open file, a manager): it shows where you are; clicking it does nothing"""
+    bl_idname = "blenda4d.title"
+    bl_label = "Title"
+    bl_options = {"INTERNAL"}
+    what: bpy.props.StringProperty(options={"SKIP_SAVE"})
+
+    @classmethod
+    def description(cls, context, properties):
+        return properties.what or "Where you are"
+
+    def execute(self, context):
+        return {"CANCELLED"}
+
+
 class BLENDA4D_OT_noop(bpy.types.Operator):
     bl_idname = "blenda4d.noop"
     bl_label = "Not available yet"
@@ -81,22 +96,23 @@ MAIN = {
               item("Edges", "blenda4d.set_mode", "EDGESEL", mode="EDGES"), item("Polygons", "blenda4d.set_mode", "FACESEL", mode="POLYGONS")],
     "Select": [item("Select All", "object.select_all", action="SELECT"), item("Deselect All", "object.select_all", action="DESELECT"),
                item("Invert Selection", "object.select_all", action="INVERT"), SEP,
-               item("Live Selection", "wm.tool_set_by_id", "RESTRICT_SELECT_OFF", name="builtin.select_circle", space_type="VIEW_3D"),
-               item("Rectangle Selection", "wm.tool_set_by_id", name="builtin.select_box", space_type="VIEW_3D"),
-               item("Lasso Selection", "wm.tool_set_by_id", name="builtin.select_lasso", space_type="VIEW_3D")],
-    "Tools": [item("Move", "wm.tool_set_by_id", name="builtin.move", space_type="VIEW_3D"), item("Scale", "wm.tool_set_by_id", name="builtin.scale", space_type="VIEW_3D"),
-              item("Rotate", "wm.tool_set_by_id", name="builtin.rotate", space_type="VIEW_3D"), SEP, item("Measure", "wm.tool_set_by_id", name="builtin.measure", space_type="VIEW_3D")],
-    "Spline": [item("Pen", "wm.tool_set_by_id", name="builtin.pen", space_type="VIEW_3D"), item("Sketch", "wm.tool_set_by_id", name="builtin.draw", space_type="VIEW_3D")],
-    "Mesh": [item("Extrude", "wm.tool_set_by_id", name="builtin.extrude_region", space_type="VIEW_3D"), item("Inset", "wm.tool_set_by_id", name="builtin.inset_faces", space_type="VIEW_3D"),
-             item("Bevel", "wm.tool_set_by_id", name="builtin.bevel", space_type="VIEW_3D"), item("Loop Cut", "wm.tool_set_by_id", name="builtin.loop_cut", space_type="VIEW_3D"),
-             item("Knife", "wm.tool_set_by_id", name="builtin.knife", space_type="VIEW_3D")],
+               item("Live Selection", "wm.tool_set_by_id", "RESTRICT_SELECT_OFF", name="builtin.select_circle"),
+               item("Rectangle Selection", "wm.tool_set_by_id", name="builtin.select_box"),
+               item("Lasso Selection", "wm.tool_set_by_id", name="builtin.select_lasso"), SEP,
+               item("Phong Break Selection", "blenda4d.phong_break_selection")],
+    "Tools": [item("Move", "wm.tool_set_by_id", name="builtin.move"), item("Scale", "wm.tool_set_by_id", name="builtin.scale"),
+              item("Rotate", "wm.tool_set_by_id", name="builtin.rotate"), SEP, item("Measure", "wm.tool_set_by_id", name="builtin.measure")],
+    "Spline": [item("Pen", "wm.tool_set_by_id", name="builtin.pen"), item("Sketch", "wm.tool_set_by_id", name="builtin.draw")],
+    "Mesh": [item("Extrude", "wm.tool_set_by_id", name="builtin.extrude_region"), item("Inset", "wm.tool_set_by_id", name="builtin.inset_faces"),
+             item("Bevel", "wm.tool_set_by_id", name="builtin.bevel"), item("Loop Cut", "wm.tool_set_by_id", name="builtin.loop_cut"),
+             item("Knife", "wm.tool_set_by_id", name="builtin.knife")],
     "Volume": [item("Volume Builder"), item("Volume Mesher")],
     "MoClone": [item("Cloner"), item("Matrix"), item("Fracture"), item("Voronoi Fracture"), SEP, item("Effectors"), item("Fields")],
     "Character": [item("Joint", "object.armature_add", "BONE_DATA")],
     "Animate": [item("Record Active Objects", "anim.keyframe_insert", "REC"), item("Delete Keyframes", "anim.keyframe_delete_v3d")],
     "Simulate": [item("Rigid Body", "rigidbody.object_add"), item("Cloth", "object.modifier_add", type="CLOTH")],
     "Tracker": [item("Motion Tracker")],
-    "Render": [item("Render View", "render.render", "RENDER_STILL"), item("Render to Render Viewer", "blenda4d.render", "RENDER_RESULT"),
+    "Render": [item("Render View", "blenda4d.render_still", "RENDER_STILL"), item("Render to Render Viewer", "blenda4d.render", "RENDER_RESULT"),
                item("Render Animation", "blenda4d.render", "RENDER_ANIMATION", animation=True), SEP,
                item("Render Viewer", "render.view_show", "IMAGE"), item("Render Settings...", "blenda4d.render_settings", "SCENE"), SEP],
     "Add-ons": [item("Get Extensions...", "screen.userpref_show", "PLUGIN", section="EXTENSIONS"),
@@ -113,8 +129,32 @@ MAIN = {
 
 
 
+MENU_TIPS = {
+    "main": {"File": "Open, save, import and export scenes", "Edit": "Undo, redo, copy, paste and the preferences",
+             "Create": "Add objects: primitives, splines, generators, deformers, lights, cameras and more",
+             "Modes": "Work on whole objects, or on their points, edges or polygons",
+             "Select": "Selection tools and commands", "Tools": "Move, rotate, scale and measure",
+             "Spline": "Draw and edit splines", "Mesh": "Modelling tools for polygon objects",
+             "Volume": "Volume objects", "MoClone": "Clone objects in arrays, grids and patterns",
+             "Character": "Joints for rigging characters", "Animate": "Keyframes for the selected objects",
+             "Simulate": "Physics: rigid bodies and cloth", "Tracker": "Motion tracking",
+             "Render": "Render a still or an animation, and the render settings",
+             "Add-ons": "Commands from your other Blender add-ons", "Window": "Open editors and windows",
+             "Help": "Manuals, support and information about Blenda 4D and Blender"},
+    "om": {"File": "Bring in objects from other files", "Edit": "Undo, copy, paste, rename and delete objects",
+           "View": "Fold or unfold the object list", "Object": "Group, duplicate or make objects editable",
+           "Tags": "Add tags (material, smoothing) to the selected objects", "Bookmarks": "Saved places in the list"},
+    "am": {"Mode": "What the Attribute Manager shows", "Edit": "Copy and paste settings",
+           "User Data": "Your own settings added to an object"},
+    "mm": {"Create": "Make new materials", "Edit": "Copy, paste and delete materials", "View": "How materials are listed",
+           "Select": "Select materials", "Material": "Commands for the selected material"},
+    "ab": {"Create": "Add assets", "Edit": "Edit assets", "View": "How assets are listed", "Libraries": "Asset libraries"},
+}
+
+
 def _make(label, items, prefix):
     idname = f"BLENDA4D_MT_{prefix}_" + "".join(c for c in label.lower() if c.isalnum())
+    tip = MENU_TIPS.get(prefix, {}).get(label, f"{label} commands")
 
     def draw(self, context):
         draw_items(self.layout, items)
@@ -124,7 +164,7 @@ def _make(label, items, prefix):
             self.layout.separator()
             for text, kind, icon in extra:
                 self.layout.operator("blenda4d.add_kind", text=text, icon=icon).kind = kind
-    return type(idname, (bpy.types.Menu,), {"bl_idname": idname, "bl_label": label, "draw": draw})
+    return type(idname, (bpy.types.Menu,), {"bl_idname": idname, "bl_label": label, "bl_description": tip, "draw": draw})
 
 
 MAIN_CLASSES = [_make(k, v, "main") for k, v in MAIN.items()]
@@ -173,7 +213,8 @@ def make_more(classes):
             self.layout.menu(cls.bl_idname, text=cls.bl_label)
 
     cls = type("BLENDA4D_MT_more_" + key.rpartition("_MT_")[2], (bpy.types.Menu,),
-               {"bl_idname": "BLENDA4D_MT_more_" + key.rpartition("_MT_")[2], "bl_label": "More", "draw": draw})
+               {"bl_idname": "BLENDA4D_MT_more_" + key.rpartition("_MT_")[2], "bl_label": "More",
+                "bl_description": "The menus that do not fit in the bar", "draw": draw})
     _more[key] = cls
     return cls
 
@@ -214,7 +255,7 @@ def simple_menu(label, items, manager="mgr"):
     return _make(label, items, manager)
 
 
-classes = (BLENDA4D_OT_noop, *VIEW_OPS, *MAIN_CLASSES, *VIEW_CLASSES)
+classes = (BLENDA4D_OT_title, BLENDA4D_OT_noop, *VIEW_OPS, *MAIN_CLASSES, *VIEW_CLASSES)
 
 
 def register():

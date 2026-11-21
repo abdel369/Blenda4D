@@ -108,6 +108,7 @@ SNAP_ITEMS = (("Point", "VERTEX"), ("Edge", "EDGE"), ("Polygon", "FACE"), ("Near
 class BLENDA4D_MT_tb_snap(bpy.types.Menu):
     bl_idname = "BLENDA4D_MT_tb_snap"
     bl_label = "Snapping"
+    bl_description = "Snap to points, edges, polygons or the grid while moving"
 
     def draw(self, context):
         ts = context.tool_settings
@@ -214,6 +215,7 @@ class BLENDA4D_OT_tb_workplane_set(bpy.types.Operator):
 class BLENDA4D_MT_tb_workplane(bpy.types.Menu):
     bl_idname = "BLENDA4D_MT_tb_workplane"
     bl_label = "Workplane"
+    bl_description = "The plane new objects and the grid sit on"
 
     def draw(self, context):
         layout = self.layout
@@ -271,6 +273,7 @@ class BLENDA4D_OT_tb_symmetry(bpy.types.Operator):
 class BLENDA4D_MT_tb_symmetry(bpy.types.Menu):
     bl_idname = "BLENDA4D_MT_tb_symmetry"
     bl_label = "Symmetry"
+    bl_description = "Edit both sides of a mirrored object at once"
 
     def draw(self, context):
         ob = context.active_object
@@ -342,6 +345,7 @@ class BLENDA4D_OT_tb_solo(bpy.types.Operator):
 class BLENDA4D_MT_tb_solo(bpy.types.Menu):
     bl_idname = "BLENDA4D_MT_tb_solo"
     bl_label = "Solo"
+    bl_description = "Show only the selected objects"
 
     def draw(self, context):
         for which, label in (("ACTIVE", "Solo"), ("SELECTION", "Solo Selection"), ("HIERARCHY", "Solo Hierarchy")):
@@ -425,6 +429,7 @@ def _render_selection(context, op):
 class BLENDA4D_MT_tb_render_view(bpy.types.Menu):
     bl_idname = "BLENDA4D_MT_tb_render_view"
     bl_label = "Render View"
+    bl_description = "Render in the viewport"
 
     def draw(self, context):
         for how, label in (("VIEW", "Render View"), ("SELECTION", "Render Selection"), ("REGION", "Render Region"),
@@ -447,6 +452,7 @@ class BLENDA4D_OT_tb_later(bpy.types.Operator):
 class BLENDA4D_MT_tb_render(bpy.types.Menu):
     bl_idname = "BLENDA4D_MT_tb_render"
     bl_label = "Render"
+    bl_description = "Render a still or an animation"
 
     def draw(self, context):
         layout = self.layout
@@ -457,6 +463,7 @@ class BLENDA4D_MT_tb_render(bpy.types.Menu):
             row = layout.row()
             row.enabled = False
             row.operator("blenda4d.tb_later", text=label)
+
 
 
 # --- drawing (called by bars.BLENDA4D_PT_palette) ---------------------------------------------------------------------

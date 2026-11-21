@@ -122,7 +122,6 @@ def apply():
     # selection outline #af5710
     _set(v3, "object_selected", (0.686, 0.341, 0.063))
     _set(v3, "object_active", (0.686, 0.341, 0.063))
-    _set(v3, "wire", (0.75, 0.75, 0.75))
     _set(v3, "empty", (0.6, 0.6, 0.6))
     _set(th.topbar.space, "header", PANEL)
     _set(th.topbar.space, "back", PANEL)

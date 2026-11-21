@@ -507,7 +507,7 @@ class BLENDA4D_OT_ab_pick(_Op, bpy.types.Operator):
     bl_label = "Select Asset"
     bl_description = "Select this asset. Double-click to add it to the scene, or drag its picture into the viewport"
     bl_options = {"UNDO", "INTERNAL"}
-    key: bpy.props.StringProperty()
+    key: bpy.props.StringProperty(description='Which page or item this row stands for', )
 
     def execute(self, context):
         last, t = _st["click"]
@@ -850,6 +850,7 @@ class BLENDA4D_OT_ab_delete_folder(bpy.types.Operator):
 class BLENDA4D_MT_ab_folder(bpy.types.Menu):
     bl_idname = "BLENDA4D_MT_ab_folder"
     bl_label = "Folders"
+    bl_description = "Folder commands"
 
     def draw(self, context):
         lay = self.layout
@@ -942,6 +943,7 @@ class BLENDA4D_FH_asset_drop(bpy.types.FileHandler):
 class BLENDA4D_MT_ab_create(bpy.types.Menu):
     bl_idname = "BLENDA4D_MT_ab_own_create"
     bl_label = "Create"
+    bl_description = "Add assets and folders"
 
     def draw(self, context):
         lay = self.layout
@@ -955,6 +957,7 @@ class BLENDA4D_MT_ab_create(bpy.types.Menu):
 class BLENDA4D_MT_ab_edit(bpy.types.Menu):
     bl_idname = "BLENDA4D_MT_ab_own_edit"
     bl_label = "Edit"
+    bl_description = "Rename, favourite and remove assets"
 
     def draw(self, context):
         lay = self.layout
@@ -968,6 +971,7 @@ class BLENDA4D_MT_ab_edit(bpy.types.Menu):
 class BLENDA4D_MT_ab_view(bpy.types.Menu):
     bl_idname = "BLENDA4D_MT_ab_own_view"
     bl_label = "View"
+    bl_description = "How assets are listed"
 
     def draw(self, context):
         lay = self.layout
@@ -981,6 +985,7 @@ class BLENDA4D_MT_ab_view(bpy.types.Menu):
 class BLENDA4D_MT_ab_libraries(bpy.types.Menu):
     bl_idname = "BLENDA4D_MT_ab_own_libraries"
     bl_label = "Libraries"
+    bl_description = "Choose and manage asset libraries"
 
     def draw(self, context):
         lay = self.layout
@@ -1018,7 +1023,7 @@ def register():
     W = bpy.types.WindowManager
     W.b4d_ab_library = bpy.props.EnumProperty(name="Library", items=_library_items,
                                               description="Which asset library the browser shows")
-    W.b4d_ab_view = bpy.props.EnumProperty(name="View", items=[("GRID", "Grid", "Previews in a grid", "IMGDISPLAY", 0),
+    W.b4d_ab_view = bpy.props.EnumProperty(description='Show assets as previews or as a list', name="View", items=[("GRID", "Grid", "Previews in a grid", "IMGDISPLAY", 0),
                                                                ("LIST", "List", "Names in a list", "LONGDISPLAY", 1)])
     W.b4d_ab_size = bpy.props.FloatProperty(name="Preview Size", default=4.0, min=2.5, max=8.0,
                                             description="How large the asset previews are")

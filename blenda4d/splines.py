@@ -63,8 +63,10 @@ SHAPES = {
         ("rounding", "Rounded Corners", "B", False, None), ("corner_radius", "Corner Radius", "D", 50.0, "rounding")],
         "A regular polygon with any number of sides"),
     "fourside": ("Four Sided", "MOD_LATTICE", "LINEAR", True, [
-        ("style", "Style", "E", "DIAMOND", [("DIAMOND", "Diamond", ""), ("KITE", "Kite", ""),
-                                           ("PARALLELOGRAM", "Parallelogram", ""), ("TRAPEZOID", "Trapezoid", "")]),
+        ("style", "Style", "E", "DIAMOND", [("DIAMOND", "Diamond", "Four equal sides, corners up, down and to the sides"),
+                                           ("KITE", "Kite", "Two short sides on top, two long ones below"),
+                                           ("PARALLELOGRAM", "Parallelogram", "Opposite sides parallel, leaning by the Slant"),
+                                           ("TRAPEZOID", "Trapezoid", "Top and bottom parallel, the sides leaning by the Slant")]),
         ("width", "Width", "D", 200.0, None), ("height", "Height", "D", 200.0, None),
         ("slant", "Slant", "A", 30.0, "style=PARALLELOGRAM|TRAPEZOID")], "A diamond, kite, parallelogram or trapezoid"),
     "helix": ("Helix", "FORCE_VORTEX", "CUBIC", False, [
@@ -82,7 +84,9 @@ SHAPES = {
         ("hole", "Centre Hole", "B", True, None), ("hole_radius", "Hole Radius", "D", 50.0, "hole")],
         "A gear outline with square teeth"),
     "profile": ("Profile", "MOD_BUILD", "LINEAR", True, [
-        ("style", "Shape", "E", "H", [("H", "H", ""), ("L", "L", ""), ("T", "T", ""), ("U", "U", ""), ("Z", "Z", "")]),
+        ("style", "Shape", "E", "H", [("H", "H", "An H-shaped beam section"), ("L", "L", "An L-shaped angle section"),
+                                      ("T", "T", "A T-shaped beam section"), ("U", "U", "A U-shaped channel section"),
+                                      ("Z", "Z", "A Z-shaped section")]),
         ("height", "Height", "D", 200.0, None), ("width", "Width", "D", 100.0, None),
         ("web", "Upright Thickness", "D", 20.0, None), ("flange", "Bar Thickness", "D", 20.0, None)],
         "The cross section of a beam: H, L, T, U or Z"),
@@ -879,7 +883,7 @@ ORDER = ("circle", "rectangle", "arc", "nside", "star", "flower", "cogwheel", "h
 def register():
     bpy.utils.register_class(SETTINGS)
     bpy.utils.register_class(BLENDA4D_OT_spline_make_editable)
-    bpy.types.Object.b4d_spline = bpy.props.PointerProperty(type=SETTINGS)
+    bpy.types.Object.b4d_spline = bpy.props.PointerProperty(description="This spline object's settings", type=SETTINGS)
     kinds.add(PLAIN, "Spline", "CURVE_BEZCURVE", tabs=[("OBJECT", "Object")], pages={"OBJECT": page_spline},
               titles={"OBJECT": "Spline"})
     for kind in ORDER:
