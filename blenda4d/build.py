@@ -301,7 +301,9 @@ def steps(window, materials=False, assets=False):
 
 def dress_view(area):
     v3d = area.spaces.active
-    for attr, want in (("show_region_ui", False), ("show_region_toolbar", True), ("show_region_header", True),
+    # four views: the create column is one separate column beside them (quadview), not a strip in every view
+    quad = sum(a.type == "VIEW_3D" for a in area.id_data.areas) > 1
+    for attr, want in (("show_region_ui", False), ("show_region_toolbar", not quad), ("show_region_header", True),
                        ("show_region_tool_header", True), ("show_region_hud", False)):
         if getattr(v3d, attr) != want:
             setattr(v3d, attr, want)

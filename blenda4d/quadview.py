@@ -17,7 +17,7 @@ import math
 import bpy
 from mathutils import Euler
 
-from . import build
+from . import build, roles
 
 CORNERS = ("PERSP", "TOP", "RIGHT", "FRONT")          # top left, top right, bottom left, bottom right
 AXIS = {"PERSP": None, "TOP": "TOP", "RIGHT": "RIGHT", "FRONT": "FRONT"}
@@ -177,6 +177,10 @@ def split_steps(window):
     alone = corner_of_single(view)
     _saved.pop("ALONE", None)
     _saved[alone] = state(view)
+    # one create column for all four views, full height on the right (each view's own strip would repeat it)
+    create = yield from build.split(window, view, "VERTICAL", build.px(build.CREATE_PX) + build.EDGE, "RIGHT")
+    yield from build.make_role(window, create, "CREATE")
+    view = views(screen)[0]
     left, right = yield from _split(window, view, "VERTICAL")
     tl, bl = yield from _split(window, left, "HORIZONTAL")
     tr, br = yield from _split(window, right, "HORIZONTAL")
@@ -218,6 +222,11 @@ def expand_steps(window, keep):
         if not ok:
             print("Blenda 4D: four views: could not join two views; leaving them as they are")
             break
+    for c in roles.areas(screen, "CREATE"):              # the four views' create column goes; the strip comes back
+        if views(screen):
+            yield from _join(window, c, views(screen)[0])
+    for a in views(screen):
+        build.dress_view(a)
     for a in screen.areas:
         a.tag_redraw()
 
