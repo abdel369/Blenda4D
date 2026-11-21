@@ -258,6 +258,8 @@ def build(ob, kind, label):
     tree["b4d_deformer"] = kind
     interface(tree)
     fill(tree, ob, kind)
+    from .node_arrange import arrange
+    arrange(tree)                                                # readable in the node editor, not a pile
     return tree
 
 

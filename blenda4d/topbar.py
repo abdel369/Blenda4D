@@ -290,55 +290,22 @@ def symmetry_on(context):
 
 # --- 6 Solo ---------------------------------------------------------------------------------------------------------
 def solo_on(context):
-    _a, _r, sp = main_view(context)
-    return bool(sp and sp.local_view)
+    from . import solo
+    return solo.is_on(context.scene)
 
 
 class BLENDA4D_OT_tb_solo(bpy.types.Operator):
     bl_idname = "blenda4d.tb_solo"
     bl_label = "Solo"
-    bl_description = ("Solo (Local View in Blender): show only the active object in the viewport; press again to show "
-                      "everything. Press and hold for more")
-    which: bpy.props.EnumProperty(items=[("ACTIVE", "Solo", "Only the active object"),
-                                         ("SELECTION", "Solo Selection", "Only the selected objects"),
-                                         ("HIERARCHY", "Solo Hierarchy", "The active object and everything under it")],
-                                  options={"SKIP_SAVE"})
-
-    @classmethod
-    def description(cls, context, props):
-        if props.which == "ACTIVE":
-            return cls.bl_description
-        return {i.identifier: i.description for i in cls.bl_rna.properties["which"].enum_items}[props.which]
+    bl_description = ("Solo: show only the selected objects and what is under them; the camera does not move. Press "
+                      "again to show everything. Press and hold for more")
 
     def execute(self, context):
-        area, region, sp = main_view(context)
-        if area is None:
-            return {"CANCELLED"}
-        vl = context.view_layer
-        if sp.local_view:
-            with context.temp_override(window=context.window, area=area, region=region):
-                bpy.ops.view3d.localview(frame_selected=False)
-            return {"FINISHED"}
-        ob = context.active_object
-        if self.which != "SELECTION" and ob is None:
+        from . import solo
+        if not solo.run(context, "TOGGLE"):
             self.report({"INFO"}, "Select an object first")
             return {"CANCELLED"}
-        was = [o for o in vl.objects if o.select_get()]
-        show = set(was) if self.which == "SELECTION" else {ob}
-        if self.which == "HIERARCHY":
-            show |= set(ob.children_recursive)
-        if not show:
-            self.report({"INFO"}, "Select an object first")
-            return {"CANCELLED"}
-        for o in vl.objects:
-            o.select_set(o in show)
-        with context.temp_override(window=context.window, area=area, region=region):
-            bpy.ops.view3d.localview(frame_selected=False)
-        for o in vl.objects:
-            try:
-                o.select_set(o in was)
-            except RuntimeError:
-                pass
+        solo.redraw(context)
         return {"FINISHED"}
 
 
@@ -348,8 +315,9 @@ class BLENDA4D_MT_tb_solo(bpy.types.Menu):
     bl_description = "Show only the selected objects"
 
     def draw(self, context):
-        for which, label in (("ACTIVE", "Solo"), ("SELECTION", "Solo Selection"), ("HIERARCHY", "Solo Hierarchy")):
-            self.layout.operator("blenda4d.tb_solo", text=label).which = which
+        from . import solo
+        for mode, label, _d in solo.MODES:
+            self.layout.operator("blenda4d.solo", text=label).mode = mode
 
 
 # --- 7 Render View --------------------------------------------------------------------------------------------------

@@ -313,10 +313,15 @@ def side_part(nodes, links, geo, start):
 
 def piece(nodes, links, o, side, ring):
     """Bevel + cap on a flat contour: base at z = 0, outward = +Z."""
-    prof, a_end, h_end, S, O = bevel_profile(nodes, links, o, side)
-    wall = part(nodes, links, sweep_ring(nodes, links, ring, prof), PART_BEVEL)
-    cap = part(nodes, links, move(nodes, links, flat_fill(nodes, links, o, inset(nodes, links, ring, a_end)), translation=combine(nodes, links, z=h_end)),
-               PART_CAP)
+    from .node_arrange import subgroup
+    tree, name = nodes.id_data, {"S": "Start", "E": "End"}.get(side, str(side))
+
+    def bevel(n, l):                                    # each half its own node group: one box in the tree
+        prof, a_end, h_end, S, O = bevel_profile(n, l, o, side)
+        return part(n, l, sweep_ring(n, l, ring, prof), PART_BEVEL), a_end, h_end, S, O
+    wall, a_end, h_end, S, O = subgroup(tree, name + " Bevel", bevel)
+    cap = subgroup(tree, name + " Cap", lambda n, l: part(n, l, move(n, l, flat_fill(n, l, o, inset(n, l, ring, a_end)),
+                                                                    translation=combine(n, l, z=h_end)), PART_CAP))
     has = _math(nodes, "GREATER_THAN", _math(nodes, "ADD", S, _math(nodes, "ABSOLUTE", O, None, links), links), 1e-6, links)
     return switch(nodes, links, "GEOMETRY", has, cap, merge(nodes, links, join(nodes, links, [wall, cap])))
 

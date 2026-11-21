@@ -184,6 +184,8 @@ def ensure_group(kind):
     if tree is not None:
         return tree
     _, label, inputs = PRIMS[kind]
+    from .node_arrange import drop_parts
+    drop_parts(name)                                  # stage groups left from an earlier build of this group
     tree = bpy.data.node_groups.new(name, "GeometryNodeTree")
     tree.is_modifier = True
     tree.interface.new_socket("Geometry", in_out="OUTPUT", socket_type="NodeSocketGeometry")
@@ -213,6 +215,8 @@ def ensure_group(kind):
     gin = nodes.new("NodeGroupInput")
     gout = nodes.new("NodeGroupOutput")
     o = dict((sock.name, sock) for sock in gin.outputs)
+    from .node_arrange import stage, arrange
+    _settings = stage(tree, "Settings"); _settings.__enter__()
     for sname, cyc in menu_ids.items():
         ms = nodes.new("GeometryNodeMenuSwitch")
         ms.data_type = "INT"
@@ -225,6 +229,8 @@ def ensure_group(kind):
         o[sname] = ms.outputs[0]                      # downstream code sees the menu's number
         default_label = next((l for l, c in cyc if c == dict(((n, d) for n, t, d, i in inputs))[sname]), cyc[0][0])
         tree.interface.items_tree[sname].default_value = default_label
+    _settings.__exit__(None, None, None)
+    _shape = stage(tree, PRIMS[kind][1]); _shape.__enter__()
     if kind == "cube":
         n = nodes.new("GeometryNodeMeshCube")
         sep = nodes.new("ShaderNodeSeparateXYZ")
@@ -550,13 +556,23 @@ def ensure_group(kind):
         out = n.outputs["Mesh"]
     else:
         raise ValueError(kind)
+    _shape.__exit__(None, None, None)
     if "Slice" in o:
-        out = _slice(nodes, links, out, o, kind)
+        with stage(tree, "Slice"):
+            out = _slice(nodes, links, out, o, kind)
     if "Orientation" in o:
-        out = _orient(nodes, links, out, o["Orientation"])
-    links.new(_uv(tree, _material(tree, _phong(tree, out))), gout.inputs["Geometry"])
+        with stage(tree, "Orientation"):
+            out = _orient(nodes, links, out, o["Orientation"])
+    with stage(tree, "Phong Shading"):
+        out = _phong(tree, out)
+    with stage(tree, "Material"):
+        out = _material(tree, out)
+    with stage(tree, "UV"):
+        out = _uv(tree, out)
+    links.new(out, gout.inputs["Geometry"])
     if kind in GROUP_VERSIONS:
         tree["kit_version"] = GROUP_VERSIONS[kind]
+    arrange(tree)                                                # readable in the node editor, not a pile
     return tree
 
 
@@ -744,14 +760,24 @@ def _slice_faces(nodes, links, solid, o):
     fc = nodes.new("GeometryNodeInputMeshEdgeNeighbors").outputs["Face Count"]
     width = _cm(nodes, links, o["Width"])
     parts = [shell]
-    for radial, normal in planes:
-        sel = _math(nodes, "MULTIPLY", _math(nodes, "LESS_THAN", fc, 1.5, links), on_plane(radial, normal), links)
-        m2c = nodes.new("GeometryNodeMeshToCurve"); links.new(shell, m2c.inputs["Mesh"])
-        links.new(_math(nodes, "GREATER_THAN", sel, 0.5, links), m2c.inputs["Selection"])
-        cyc = nodes.new("GeometryNodeSetSplineCyclic"); links.new(m2c.outputs["Curve"], cyc.inputs["Curve"]); cyc.inputs["Cyclic"].default_value = True
-        R, Rinv = gc.align_z(nodes, links, normal)
-        flat = gc.move(nodes, links, cyc.outputs["Curve"], rotation=Rinv)
-        parts.append(gc.move(nodes, links, gc.grid_fill(nodes, links, flat, width), rotation=R))
+    from .node_arrange import subgroup
+
+    def face(radial, normal):
+        def build(nodes, links):                         # one cut face: its own node group
+            p = gc.position(nodes)
+            close = _math(nodes, "LESS_THAN", _math(nodes, "ABSOLUTE", gc.dot(nodes, links, p, normal), None, links), 1e-4, links)
+            on = _math(nodes, "MULTIPLY", close, _math(nodes, "GREATER_THAN", gc.dot(nodes, links, p, radial), -1e-4, links), links)
+            fcount = nodes.new("GeometryNodeInputMeshEdgeNeighbors").outputs["Face Count"]
+            sel = _math(nodes, "MULTIPLY", _math(nodes, "LESS_THAN", fcount, 1.5, links), on, links)
+            m2c = nodes.new("GeometryNodeMeshToCurve"); links.new(shell, m2c.inputs["Mesh"])
+            links.new(_math(nodes, "GREATER_THAN", sel, 0.5, links), m2c.inputs["Selection"])
+            cyc = nodes.new("GeometryNodeSetSplineCyclic"); links.new(m2c.outputs["Curve"], cyc.inputs["Curve"]); cyc.inputs["Cyclic"].default_value = True
+            R, Rinv = gc.align_z(nodes, links, normal)
+            flat = gc.move(nodes, links, cyc.outputs["Curve"], rotation=Rinv)
+            return gc.move(nodes, links, gc.grid_fill(nodes, links, flat, width), rotation=R)
+        return build
+    for (radial, normal), side in zip(planes, ("From", "To")):
+        parts.append(subgroup(nodes.id_data, "Slice Face " + side, face(radial, normal)))
     grid = gc.merge(nodes, links, gc.join(nodes, links, parts), 1e-4)
     return gc.switch(nodes, links, "GEOMETRY", o["Regular Grid"], tri.outputs["Mesh"], grid)
 

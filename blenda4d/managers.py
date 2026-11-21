@@ -391,28 +391,22 @@ def _main_view(context):
 
 
 def _in_solo(context):
-    area, _ = _main_view(context)
-    r3 = _region_3d(area)                                  # None while the area is being changed
-    return r3 is not None and area.spaces.active.local_view is not None
+    from . import solo
+    return solo.is_on(context.scene)
 
 
 class BLENDA4D_OT_om_solo(bpy.types.Operator):
     bl_idname = "blenda4d.om_solo"
     bl_label = "Solo"
-    bl_description = "Show only the selected objects in the viewport (Local View in Blender); press again to show everything"
+    bl_description = ("Show only the selected objects and what is under them; the camera does not move. Press again "
+                      "to show everything")
 
     def execute(self, context):
-        area, region = _main_view(context)
-        if area is None:
+        from . import solo
+        if not solo.run(context, "TOGGLE"):
+            self.report({"INFO"}, "Select the objects to solo first")
             return {"CANCELLED"}
-        if area.spaces.active.local_view is None and not context.selected_objects:
-            if context.view_layer.objects.active is None:
-                return {"CANCELLED"}
-            context.view_layer.objects.active.select_set(True)
-        with context.temp_override(area=area, region=region):
-            bpy.ops.view3d.localview(frame_selected=False)
-        for a in context.window.screen.areas:
-            a.tag_redraw()
+        solo.redraw(context)
         return {"FINISHED"}
 
 
@@ -568,6 +562,7 @@ def draw_om_head(layout, context):
     tools.operator("blenda4d.om_scroll_active", text="", icon="ZOOM_SELECTED", emboss=False)
     tools.operator("blenda4d.om_solo", text="", icon="SELECT_INTERSECT", emboss=False,
                    depress=_in_solo(context))
+    tools.operator("blenda4d.solo", text="", icon="HIDE_OFF", emboss=False).mode = "OFF"   # Solo Off
 
 
 class BLENDA4D_PT_om_head(roles.RolePanel, bpy.types.Panel):

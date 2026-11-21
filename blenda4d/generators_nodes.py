@@ -582,6 +582,8 @@ def make_group(name, kind, kids, owner):
     old = bpy.data.node_groups.get(name)
     if old is not None:
         bpy.data.node_groups.remove(old)
+    from .node_arrange import drop_parts
+    drop_parts(name)                                  # stage groups left from the last build of this generator
     label, inputs, menus, _consumes = KINDS[kind]
     tree = bpy.data.node_groups.new(name, "GeometryNodeTree")
     tree.is_modifier = True
@@ -601,6 +603,8 @@ def make_group(name, kind, kids, owner):
     nodes, links = tree.nodes, tree.links
     gin = nodes.new("NodeGroupInput"); gout = nodes.new("NodeGroupOutput")
     o = dict((sock.name, sock) for sock in gin.outputs)
+    from .node_arrange import stage, arrange
+    _settings = stage(tree, "Settings"); _settings.__enter__()
     for sname, items in menus.items():
         ms = nodes.new("GeometryNodeMenuSwitch"); ms.data_type = "INT"; ms.enum_items.clear()
         for lab, _num in items:
@@ -611,24 +615,33 @@ def make_group(name, kind, kids, owner):
         o[sname] = ms.outputs[0]
         dflt = dict((n, d) for n, t, d, k in inputs)[sname]
         tree.interface.items_tree[sname].default_value = next((lab for lab, num in items if num == dflt), items[0][0])
+    _settings.__exit__(None, None, None)
     kid_geo = []
+    _kids = stage(tree, "Children"); _kids.__enter__()
     for child in kids:
         info = nodes.new("GeometryNodeObjectInfo")
         info.transform_space = "ORIGINAL" if kind == "array" else "RELATIVE"     # the ring sits on the Array, wherever the child is
         info.inputs["Object"].default_value = child
         kid_geo.append((child, info.outputs["Geometry"]))
-    out = BUILDERS[kind](nodes, links, o, kid_geo)
+    _kids.__exit__(None, None, None)
+    with stage(tree, label):
+        out = BUILDERS[kind](nodes, links, o, kid_geo)
     if "Shell Selection" in o:
-        out = _part_selections(nodes, links, o, out)
+        with stage(tree, "Selections"):
+            out = _part_selections(nodes, links, o, out)
     from .primitives import _phong
-    out = _phong(tree, out)                                      # generators are Phong shaded like the primitives
+    with stage(tree, "Phong Shading"):
+        out = _phong(tree, out)                                  # generators are Phong shaded like the primitives
+    _hard = stage(tree, "Hard Edges"); _hard.__enter__()
     if kind == "boolean":
         hard = nodes.new("GeometryNodeInputNamedAttribute"); hard.data_type = "BOOLEAN"; hard.inputs["Name"].default_value = HARD
         sharp = nodes.new("GeometryNodeSetShadeSmooth"); sharp.domain = "EDGE"; sharp.inputs["Shade Smooth"].default_value = False
         links.new(out, sharp.inputs[0]); links.new(hard.outputs["Attribute"], sharp.inputs["Selection"])
         rm = nodes.new("GeometryNodeRemoveAttribute"); links.new(sharp.outputs[0], rm.inputs["Geometry"]); rm.inputs["Name"].default_value = HARD
         out = rm.outputs[0]
+    _hard.__exit__(None, None, None)
     links.new(out, gout.inputs["Geometry"])
+    arrange(tree)                                                # readable in the node editor, not a pile
     return tree
 
 
