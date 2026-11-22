@@ -137,10 +137,11 @@ def _split(window, area, direction):
 
 def _touching(a, b):
     """Do a and b share one whole edge (what area_join needs)?"""
+    gap = 4 + round(4 * bpy.context.preferences.system.ui_scale)    # the gap between areas grows with the UI scale
     rows = abs(a.y - b.y) <= 2 and abs(a.height - b.height) <= 2
     cols = abs(a.x - b.x) <= 2 and abs(a.width - b.width) <= 2
-    beside = abs(a.x + a.width - b.x) <= 4 or abs(b.x + b.width - a.x) <= 4
-    stacked = abs(a.y + a.height - b.y) <= 4 or abs(b.y + b.height - a.y) <= 4
+    beside = abs(a.x + a.width - b.x) <= gap or abs(b.x + b.width - a.x) <= gap
+    stacked = abs(a.y + a.height - b.y) <= gap or abs(b.y + b.height - a.y) <= gap
     return (rows and beside) or (cols and stacked)
 
 

@@ -26,6 +26,9 @@ KEYS = [
     # --- viewport navigation: hold Alt and drag with a mouse button, or hold 1 / 2 / 3 and move the mouse
     ("3D View", "view3d.rotate", {"type": "LEFTMOUSE", "value": "PRESS", "alt": True}, None),
     ("3D View", "view3d.move", {"type": "MIDDLEMOUSE", "value": "PRESS", "alt": True}, None),
+    # middle drag orbits, a middle click switches between one view and four
+    ("3D View", "view3d.rotate", {"type": "MIDDLEMOUSE", "value": "CLICK_DRAG"}, None),
+    ("3D View", "blenda4d.quad_view", {"type": "MIDDLEMOUSE", "value": "CLICK"}, None),
     ("3D View", "view3d.zoom", {"type": "RIGHTMOUSE", "value": "PRESS", "alt": True}, None),
     ("3D View", "view3d.move", {"type": "ONE", "value": "PRESS"}, None),
     ("3D View", "view3d.zoom", {"type": "TWO", "value": "PRESS"}, None),
