@@ -550,14 +550,28 @@ def _icon_px():
     return 20 * bpy.context.preferences.system.ui_scale
 
 
+OM_SEARCH_MIN_PX = 120                                    # the search box always shows as a field, never only its icon
+
+
+def _om_menu_share():
+    """The menus' share of the Object Manager's title line. The search box keeps at least OM_SEARCH_MIN_PX; menus that
+    no longer fit go into the » menu."""
+    w = menus.panel_width()
+    if not w:
+        return OM_MENU_SHARE
+    need = OM_SEARCH_MIN_PX * bpy.context.preferences.system.ui_scale
+    return max(0.35, min(OM_MENU_SHARE, 1 - need / max(w, 1)))
+
+
 def draw_om_head(layout, context):
     """The Object Manager's title, menus, search and tool row."""
     manager_title(layout, "Objects")
-    sp = layout.split(factor=OM_MENU_SHARE, align=True)   # menus on the left, the search box at the right edge
+    share = _om_menu_share()
+    sp = layout.split(factor=share, align=True)           # menus on the left, the search box at the right edge
     bar = sp.row(align=True)
     bar.label(text="", icon="COLLAPSEMENU")
-    menus.menu_bar(bar, OM_MENUS, avail=menus.panel_width(OM_MENU_SHARE, _icon_px()))
-    sp.prop(context.window_manager, "b4d_om_search", text="", icon="VIEWZOOM")
+    menus.menu_bar(bar, OM_MENUS, avail=menus.panel_width(share, _icon_px()))
+    sp.prop(context.window_manager, "b4d_om_search", text="", icon="VIEWZOOM", placeholder="Search")
     tools = layout.split(factor=0.2, align=True).row(align=True)   # the tool row: scroll to the active object, solo
     tools.operator("blenda4d.om_scroll_active", text="", icon="ZOOM_SELECTED", emboss=False)
     tools.operator("blenda4d.om_solo", text="", icon="SELECT_INTERSECT", emboss=False,
@@ -777,6 +791,85 @@ def page_primitive(col, ob, kind):
             row.prop(owner, attr, text=sname)
 
 
+VOLUME_LOOK = (("Density", "Density"), ("Color", "Color"), ("Anisotropy", "Light Scattering"),
+               ("Absorption Color", "Absorption Color"), ("Emission Strength", "Emission"),
+               ("Emission Color", "Emission Color"), ("Blackbody Intensity", "Glow"), ("Temperature", "Glow Temperature"))
+
+
+def _volume_shader(ob):
+    """The volume shader the object renders with: the first Principled Volume (or Volume Scatter) on its material's
+    Volume input, else anywhere in the material."""
+    mat = ob.active_material
+    if mat is None or not mat.use_nodes or mat.node_tree is None:
+        return mat, None
+    nodes = mat.node_tree.nodes
+    for kind in ("PRINCIPLED_VOLUME", "VOLUME_SCATTER"):
+        node = next((n for n in nodes if n.type == kind), None)
+        if node is not None:
+            return mat, node
+    return mat, None
+
+
+def _volume_look(col, ob):
+    """Top-level controls for how the volume looks, plus its render detail."""
+    mat, node = _volume_shader(ob)
+    col.label(text="Look")
+    if node is None:
+        col.label(text="Add a volume material to set density and colour" if mat is None
+                  else f"{mat.name} has no volume shader")
+    else:
+        for name, label in VOLUME_LOOK:
+            sock = node.inputs.get(name)
+            if sock is None or not hasattr(sock, "default_value"):
+                continue
+            if sock.is_linked:
+                row = col.row()
+                row.active = False
+                row.label(text=f"{label}: set by the material's nodes")
+            else:
+                col.prop(sock, "default_value", text=label)
+    col.prop(ob.data.render, "step_size", text="Detail (Step Size)")
+
+
+def page_volume(col, ob):
+    """A volume (OpenVDB) object: its file, sequence, viewport display and render quality, and the grids it holds.
+    The Look rows are the volume material's own shader inputs, so changing them here changes the material."""
+    d = ob.data
+    _volume_look(col, ob)
+    col.separator()
+    col.prop(d, "filepath", text="File")
+    col.prop(d, "is_sequence", text="Sequence")
+    if d.is_sequence:
+        col.prop(d, "frame_start", text="Start Frame")
+        col.prop(d, "frame_offset", text="Offset")
+        col.prop(d, "sequence_mode", text="Mode")
+    col.separator()
+    col.label(text="Viewport")
+    col.prop(d.display, "density", text="Density")
+    col.prop(d.display, "wireframe_type", text="Wireframe")
+    if d.display.wireframe_type in ("BOXES", "POINTS"):
+        col.prop(d.display, "wireframe_detail", text="Detail")
+    col.prop(d.display, "interpolation_method", text="Interpolation")
+    col.separator()
+    col.label(text="Render")
+    col.prop(d.render, "space", text="Space")
+    col.prop(d.render, "precision", text="Precision")
+    col.prop(d.render, "clipping", text="Clipping")
+    col.separator()
+    try:                                                  # reading the file's grid list is cheap: names and types only
+        if d.filepath and not d.grids.is_loaded:
+            d.grids.load()
+        grids = [(g.name, g.data_type) for g in d.grids]
+    except (AttributeError, RuntimeError, ReferenceError):
+        grids = []
+    if grids:
+        col.label(text="Grids")
+        for name, kind in grids:
+            col.label(text=f"{name}    {kind.replace('_', ' ').title()}", icon="DOT")
+    elif d.filepath:
+        col.label(text="Grids: none loaded (check the file path)")
+
+
 def page_object(col, ob):
     from . import kinds
     d = ob.data
@@ -817,6 +910,8 @@ def page_object(col, ob):
         col.prop(d, "size", text="Height")
         col.prop(d, "extrude", text="Depth")
         col.prop(d, "align_x", text="Align")
+    elif ob.type == "VOLUME":
+        page_volume(col, ob)
     else:
         col.label(text="No settings for this object type yet")
 

@@ -195,6 +195,11 @@ def draw_subject(layout, context, _ob=None):
             if out is not None:
                 body.template_node_view(mat.node_tree, out, out.inputs["Surface"])
     out = _output(mat)
+    if out is not None and out.inputs.get("Volume") is not None:   # smoke, clouds, fog: a volume shader
+        vol_in = out.inputs["Volume"]
+        body = _section(layout, "VOLUME", "Volume", closed=not vol_in.is_linked)
+        if body is not None:
+            body.template_node_view(mat.node_tree, out, vol_in)
     if out is not None:
         body = _section(layout, "DISPLACEMENT", "Displacement")
         if body is not None:
