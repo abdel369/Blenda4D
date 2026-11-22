@@ -8,11 +8,11 @@ import os
 
 import bpy
 
-from . import bars, build, coords, editable, kinds, layouts, managers, matman, menus, primitives, roles, theme
+from . import bars, build, coords, editable, kinds, layouts, managers, matman, menus, nodewin, primitives, roles, theme
 
 WORKSPACE = "Blenda 4D"
 PREV_KEY = "b4d_prev_workspace"
-MODE = (menus, primitives, editable, bars, matman, managers, layouts, coords, roles, kinds)
+MODE = (menus, primitives, editable, nodewin, bars, matman, managers, layouts, coords, roles, kinds)
 _on = [False]
 
 

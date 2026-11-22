@@ -163,12 +163,18 @@ def draw_subject(layout, context, _ob=None):
     mat = shown(context)
     if mat is None:
         return False
-    head = layout.row(align=True)
-    head.label(text=f"Material [{mat.name}]", icon_value=layout.icon(mat))
-    tools = head.row(align=True)
-    tools.alignment = "RIGHT"
-    tools.operator("blenda4d.mat_node_editor", text="Open Node Editor...", icon="NODETREE").name = mat.name
-    layout.template_preview(mat, show_buttons=False)          # the live ball: re-renders as values change
+    return draw_material(layout, context, mat)
+
+
+def draw_material(layout, context, mat, head=True):
+    """A material's page: the Attribute Manager's, and the Node Editor window's when no node is picked."""
+    if head:
+        row = layout.row(align=True)
+        row.label(text=f"Material [{mat.name}]", icon_value=layout.icon(mat))
+        tools = row.row(align=True)
+        tools.alignment = "RIGHT"
+        tools.operator("blenda4d.mat_node_editor", text="Open Node Editor...", icon="NODETREE").name = mat.name
+        layout.template_preview(mat, show_buttons=False)      # the live ball: re-renders as values change
     col = layout.column()
     col.use_property_split = True
     col.use_property_decorate = False
@@ -246,39 +252,15 @@ class BLENDA4D_OT_mat_use_nodes(bpy.types.Operator):
 class BLENDA4D_OT_mat_node_editor(bpy.types.Operator):
     bl_idname = "blenda4d.mat_node_editor"
     bl_label = "Open Node Editor"
-    bl_description = "Open this material's nodes in a window of their own: what changes there changes here"
+    bl_description = "Open this material's nodes in the Node Editor window: what changes there changes here"
     name: bpy.props.StringProperty(options={"SKIP_SAVE"})
 
     def execute(self, context):
         mat = bpy.data.materials.get(self.name)
         if mat is None:
             return {"CANCELLED"}
-        if not mat.use_nodes:
-            mat.use_nodes = True
-        wm = context.window_manager
-        before = {w.as_pointer() for w in wm.windows}
-        bpy.ops.screen.drivers_editor_show("INVOKE_DEFAULT")       # Blender's way to open a small floating window
-        win = next((w for w in wm.windows if w.as_pointer() not in before), None)
-        if win is None:
-            return {"CANCELLED"}
-        area = win.screen.areas[0]
-        area.type = "NODE_EDITOR"
-        area.ui_type = "ShaderNodeTree"
-        space = area.spaces.active
-        space.shader_type = "OBJECT"
-        space.pin = True                          # this material's tree, whatever object is selected
-        space.node_tree = mat.node_tree
-
-        def frame():
-            try:
-                region = next(r for r in area.regions if r.type == "WINDOW")
-                with bpy.context.temp_override(window=win, area=area, region=region):
-                    bpy.ops.node.view_all()
-            except (StopIteration, RuntimeError, ReferenceError):
-                pass
-            return None
-        bpy.app.timers.register(frame, first_interval=0.1)
-        return {"FINISHED"}
+        from . import nodewin
+        return {"FINISHED"} if nodewin.open_window(context, mat) else {"CANCELLED"}
 
 
 classes = (BLENDA4D_OT_mat_use_nodes, BLENDA4D_OT_mat_node_editor)

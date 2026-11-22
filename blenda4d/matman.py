@@ -390,7 +390,7 @@ def tile_at(context, x, y):
 class BLENDA4D_OT_mm_double(bpy.types.Operator):
     bl_idname = "blenda4d.mm_double"
     bl_label = "Material Manager Double-Click"
-    bl_description = "Double-click a name to rename it; double-click empty space for a new material"
+    bl_description = "Double-click a material to open its nodes; its name to rename it; empty space for a new material"
     bl_options = {"UNDO", "INTERNAL"}
     name: bpy.props.StringProperty(options={"SKIP_SAVE"})
 
@@ -406,12 +406,10 @@ class BLENDA4D_OT_mm_double(bpy.types.Operator):
             bpy.ops.blenda4d.new_material()
             _tag_redraw()
             return {"FINISHED"}
-        if part != "name":                          # the preview: the material's page in the Attribute Manager
-            from . import matpage
+        if part != "name":                          # the preview: the material's nodes in the Node Editor window
+            from . import nodewin
             context.window_manager.b4d_material = mat.name
-            matpage.show(context, mat)
-            for a in context.screen.areas:
-                a.tag_redraw()
+            nodewin.open_window(context, mat)
             return {"FINISHED"}
         self.name = mat.name
         context.window_manager.b4d_material = mat.name
