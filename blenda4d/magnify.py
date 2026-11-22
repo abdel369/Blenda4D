@@ -318,6 +318,8 @@ class BLENDA4D_OT_magnify_reset(_InView, bpy.types.Operator):
         else:
             rv = sp.region_3d
             rv.view_camera_zoom, rv.view_camera_offset = _camera.pop(rv.as_pointer(), (0.0, (0.0, 0.0)))
+            from . import camview
+            camview.refit(rv)
         return {"FINISHED"}
 
 
