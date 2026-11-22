@@ -54,6 +54,9 @@ KEYS = [
     ("3D View", "blenda4d.quad_view", {"type": "F5", "value": "PRESS"}, None),
     # F9: record a key for the selected objects (I is Inset in Edit Mode)
     ("Object Mode", "anim.keyframe_insert", {"type": "F9", "value": "PRESS"}, None),
+    # Ctrl+C / Ctrl+V: polygons in Edit Mode (paste in Object Mode makes a new object), objects otherwise
+    ("3D View", "blenda4d.copy", {"type": "C", "value": "PRESS", "ctrl": True}, None),
+    ("3D View", "blenda4d.paste", {"type": "V", "value": "PRESS", "ctrl": True}, None),
     # W: move along the world axes or the object's own axes
     ("3D View", "wm.context_toggle_enum", {"type": "W", "value": "PRESS"},
      [("data_path", "scene.transform_orientation_slots[0].type"), ("value_1", "GLOBAL"), ("value_2", "LOCAL")]),

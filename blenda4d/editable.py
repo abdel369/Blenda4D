@@ -114,6 +114,101 @@ class BLENDA4D_OT_edge_to_spline(bpy.types.Operator):
         return {"FINISHED"}
 
 
+# --- Ctrl+C / Ctrl+V: polygons as well as objects ------------------------------------------------------------------
+_clip = {"kind": None, "mesh": None, "matrix": None, "name": ""}
+
+
+def _copy_polygons(ob):
+    import bmesh
+    ob.update_from_editmode()
+    bm = bmesh.new()
+    bm.from_mesh(ob.data)
+    keep = {f for f in bm.faces if f.select}
+    if not keep:
+        bm.free()
+        return False
+    bmesh.ops.delete(bm, geom=[f for f in bm.faces if f not in keep], context="FACES")
+    loose = [v for v in bm.verts if not v.link_faces]
+    if loose:
+        bmesh.ops.delete(bm, geom=loose, context="VERTS")
+    old = _clip.get("mesh")
+    if old is not None and old.name in bpy.data.meshes and old.users == 0:
+        bpy.data.meshes.remove(old)
+    me = bpy.data.meshes.new(".Blenda Polygon Clipboard")
+    bm.to_mesh(me)
+    bm.free()
+    for m in ob.data.materials:
+        me.materials.append(m)
+    _clip.update(kind="POLYGONS", mesh=me, matrix=ob.matrix_world.copy(), name=ob.name)
+    return True
+
+
+class BLENDA4D_OT_copy(bpy.types.Operator):
+    """Copy: the selected polygons in Edit Mode, the selected objects otherwise"""
+    bl_idname = "blenda4d.copy"
+    bl_label = "Copy"
+
+    @classmethod
+    def poll(cls, context):
+        return context.mode in {"OBJECT", "EDIT_MESH"}
+
+    def execute(self, context):
+        if context.mode == "EDIT_MESH":
+            if not _copy_polygons(context.edit_object):
+                self.report({"INFO"}, "Select the polygons to copy first")
+                return {"CANCELLED"}
+            self.report({"INFO"}, "Polygons copied")
+            return {"FINISHED"}
+        _clip["kind"] = "OBJECTS"
+        return bpy.ops.view3d.copybuffer()
+
+
+class BLENDA4D_OT_paste(bpy.types.Operator):
+    """Paste: copied polygons become a new object (Object Mode) or join the edited object (Edit Mode)"""
+    bl_idname = "blenda4d.paste"
+    bl_label = "Paste"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        return context.mode in {"OBJECT", "EDIT_MESH"}
+
+    def execute(self, context):
+        me = _clip.get("mesh")
+        polys = _clip["kind"] == "POLYGONS" and me is not None and me.name in bpy.data.meshes
+        if not polys:
+            if context.mode != "OBJECT":
+                return {"CANCELLED"}
+            return bpy.ops.view3d.pastebuffer()
+        if context.mode == "EDIT_MESH":                     # into the object being edited, where they were
+            import bmesh
+            ob = context.edit_object
+            bm = bmesh.from_edit_mesh(ob.data)
+            for f in bm.faces:
+                f.select = False
+            tmp = me.copy()
+            tmp.transform(ob.matrix_world.inverted() @ _clip["matrix"])
+            n = len(bm.faces)
+            bm.from_mesh(tmp)
+            bpy.data.meshes.remove(tmp)
+            bm.faces.ensure_lookup_table()
+            for f in bm.faces[n:]:
+                f.select = True
+            bm.select_flush(True)
+            bmesh.update_edit_mesh(ob.data)
+            return {"FINISHED"}
+        new_me = me.copy()
+        new_me.name = _clip["name"] + " Polygons"
+        ob = bpy.data.objects.new(new_me.name, new_me)
+        ob.matrix_world = _clip["matrix"]
+        context.collection.objects.link(ob)
+        for o in context.view_layer.objects:
+            o.select_set(False)
+        ob.select_set(True)
+        context.view_layer.objects.active = ob
+        return {"FINISHED"}
+
+
 # M, then a letter: the modelling commands that have a two-key shortcut (Edit Mode).
 M_KEYS = {"S": ("Bevel", "tool", "builtin.bevel"), "K": ("Knife", "tool", "builtin.knife"),
           "T": ("Extrude", "tool", "builtin.extrude_region"), "W": ("Inset", "tool", "builtin.inset_faces"),
@@ -162,7 +257,7 @@ class BLENDA4D_OT_m_keys(bpy.types.Operator):
         return {"FINISHED"}
 
 
-classes = (BLENDA4D_OT_make_editable, BLENDA4D_OT_copy_for_drag, BLENDA4D_OT_m_keys, BLENDA4D_OT_edge_to_spline)
+classes = (BLENDA4D_OT_make_editable, BLENDA4D_OT_copy_for_drag, BLENDA4D_OT_m_keys, BLENDA4D_OT_edge_to_spline, BLENDA4D_OT_copy, BLENDA4D_OT_paste)
 
 
 def register():
