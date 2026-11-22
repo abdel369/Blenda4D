@@ -18,8 +18,38 @@ _own_header = [None]
 
 
 def material_of(screen):
-    name = screen.get(KEY) if screen is not None else None
-    return bpy.data.materials.get(name) if name else None
+    """The material this Node Editor window shows: the one whose nodes are on its canvas (it follows the active
+    object's material, like Blender's own editor), or the one it was opened for."""
+    if screen is None or not screen.get(KEY):
+        return None
+    for a in screen.areas:
+        if a.type == "NODE_EDITOR":
+            tree = a.spaces.active.node_tree
+            if tree is not None:
+                for m in bpy.data.materials:
+                    if m.node_tree == tree:
+                        return m
+    return bpy.data.materials.get(screen.get(KEY))
+
+
+def _show_on_object(context, mat):
+    """Make an object that uses mat the active one, with mat its active slot. Blender draws the previews on nodes
+    only when the editor is not pinned, so the window follows the active object's material. False: nothing uses it."""
+    vl = context.view_layer
+    cands = [vl.objects.active] + [o for o in context.selected_objects] + list(vl.objects)
+    for ob in cands:
+        if ob is None:
+            continue
+        for i, slot in enumerate(getattr(ob, "material_slots", ())):
+            if slot.material == mat:
+                if vl.objects.active != ob:
+                    for o in context.selected_objects:
+                        o.select_set(False)
+                    ob.select_set(True)
+                    vl.objects.active = ob
+                ob.active_material_index = i
+                return True
+    return False
 
 
 def _previews_on(tree):
@@ -41,8 +71,17 @@ def open_window(context, mat):
     if not mat.use_nodes:
         mat.use_nodes = True
     wm = context.window_manager
-    for w in wm.windows:                                  # already open for this material: show it again
-        if w.screen.get(KEY) == mat.name:
+    on_object = _show_on_object(context, mat)
+    for w in wm.windows:                                  # already open: it now shows this material
+        if w.screen.get(KEY):
+            w.screen[KEY] = mat.name
+            for a in w.screen.areas:
+                if a.type == "NODE_EDITOR":
+                    sp = a.spaces.active
+                    sp.pin = not on_object
+                    if not on_object:
+                        sp.node_tree = mat.node_tree
+                    a.tag_redraw()
             return True
     win = context.window or wm.windows[0]
     area = context.area if context.area is not None else max(win.screen.areas, key=lambda a: a.width * a.height)
@@ -58,11 +97,14 @@ def open_window(context, mat):
     ar.ui_type = "ShaderNodeTree"
     sp = ar.spaces.active
     sp.shader_type = "OBJECT"
-    sp.pin = True                                         # this material, whatever object is selected
-    sp.node_tree = mat.node_tree
+    if not on_object:                                     # nothing uses it: pinned (Blender draws no node previews then)
+        sp.pin = True
+        sp.node_tree = mat.node_tree
     sp.show_region_ui = True
     sp.show_region_toolbar = False
     sp.overlay.show_previews = True
+    if hasattr(sp.overlay, "preview_shape"):
+        sp.overlay.preview_shape = "3D"                   # a ball above each node
     if hasattr(sp.overlay, "show_context_path"):
         sp.overlay.show_context_path = False             # no "Shader Nodetree" path in the corner
     _previews_on(mat.node_tree)
@@ -85,6 +127,18 @@ def open_window(context, mat):
             pass
         return None
     bpy.app.timers.register(settle, first_interval=0.1)
+
+    def reframe():                                        # again once the previews above the nodes are drawn
+        try:
+            reg = _region(ar, "WINDOW")
+            with bpy.context.temp_override(window=new, area=ar, region=reg):
+                bpy.ops.node.view_all()
+                for _ in range(2):                        # framing leaves out the previews above the nodes
+                    bpy.ops.view2d.zoom_out()
+        except (ReferenceError, RuntimeError, TypeError):
+            pass
+        return None
+    bpy.app.timers.register(reframe, first_interval=2.5)
     _keep_previews()
     return True
 
@@ -186,13 +240,47 @@ class BLENDA4D_PT_nodewin(bpy.types.Panel):
 classes = (BLENDA4D_MT_nodewin_edit, BLENDA4D_PT_nodewin)
 
 
+# --- previews on nodes: Blender's experimental "Shader Node Previews" setting, on while Blenda mode is on -----------
+def _memory_file():
+    import os
+    folder = bpy.utils.user_resource("CONFIG", path="blenda4d", create=True)
+    return os.path.join(folder, "node_previews.json")
+
+
+def _previews_setting(on):
+    import json
+    exp = getattr(bpy.context.preferences, "experimental", None)
+    if exp is None or not hasattr(exp, "use_shader_node_previews"):
+        return
+    try:
+        if on:
+            if not exp.use_shader_node_previews:          # remember that Blenda turned it on, to turn it off again
+                with open(_memory_file(), "w") as f:
+                    json.dump({"turned_on": True}, f)
+                exp.use_shader_node_previews = True
+        else:
+            try:
+                with open(_memory_file()) as f:
+                    turned_on = json.load(f).get("turned_on")
+            except (OSError, ValueError):
+                turned_on = False
+            if turned_on:
+                exp.use_shader_node_previews = False
+                import os
+                os.remove(_memory_file())
+    except (OSError, AttributeError, TypeError):
+        pass
+
+
 def register():
     for c in classes:
         bpy.utils.register_class(c)
     _own_header[0] = own_draw.swap("NODE_HT_header", _header)
+    _previews_setting(True)
 
 
 def unregister():
+    _previews_setting(False)
     if _own_header[0] is not None:
         own_draw.restore("NODE_HT_header", _header)
         _own_header[0] = None
