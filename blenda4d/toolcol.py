@@ -299,7 +299,7 @@ def _under(window, mx, my):
 
 def _shows(area):
     """Does the column, or its tooltip, show in this area?"""
-    return area.type in {"VIEW_3D", "DOPESHEET_EDITOR"} or roles.role(area) in HOSTS
+    return area.type == "VIEW_3D" or roles.role(area) in HOSTS or roles.role(area) == "TL_EDIT"
 
 
 def _redraw(window):
@@ -433,8 +433,8 @@ def register():
     _state.update(running=False, hover=None, scroll=0.0)
     for c in classes:
         bpy.utils.register_class(c)
-    for space in (bpy.types.SpaceView3D, bpy.types.SpaceProperties, bpy.types.SpaceDopeSheetEditor):
-        for fn in (_draw, _draw_tip) if space is not bpy.types.SpaceDopeSheetEditor else (_draw_tip,):
+    for space in (bpy.types.SpaceView3D, bpy.types.SpaceProperties):
+        for fn in (_draw, _draw_tip):
             _handles.append((space, space.draw_handler_add(fn, (), "WINDOW", "POST_PIXEL")))
     if _loaded not in bpy.app.handlers.load_post:
         bpy.app.handlers.load_post.append(_loaded)

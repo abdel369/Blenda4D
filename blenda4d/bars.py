@@ -289,70 +289,6 @@ def view_tabs(self, context):
     row.operator("render.view_show", text="Render Viewer")
 
 
-def timeline_header(self, context):
-    if context.area is None or context.area.ui_type != "TIMELINE":
-        if context.area is not None and _ours(context) and context.space_data.mode == "DOPESHEET":
-            return tracks_header(self, context)
-        return _saved["DOPESHEET_HT_header"](self, context)
-    scene = context.scene
-    layout = self.layout
-    row = layout.row(align=True)
-    row.prop(scene, "frame_start", text="")
-    layout.separator_spacer()
-    row = layout.row(align=True)
-    row.operator("screen.frame_jump", text="", icon="REW").end = False
-    row.operator("screen.keyframe_jump", text="", icon="PREV_KEYFRAME").next = False
-    row.operator("screen.animation_play", text="", icon="PLAY_REVERSE").reverse = True
-    row.operator("screen.animation_play", text="", icon="PLAY")
-    row.operator("screen.keyframe_jump", text="", icon="NEXT_KEYFRAME").next = True
-    row.operator("screen.frame_jump", text="", icon="FF").end = True
-    layout.prop(scene, "frame_current", text="")
-    layout.prop(scene.tool_settings, "use_keyframe_insert_auto", text="", icon="REC")
-    layout.separator_spacer()
-    layout.prop(scene, "frame_end", text="")
-
-
-def _ours(context):
-    from . import switch
-    return context.workspace is not None and context.workspace.name == switch.WORKSPACE
-
-
-def _editor_header(layout, context, title, short, what, classes, icons_wide):
-    """An editor's name and its menus, none cut short: what does not fit is in the > menu."""
-    u = 20.0 * context.preferences.system.ui_scale
-    wide = context.region.width
-    if wide < 12 * u:
-        title = short
-    name = layout.row()
-    name.ui_units_x = menus._text_width(title) / u + 1.4
-    name.operator("blenda4d.title", text=title, depress=True).what = what
-    free = wide - menus._text_width(title) - (2.6 + icons_wide) * u
-    if free >= 3 * u:
-        menus.menu_bar(layout, classes, avail=free)
-    layout.separator_spacer()
-    return wide > 9 * u                                    # room for the icons at the right
-
-
-def tracks_header(self, context):
-    """The tracks under the viewport: their name, Blender's own menus, and what is listed."""
-    layout = self.layout
-    if _editor_header(layout, context, "Tracks and Keys", "Keys", "Every key of the selected objects (Dope Sheet)",
-                      menus.TRACKS_CLASSES, 5):
-        layout.prop(context.space_data.dopesheet, "show_only_selected", text="")
-        layout.popover(panel="DOPESHEET_PT_filters", text="", icon="FILTER")
-
-
-def curves_header(self, context):
-    if not _ours(context) or context.space_data.mode != "FCURVES":
-        return _saved["GRAPH_HT_header"](self, context)
-    layout, st = self.layout, context.space_data
-    if _editor_header(layout, context, "Curves", "Curves", "How the keyed values move between their keys (Graph Editor)",
-                      menus.CURVES_CLASSES, 6.5):
-        layout.prop(st, "use_normalization", icon="NORMALIZE_FCURVES", text="")
-        layout.prop(st.dopesheet, "show_only_selected", text="")
-        layout.popover(panel="GRAPH_PT_filters", text="", icon="FILTER")
-
-
 def properties_header(self, context):
     """Render Settings shown in the viewport's place keeps the viewport's tab row in its header."""
     if roles.role(context.area) == "RENDER":
@@ -362,8 +298,7 @@ def properties_header(self, context):
 
 _saved = {}
 OVERRIDES = (("PROPERTIES_HT_header", "draw", properties_header), ("TOPBAR_HT_upper_bar", "draw_left", topbar_left), ("TOPBAR_HT_upper_bar", "draw_right", topbar_right),
-             ("VIEW3D_HT_header", "draw", view_tabs), ("VIEW3D_HT_tool_header", "draw", view_header),
-             ("DOPESHEET_HT_header", "draw", timeline_header), ("GRAPH_HT_header", "draw", curves_header))
+             ("VIEW3D_HT_header", "draw", view_tabs), ("VIEW3D_HT_tool_header", "draw", view_header))
 
 
 def override():

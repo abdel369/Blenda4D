@@ -14,11 +14,11 @@ from . import roles
 
 KEY = "b4d_layout"
 DEFAULT = "Layout"
-#        name: (icon, what it is for, timeline shown, editors under the viewport)
+#        name: (icon, what it is for, timeline shown, Timeline editors open above it)
 TABS = {
-    "Layout": ("WORKSPACE", "General work: the viewport, the managers and the timeline", True, ""),
-    "Modeling": ("EDITMODE_HLT", "Building shapes: the timeline steps aside for a taller viewport", False, ""),
-    "Animation": ("ANIM", "Movement: tracks with their keys, and curves, under the viewport", True, "ANIM"),
+    "Layout": ("WORKSPACE", "General work: the viewport, the managers and the timeline", True, False),
+    "Modeling": ("EDITMODE_HLT", "Building shapes: the timeline steps aside for a taller viewport", False, False),
+    "Animation": ("ANIM", "Movement: the Timeline opens under the viewport, with the Dope Sheet or the F-Curves", True, True),
 }
 OLD_NAMES = {"Standard": DEFAULT}                          # the built-in layout's name before the tabs
 _last = [None]                                             # the window size each column was last put right for
@@ -103,7 +103,8 @@ def spec(name):
 def _spec(base, entry):
     base = base if base in TABS else DEFAULT
     sizes = entry.get("sizes")
-    return {"base": base, "timeline": TABS[base][2], "editors": TABS[base][3], "materials": bool(entry.get("materials")),
+    editors = bool(entry.get("editors", TABS[base][3]))
+    return {"base": base, "timeline": TABS[base][2] or editors, "editors": editors, "materials": bool(entry.get("materials")),
             "assets": bool(entry.get("assets")),
             "sizes": {k: float(v) for k, v in sizes.items() if isinstance(v, (int, float)) and v > 0} if isinstance(sizes, dict) else {}}
 
@@ -115,12 +116,22 @@ def workspace_of(screen):
     return next((ws for ws in bpy.data.workspaces if screen in list(ws.screens)), None)
 
 
+DOCK = "b4d_dock"             # a workspace's own choice: the Timeline open or not, whatever its tab says
+
+
 def spec_of(screen):
-    return spec(current(workspace_of(screen)))
+    ws = workspace_of(screen)
+    out = spec(current(ws))
+    if ws is not None and DOCK in ws:
+        out["editors"] = bool(ws[DOCK])
+        out["timeline"] = out["timeline"] or out["editors"]
+    return out
 
 
 def set_current(workspace, name):
     workspace[KEY] = name
+    if DOCK in workspace:
+        del workspace[DOCK]
 
 
 def startup_spec():
@@ -151,14 +162,14 @@ def snapshot(window):
     if attr is not None:
         whole = sum(a.height for r in ("OBJECTS", "OM_HEAD", "OM_BAR", "ATTRIBUTES") for a in roles.areas(screen, r))
         sizes["attributes"] = round(attr.height / max(1, whole + 2 * build.EDGE), 3)
-    tracks, curves = build.tracks(screen), build.curves(screen)
+    dock = roles.areas(screen, "TL_EDIT") + roles.areas(screen, "TL_BAR")
     views = [a for a in screen.areas if a.type == "VIEW_3D"]
-    if tracks and curves and views:
+    if len(dock) == 2 and views:
         high = sum(a.height for a in views if abs(a.x - views[0].x) < 8)
-        sizes["editors"] = round((tracks[0].height + 1) / max(1, tracks[0].height + high + build.EDGE), 3)
-        sizes["tracks"] = round((tracks[0].width + 1) / max(1, tracks[0].width + curves[0].width + build.EDGE), 3)
+        mine = sum(a.height for a in dock) + build.EDGE
+        sizes["editors"] = round((mine + 1) / max(1, mine + high + build.EDGE), 3)
     return {"base": spec(current(ws))["base"], "materials": bool(roles.areas(screen, "MATERIALS")),
-            "assets": bool(roles.areas(screen, "ASSETS")), "sizes": sizes}
+            "assets": bool(roles.areas(screen, "ASSETS")), "editors": len(dock) == 2, "sizes": sizes}
 
 
 # --- operators ----------------------------------------------------------------------------------------------------

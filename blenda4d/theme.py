@@ -91,7 +91,7 @@ def apply():
     _set(ui, "editor_border", (0.09, 0.09, 0.09))
     _set(ui, "editor_outline", (0.09, 0.09, 0.09))
     _set(ui, "editor_outline_active", (0.09, 0.09, 0.09))
-    for sp_name in ("view_3d", "properties", "dopesheet_editor", "graph_editor", "outliner", "image_editor", "node_editor",
+    for sp_name in ("view_3d", "properties", "dopesheet_editor", "outliner", "image_editor", "node_editor",
                     "text_editor", "spreadsheet", "preferences", "info", "file_browser"):
         sp = getattr(th, sp_name, None)
         if sp is None:
@@ -136,17 +136,8 @@ def apply():
     _set(th.dopesheet_editor, "grid", (0.22, 0.22, 0.22))
     _set(th.dopesheet_editor, "preview_range", (0.3, 0.3, 0.3, 0.3))
     _set(th.dopesheet_editor, "view_sliders", PANEL)
-    # tracks and curves: the managers' greys, the selected row in Blenda's selection colour
-    _set(th.dopesheet_editor, "summary", (0.3, 0.3, 0.3, 0.4))
-    _set(th.graph_editor, "grid", (0.22, 0.22, 0.22))
-    anim = getattr(getattr(th, "common", None), "anim", None)
-    for name, value in (("channels", (0.294, 0.294, 0.427, 0.75)), ("channels_sub", (0.294, 0.294, 0.427, 0.35)),
-                        ("channel_group", (0.2, 0.2, 0.2, 0.5)), ("channel_group_active", (0.3, 0.3, 0.35, 0.5)),
-                        ("channel_selected", (0.294, 0.294, 0.427, 0.6))):
-        if anim is not None:
-            _set(anim, name, value)
     clear = (0.0, 0.0, 0.0, 0.0)
-    for sp_name in ("view_3d", "properties", "dopesheet_editor", "graph_editor", "outliner", "image_editor", "node_editor",
+    for sp_name in ("view_3d", "properties", "dopesheet_editor", "outliner", "image_editor", "node_editor",
                     "text_editor", "spreadsheet", "preferences", "info", "file_browser", "topbar", "statusbar"):
         sp = getattr(th, sp_name, None)
         pc = getattr(getattr(sp, "space", None), "panelcolors", None)

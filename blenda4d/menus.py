@@ -128,7 +128,12 @@ MAIN = {
     "Volume": [item("Volume Builder"), item("Volume Mesher")],
     "MoClone": [item("Cloner"), item("Matrix"), item("Fracture"), item("Voronoi Fracture"), SEP, item("Effectors"), item("Fields")],
     "Character": [item("Joint", "object.armature_add", "BONE_DATA")],
-    "Animate": [item("Record Active Objects", "anim.keyframe_insert", "REC"), item("Delete Keyframes", "anim.keyframe_delete_v3d")],
+    "Animate": [item("Record Active Objects", "blenda4d.tl_record", "KEYFRAME_HLT"), item("Autokeying", "blenda4d.tl_autokey", "REC"),
+                item("Delete Keyframes", "anim.keyframe_delete_v3d", "X"), SEP,
+                item("Play Forwards / Stop", "screen.animation_play", "PLAY"), item("Go to Start", "blenda4d.tl_go", "REW", to="START"),
+                item("Go to Previous Key", "blenda4d.tl_go", "PREV_KEYFRAME", to="PREV_KEY"), item("Go to Previous Frame", "blenda4d.tl_go", "FRAME_PREV", to="PREV"),
+                item("Go to Next Frame", "blenda4d.tl_go", "FRAME_NEXT", to="NEXT"), item("Go to Next Key", "blenda4d.tl_go", "NEXT_KEYFRAME", to="NEXT_KEY"),
+                item("Go to End", "blenda4d.tl_go", "FF", to="END")],
     "Simulate": [item("Rigid Body", "rigidbody.object_add"), item("Cloth", "object.modifier_add", type="CLOTH")],
     "Tracker": [item("Motion Tracker")],
     "Render": [item("Render View", "blenda4d.render_still", "RENDER_STILL"), item("Render to Render Viewer", "blenda4d.render", "RENDER_RESULT"),
@@ -143,6 +148,7 @@ MAIN = {
                 item("Blender Properties...", "blenda4d.blender_properties", "PROPERTIES")],
     "Window": [item("Material Manager", "blenda4d.toggle_column", "MATERIAL", name="MATERIALS"),
                item("Asset Browser", "blenda4d.toggle_column", "ASSET_MANAGER", name="ASSETS"), SEP,
+               item("Timeline (Dope Sheet)", "blenda4d.tl_dock", "ACTION", mode="KEYS"), item("Timeline (F-Curves)", "blenda4d.tl_dock", "FCURVE", mode="CURVES"), SEP,
                sub("Layouts", "BLENDA4D_MT_layouts", "WORKSPACE"), SEP,
                item("New Window", "wm.window_new"), item("Toggle Full Screen", "wm.window_fullscreen_toggle")],
     "Help": [item("Blender Manual", "wm.url_open_preset", "HELP", type="MANUAL"), item("About Blender", "wm.splash_about", "BLENDER")],
@@ -167,6 +173,9 @@ MENU_TIPS = {
            "Tags": "Add tags (material, smoothing) to the selected objects", "Bookmarks": "Saved places in the list"},
     "am": {"Mode": "What the Attribute Manager shows", "Edit": "Copy and paste settings",
            "User Data": "Your own settings added to an object"},
+    "tl": {"Create": "Make keys and markers", "Edit": "Copy, paste, delete and select keys", "Filter": "Which tracks are listed",
+           "View": "Dope Sheet or F-Curves, and the list", "Frame": "Which frames are in view", "Functions": "Tidy tracks and keys",
+           "Key": "How the selected keys are interpolated", "F-Curve": "The selected keys' tangents", "Marker": "Markers on the ruler"},
     "mm": {"Create": "Make new materials", "Edit": "Copy, paste and delete materials", "View": "How materials are listed",
            "Select": "Select materials", "Material": "Commands for the selected material"},
     "ab": {"Create": "Add assets", "Edit": "Edit assets", "View": "How assets are listed", "Libraries": "Asset libraries"},
@@ -272,25 +281,12 @@ def panel_width(share=1.0, reserve=0.0):
     return (region.width - 2 * 8 * s - 4 * s) * share - reserve
 
 
-class _Ref:
-    """One of Blender's own menus in a menu bar."""
-
-    def __init__(self, idname, label):
-        self.bl_idname, self.bl_label = idname, label
-
-
-TRACKS_CLASSES = [_Ref("DOPESHEET_MT_" + n.lower(), n) for n in ("View", "Select", "Marker", "Channel", "Key")]
-CURVES_CLASSES = [_Ref("GRAPH_MT_view", "View"), _Ref("GRAPH_MT_select", "Select"), _Ref("GRAPH_MT_marker", "Marker"),
-                  _Ref("GRAPH_MT_channel", "Channel"), _Ref("GRAPH_MT_key", "Key")]
-
-
 def simple_menu(label, items, manager="mgr"):
     """A manager's own menu (Object Manager File / Edit ..., Attribute Manager Mode / Edit ...)."""
     return _make(label, items, manager)
 
 
-classes = (BLENDA4D_OT_title, BLENDA4D_OT_noop, *VIEW_OPS, *MAIN_CLASSES, *VIEW_CLASSES, make_more(MAIN_CLASSES), make_more(VIEW_CLASSES),
-           make_more(TRACKS_CLASSES, "tracks"), make_more(CURVES_CLASSES, "curves"))
+classes = (BLENDA4D_OT_title, BLENDA4D_OT_noop, *VIEW_OPS, *MAIN_CLASSES, *VIEW_CLASSES, make_more(MAIN_CLASSES), make_more(VIEW_CLASSES))
 
 
 def register():

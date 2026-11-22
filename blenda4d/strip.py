@@ -162,7 +162,7 @@ def _inset():
 
 
 def _shows(area):
-    return area.type in {"VIEW_3D", "GRAPH_EDITOR"} or roles.role(area) == "CREATE"
+    return area.type == "VIEW_3D" or roles.role(area) in {"CREATE", "TL_EDIT"}
 
 
 def _draw():
@@ -374,7 +374,7 @@ def register():
     for c in classes:
         bpy.utils.register_class(c)
     for space, fn, kind in ((bpy.types.SpaceView3D, _draw, "TOOLS"), (bpy.types.SpaceView3D, _draw_tip, "WINDOW"),
-                            (bpy.types.SpaceProperties, _draw, "WINDOW"), (bpy.types.SpaceGraphEditor, _draw_tip, "WINDOW")):
+                            (bpy.types.SpaceProperties, _draw, "WINDOW")):
         _handles.append((space, space.draw_handler_add(fn, (), kind, "POST_PIXEL"), kind))
     kc = bpy.context.window_manager.keyconfigs.addon
     if kc:
