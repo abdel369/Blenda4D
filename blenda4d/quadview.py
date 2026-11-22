@@ -178,8 +178,9 @@ def split_steps(window):
     _saved.pop("ALONE", None)
     _saved[alone] = state(view)
     # one create column for all four views, full height on the right (each view's own strip would repeat it)
-    create = yield from build.split(window, view, "VERTICAL", build.px(build.CREATE_PX) + build.EDGE, "RIGHT")
-    yield from build.make_role(window, create, "CREATE")
+    if not roles.areas(screen, "CREATE"):                 # a layout with editors under the viewport has it already
+        create = yield from build.split(window, view, "VERTICAL", build.px(build.CREATE_PX) + build.EDGE, "RIGHT")
+        yield from build.make_role(window, create, "CREATE")
     view = views(screen)[0]
     left, right = yield from _split(window, view, "VERTICAL")
     tl, bl = yield from _split(window, left, "HORIZONTAL")
@@ -222,7 +223,7 @@ def expand_steps(window, keep):
         if not ok:
             print("Blenda 4D: four views: could not join two views; leaving them as they are")
             break
-    for c in roles.areas(screen, "CREATE"):              # the four views' create column goes; the strip comes back
+    for c in [] if roles.areas(screen, "MODES") else roles.areas(screen, "CREATE"):   # the four views' create column goes; the strip comes back
         if views(screen):
             yield from _join(window, c, views(screen)[0])
     for a in views(screen):

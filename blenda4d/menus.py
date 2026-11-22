@@ -143,6 +143,7 @@ MAIN = {
                 item("Blender Properties...", "blenda4d.blender_properties", "PROPERTIES")],
     "Window": [item("Material Manager", "blenda4d.toggle_column", "MATERIAL", name="MATERIALS"),
                item("Asset Browser", "blenda4d.toggle_column", "ASSET_MANAGER", name="ASSETS"), SEP,
+               sub("Layouts", "BLENDA4D_MT_layouts", "WORKSPACE"), SEP,
                item("New Window", "wm.window_new"), item("Toggle Full Screen", "wm.window_fullscreen_toggle")],
     "Help": [item("Blender Manual", "wm.url_open_preset", "HELP", type="MANUAL"), item("About Blender", "wm.splash_about", "BLENDER")],
 }
@@ -224,16 +225,17 @@ _overflow = {}               # first menu's idname -> the menus its » lists, se
 _more = {}                   # first menu's idname -> that bar's » menu class
 
 
-def make_more(classes):
+def make_more(classes, name=None):
     """The » menu for a bar of these menus (register the class it returns with the bar's menus)."""
     key = classes[0].bl_idname
+    name = name or key.rpartition("_MT_")[2]
 
     def draw(self, context):
         for cls in _overflow.get(key, ()):
             self.layout.menu(cls.bl_idname, text=cls.bl_label)
 
-    cls = type("BLENDA4D_MT_more_" + key.rpartition("_MT_")[2], (bpy.types.Menu,),
-               {"bl_idname": "BLENDA4D_MT_more_" + key.rpartition("_MT_")[2], "bl_label": "More",
+    cls = type("BLENDA4D_MT_more_" + name, (bpy.types.Menu,),
+               {"bl_idname": "BLENDA4D_MT_more_" + name, "bl_label": "More",
                 "bl_description": "The menus that do not fit in the bar", "draw": draw})
     _more[key] = cls
     return cls
@@ -270,12 +272,25 @@ def panel_width(share=1.0, reserve=0.0):
     return (region.width - 2 * 8 * s - 4 * s) * share - reserve
 
 
+class _Ref:
+    """One of Blender's own menus in a menu bar."""
+
+    def __init__(self, idname, label):
+        self.bl_idname, self.bl_label = idname, label
+
+
+TRACKS_CLASSES = [_Ref("DOPESHEET_MT_" + n.lower(), n) for n in ("View", "Select", "Marker", "Channel", "Key")]
+CURVES_CLASSES = [_Ref("GRAPH_MT_view", "View"), _Ref("GRAPH_MT_select", "Select"), _Ref("GRAPH_MT_marker", "Marker"),
+                  _Ref("GRAPH_MT_channel", "Channel"), _Ref("GRAPH_MT_key", "Key")]
+
+
 def simple_menu(label, items, manager="mgr"):
     """A manager's own menu (Object Manager File / Edit ..., Attribute Manager Mode / Edit ...)."""
     return _make(label, items, manager)
 
 
-classes = (BLENDA4D_OT_title, BLENDA4D_OT_noop, *VIEW_OPS, *MAIN_CLASSES, *VIEW_CLASSES, make_more(MAIN_CLASSES), make_more(VIEW_CLASSES))
+classes = (BLENDA4D_OT_title, BLENDA4D_OT_noop, *VIEW_OPS, *MAIN_CLASSES, *VIEW_CLASSES, make_more(MAIN_CLASSES), make_more(VIEW_CLASSES),
+           make_more(TRACKS_CLASSES, "tracks"), make_more(CURVES_CLASSES, "curves"))
 
 
 def register():

@@ -23,7 +23,7 @@ TOP = 6
 GAP = 10
 ICON = 0.62            # the icon's share of the cell
 TIP_GAP = 6
-HOSTS = ("ASSETS", "AB_BAR")       # the Asset Browser and its bottom strip
+HOSTS = ("ASSETS", "AB_BAR", "MODES")       # the Asset Browser and its bottom strip; the column's own area
 
 _state = {"hover": None, "running": False, "scroll": 0.0, "max_scroll": 0.0, "hosts": 0}
 _tip = {}
@@ -177,6 +177,8 @@ def columns(window):
     left = min(a.x for a in views)
     out = []
     hosts = [a for a in areas if roles.role(a) in HOSTS and a.x < left]
+    own = [a for a in hosts if roles.role(a) == "MODES"]  # editors under the viewport: an area of its own, full height
+    hosts = own or hosts
     if not hosts:
         hosts = [a for a in views if a.x - left <= 4]
     for a in sorted(hosts, key=lambda a: -a.y):
@@ -187,6 +189,9 @@ def columns(window):
         for h in a.regions:
             if h.type in {"HEADER", "TOOL_HEADER"} and h.height > 1 and h.alignment == "TOP":
                 top = min(top, h.y)
+        if own:                                           # beside the viewport: level with its first row
+            from . import build
+            top -= build.view_top(window)
         out.append((a, r, WIDTH * _scale(), top - r.y))
     return out
 
@@ -292,9 +297,14 @@ def _under(window, mx, my):
     return None, None
 
 
+def _shows(area):
+    """Does the column, or its tooltip, show in this area?"""
+    return area.type in {"VIEW_3D", "DOPESHEET_EDITOR"} or roles.role(area) in HOSTS
+
+
 def _redraw(window):
     for a in window.screen.areas:
-        if a.type == "VIEW_3D" or roles.role(a) in HOSTS:
+        if _shows(a):
             a.tag_redraw()
 
 
@@ -317,7 +327,7 @@ def _tip_tick():
     _tip["shown"] = True
     for w in bpy.context.window_manager.windows:
         for a in w.screen.areas:
-            if a.type == "VIEW_3D" or roles.role(a) in HOSTS:
+            if _shows(a):
                 a.tag_redraw()
     return None
 
@@ -423,8 +433,8 @@ def register():
     _state.update(running=False, hover=None, scroll=0.0)
     for c in classes:
         bpy.utils.register_class(c)
-    for space in (bpy.types.SpaceView3D, bpy.types.SpaceProperties):
-        for fn in (_draw, _draw_tip):
+    for space in (bpy.types.SpaceView3D, bpy.types.SpaceProperties, bpy.types.SpaceDopeSheetEditor):
+        for fn in (_draw, _draw_tip) if space is not bpy.types.SpaceDopeSheetEditor else (_draw_tip,):
             _handles.append((space, space.draw_handler_add(fn, (), "WINDOW", "POST_PIXEL")))
     if _loaded not in bpy.app.handlers.load_post:
         bpy.app.handlers.load_post.append(_loaded)

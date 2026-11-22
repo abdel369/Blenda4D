@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Build Blenda's Standard layout on the live screen at exact pixel sizes.
+"""Build Blenda's layouts (layouts.py) on the live screen at exact pixel sizes.
 
 Areas are made with area_split / area_close (which work without window focus), one step per redraw, because an
 area's size only updates on the next event loop:
@@ -7,7 +7,9 @@ area's size only updates on the next event loop:
   command palette (top, left of the managers) | tools column (drawn at the viewport's left edge, toolcol.py)
   create column (drawn in the viewport's toolbar strip, strip.py)
   timeline (bottom, under the viewport) | optional Material Manager column (between viewport and create column)
-  | optional Asset Browser column (left of the viewport)."""
+  | optional Asset Browser column (left of the viewport).
+A layout with editors under the viewport has the tools and create columns as two areas down its sides, so they stay
+full height; what is drawn in them keeps its size, and they get their width back after the window is resized."""
 import bpy
 
 from . import roles
@@ -15,15 +17,17 @@ from . import roles
 DOC_TABS_PX = 30
 PALETTE_PX = 62
 TIMELINE_PX = 64
-TOOL_ZOOM = {"MODES": 3, "CREATE": 8, "PALETTE": 7}   # zoom steps (as Ctrl+scroll): larger icons, boxes stay square
-MODES_PX = 70                 # with the 3-step zoom and 1.9 tall buttons: square boxes, icon evenly inside
-CREATE_PX = 70
+TOOL_ZOOM = {"PALETTE": 7}   # zoom steps (as Ctrl+scroll): larger icons, boxes stay square
+CREATE_PX = 57                # as wide as the viewport's own strip: the column stays put when it becomes an area
+EDITORS = 0.46                # the share of the viewport's height the editors under it take
+TRACKS = 0.6                  # the tracks' share of the editors' width
 STRIP_ZOOM = 0               # the create column is drawn at its own size (strip.py): the strip needs no zoom
 MANAGERS_PX = 330
 MATERIALS_PX = 230
 MM_BAR_PX = 30
 OM_HEAD_PX = 88               # the Object Manager's title, menus and tool row (unzoomed; the Size slider zooms only the rows)
 ASSETS_PX = 420
+ATTRIBUTES = 0.56             # the Attribute Manager's share of the managers column
 EDGE = 3
 
 _active = [0]
@@ -175,28 +179,69 @@ def _add_column(window, width_px, side, main, bar):
     yield from settle(window, (col, main), (strip, bar))
 
 
+def _width(window, key, usual):
+    from . import layouts
+    return max(60, layouts.spec_of(window.screen)["sizes"].get(key, usual))
+
+
 def add_assets(window):
     """The Asset Browser column, left of the viewport, with its bottom strip."""
     from . import toolcol
-    yield from _add_column(window, ASSETS_PX + toolcol.WIDTH, "LEFT", "ASSETS", "AB_BAR")   # it hosts the tools column
+    tools = 0 if roles.areas(window.screen, "MODES") else toolcol.WIDTH       # it hosts the tools column
+    yield from _add_column(window, _width(window, "assets", ASSETS_PX + toolcol.WIDTH) - toolcol.WIDTH + tools, "LEFT", "ASSETS", "AB_BAR")
 
 
 def add_materials(window):
     """The Material Manager column, right of the viewport, with its bottom strip."""
-    yield from _add_column(window, MATERIALS_PX, "RIGHT", "MATERIALS", "MM_BAR")
+    yield from _add_column(window, _width(window, "materials", MATERIALS_PX), "RIGHT", "MATERIALS", "MM_BAR")
 
 
 COLUMNS = {"MATERIALS": (add_materials, "MM_BAR"), "ASSETS": (add_assets, "AB_BAR")}
 CORE = ("DOC_TABS", "PALETTE", "OBJECTS", "ATTRIBUTES", "OM_BAR", "OM_HEAD")
 
 
+def is_timeline(area):
+    return area.type == "DOPESHEET_EDITOR" and area.ui_type == "TIMELINE"
+
+
+def timelines(screen):
+    return [a for a in screen.areas if is_timeline(a)]
+
+
+def tracks(screen):
+    return [a for a in screen.areas if a.type == "DOPESHEET_EDITOR" and not is_timeline(a)]
+
+
+def curves(screen):
+    return [a for a in screen.areas if a.type == "GRAPH_EDITOR"]
+
+
+def side_px():
+    """The tools column's width as an area of its own."""
+    from . import toolcol
+    return px(toolcol.WIDTH) + EDGE
+
+
+def view_top(window):
+    """Pixels of header over the viewport: the columns beside it start below them, as they do in the viewport."""
+    view = max((a for a in window.screen.areas if a.type == "VIEW_3D"), key=lambda a: (a.y + a.height, a.width), default=None)
+    if view is None:
+        return 0
+    return sum(r.height for r in view.regions if r.type in {"HEADER", "TOOL_HEADER"} and r.height > 1 and r.alignment == "TOP")
+
+
 def intact(screen):
-    """The Standard layout is all there (each strip once, a viewport and the timeline): nothing to rebuild."""
+    """The layout is all there (each strip once, a viewport, its timeline and editors): nothing to rebuild."""
+    from . import layouts
+    spec = layouts.spec_of(screen)
     if any(len(roles.areas(screen, r)) != 1 for r in CORE):
         return False
-    if roles.areas(screen, "MODES"):                       # a layout from before 0.1.22: its tools column was an area
+    stacked = bool(spec["editors"])
+    if len(roles.areas(screen, "MODES")) != stacked:       # without editors a layout from before 0.1.22 has one
         return False
-    if not any(a.type == "VIEW_3D" for a in screen.areas) or not any(a.type == "DOPESHEET_EDITOR" for a in screen.areas):
+    if len(tracks(screen)) != stacked or len(curves(screen)) != stacked or (stacked and len(roles.areas(screen, "CREATE")) != 1):
+        return False
+    if not any(a.type == "VIEW_3D" for a in screen.areas) or len(timelines(screen)) != spec["timeline"]:
         return False
     for main, (_add, bar) in COLUMNS.items():
         if len(roles.areas(screen, main)) != len(roles.areas(screen, bar)) or len(roles.areas(screen, main)) > 1:
@@ -204,18 +249,190 @@ def intact(screen):
     return True
 
 
+# --- the parts a layout adds under and beside the viewport ----------------------------------------------------------
+def add_timeline(window):
+    view = biggest_view(window.screen)
+    hdr = _region(view, "HEADER").height if _region(view, "HEADER") else 26
+    timeline = yield from split(window, view, "HORIZONTAL", px(TIMELINE_PX) + hdr + EDGE, "BOTTOM")
+    timeline.type = "DOPESHEET_EDITOR"
+    timeline.ui_type = "TIMELINE"
+    yield
+
+
+def dress_timeline(screen):
+    for a in timelines(screen):
+        st = a.spaces.active
+        st.show_region_channels = False
+        st.show_region_ui = False
+
+
+def add_stack(window, sizes, materials=False, assets=False):
+    """The tools and create columns down the sides, the optional columns full height where they always are (Material
+    Manager right of the create column, Asset Browser right of the tools), and the editors under the viewport."""
+    screen = window.screen
+    if materials:
+        yield from add_materials(window)
+    tools = yield from split(window, biggest_view(screen), "VERTICAL", side_px(), "LEFT")
+    yield from make_role(window, tools, "MODES")
+    if assets:
+        yield from add_assets(window)
+    create = yield from split(window, biggest_view(screen), "VERTICAL", px(CREATE_PX) + EDGE, "RIGHT")
+    yield from make_role(window, create, "CREATE")
+    view = biggest_view(screen)
+    dress_view(view)
+    share = min(0.8, max(0.15, sizes.get("editors", EDITORS)))
+    low = yield from split(window, view, "HORIZONTAL", round(view.height * share), "BOTTOM")
+    low.type = "DOPESHEET_EDITOR"
+    low.ui_type = "DOPESHEET"
+    yield
+    share = min(0.85, max(0.15, sizes.get("tracks", TRACKS)))
+    right = yield from split(window, low, "VERTICAL", round(low.width * (1 - share)), "RIGHT")
+    right.type = "GRAPH_EDITOR"
+    right.ui_type = "FCURVES"
+    yield
+    for a in tracks(screen) + curves(screen):
+        a.spaces.active.show_region_ui = False
+        if hasattr(a.spaces.active, "show_region_footer"):
+            a.spaces.active.show_region_footer = False     # its playback buttons: the timeline below has them
+        a.spaces.active.show_region_header = True
+        if hasattr(a.spaces.active, "show_region_channels"):   # a narrow editor is all keys, or all curves
+            a.spaces.active.show_region_channels = a.width > px(340 if a.type == "GRAPH_EDITOR" else 300)
+        header = _region(a, "HEADER")
+        if header is not None and header.alignment != "TOP":
+            try:
+                with _ov(window, a, "HEADER"):
+                    bpy.ops.screen.region_flip()
+            except RuntimeError:
+                pass
+    yield
+    for a, frame_all in [(a, bpy.ops.action.view_all) for a in tracks(screen)] + [(a, bpy.ops.graph.view_all) for a in curves(screen)]:
+        try:                                               # the keys there are, all in view
+            with _ov(window, a):
+                frame_all()
+        except RuntimeError:
+            pass
+
+
+def _into_view(window, area):
+    from . import quadview
+    view = biggest_view(window.screen)
+    yield from quadview._join(window, area, view)
+
+
+def remove_stack(window):
+    """The editors and the two columns go back into the viewport, each one a join along a whole edge."""
+    from . import quadview
+    screen = window.screen
+    for c in curves(screen):
+        if tracks(screen):
+            yield from quadview._join(window, c, tracks(screen)[0])
+    for t in tracks(screen):
+        yield from _into_view(window, t)
+    for a in roles.areas(screen, "CREATE"):
+        yield from _into_view(window, a)
+    for n in COLUMNS:
+        if roles.areas(screen, n):
+            yield from remove_column(window, n)
+    for a in roles.areas(screen, "MODES"):
+        yield from _into_view(window, a)
+    for a in screen.areas:
+        if a.type == "VIEW_3D":
+            dress_view(a)
+
+
+def remove_column(window, name):
+    for role in (COLUMNS[name][1], name):                  # the strip into its column, the column into the viewport,
+        for a in roles.areas(window.screen, role):         # in one step: no frame shows the column without its strip
+            with _ov(window, a):
+                bpy.ops.screen.area_close()
+    yield
+
+
+def renew_steps(window):
+    """The stack again at its own sizes (the window was resized); everything else stays where it is."""
+    from . import layouts, quadview
+    screen = window.screen
+    spec = layouts.spec_of(screen)
+    on = [n for n in COLUMNS if roles.areas(screen, n)]
+    if len(quadview.views(screen)) > 1:
+        return                                             # four views are left as they are
+    yield from remove_stack(window)
+    yield from add_stack(window, spec["sizes"], "MATERIALS" in on, "ASSETS" in on)
+    if not intact(screen):
+        yield from steps(window, materials="MATERIALS" in on, assets="ASSETS" in on)
+    for a in screen.areas:
+        a.tag_redraw()
+
+
+def drifted(screen, sizes):
+    """Are the managers, the command bar or the timeline another size than the layout's own?"""
+    def one(role):
+        return next(iter(roles.areas(screen, role)), None)
+    attr, palette = one("ATTRIBUTES"), one("PALETTE")
+    if abs(attr.width - px(sizes.get("managers", MANAGERS_PX))) > 8 or abs(palette.height - EDGE - px(PALETTE_PX)) > 6:
+        return True
+    whole = sum(one(r).height for r in ("OBJECTS", "OM_HEAD", "OM_BAR", "ATTRIBUTES"))
+    if abs(attr.height / max(1, whole) - sizes.get("attributes", ATTRIBUTES)) > 0.02:
+        return True
+    return any(abs(a.height - px(TIMELINE_PX) - 26 * _scale()) > 14 for a in timelines(screen))
+
+
+def switch_steps(window, name):
+    """Bring a layout's saved arrangement up. What both layouts share stays where it is."""
+    from . import layouts, quadview, render_settings
+    screen, ws = window.screen, window.workspace
+    old, new = layouts.spec_of(screen), layouts.spec(name)
+    render_settings.show_view(screen)                     # Render Settings in the viewport's place: viewport back first
+    yield
+    whole = intact(screen) and not drifted(screen, new["sizes"])
+    layouts.set_current(ws, name)
+    views = quadview.views(screen)
+    if whole and len(views) > 1:                           # four views: back to the Perspective one
+        keep = next((a for a in views if quadview.corner_of(a, screen) == "PERSP"), views[0])
+        yield from quadview.expand_steps(window, keep)
+    if whole:
+        moved = (old["timeline"], old["editors"]) != (new["timeline"], new["editors"]) or (bool(new["editors"]) and (
+            old["sizes"] != new["sizes"] or any(bool(roles.areas(screen, n)) != new[n.lower()] for n in COLUMNS)))
+        if moved:
+            yield from remove_stack(window)
+        for n in COLUMNS:
+            if roles.areas(screen, n) and (not new[n.lower()] or old["sizes"].get(n.lower()) != new["sizes"].get(n.lower())):
+                yield from remove_column(window, n)
+        if moved:
+            if old["timeline"] and not new["timeline"]:
+                for a in timelines(screen):
+                    yield from _into_view(window, a)
+            elif new["timeline"] and not old["timeline"]:
+                yield from add_timeline(window)
+                dress_timeline(screen)
+            if new["editors"]:
+                yield from add_stack(window, new["sizes"], new["materials"], new["assets"])
+        for n in ("ASSETS", "MATERIALS"):
+            if new[n.lower()] and not roles.areas(screen, n):
+                yield from COLUMNS[n][0](window)
+    if not whole or not intact(screen) or len(quadview.views(screen)) > 1:
+        yield from steps(window, materials=new["materials"], assets=new["assets"])
+    for a in screen.areas:
+        a.tag_redraw()
+
+
 def column_steps(window, name, on):
     """Show or hide one optional column, leaving every other area where it is."""
     screen = window.screen
-    add, bar = COLUMNS[name]
-    if on:
+    from . import layouts, quadview
+    add = COLUMNS[name][0]
+    spec = layouts.spec_of(screen)
+    if spec["editors"] and roles.areas(screen, "MODES"):  # beside the editors too: they are put in again after it
+        want = {n: bool(roles.areas(screen, n)) for n in COLUMNS}
+        want[name] = on
+        if len(quadview.views(screen)) > 1:
+            yield from quadview.expand_steps(window, quadview.views(screen)[0])
+        yield from remove_stack(window)
+        yield from add_stack(window, spec["sizes"], want["MATERIALS"], want["ASSETS"])
+    elif on:
         yield from add(window)
     else:
-        for role in (bar, name):                           # the strip into its column, the column into the viewport,
-            for a in roles.areas(screen, role):            # in one step: no frame shows the column without its strip
-                with _ov(window, a):
-                    bpy.ops.screen.area_close()
-        yield
+        yield from remove_column(window, name)
     if not intact(screen):                                 # the change did not land as planned: build it all
         yield from steps(window, materials=bool(roles.areas(screen, "MATERIALS")) if name != "MATERIALS" else on,
                          assets=bool(roles.areas(screen, "ASSETS")) if name != "ASSETS" else on)
@@ -223,9 +440,11 @@ def column_steps(window, name, on):
         a.tag_redraw()
 
 
-def steps(window, materials=False, assets=False):
+def steps(window, materials=False, assets=False, spec=None):
     screen = window.screen
-    from . import render_settings
+    from . import layouts, render_settings
+    spec = spec or layouts.spec_of(screen)
+    sizes = spec["sizes"]
     render_settings.show_view(screen)                     # Render Settings in the viewport's place: viewport back first
     # 1. everything back into one viewport
     for _ in range(40):
@@ -237,25 +456,25 @@ def steps(window, materials=False, assets=False):
             bpy.ops.screen.area_close()
         yield
     view = biggest_view(screen)
-    hdr = _region(view, "HEADER").height if _region(view, "HEADER") else 26
     # 2. strips at exact sizes, full-width ones first
     tabs = yield from split(window, view, "HORIZONTAL", px(DOC_TABS_PX) + EDGE, "TOP")
     yield from make_role(window, tabs, "DOC_TABS")
-    managers = yield from split(window, biggest_view(screen), "VERTICAL", px(MANAGERS_PX) + EDGE, "RIGHT")
+    managers = yield from split(window, biggest_view(screen), "VERTICAL", px(sizes.get("managers", MANAGERS_PX)) + EDGE, "RIGHT")
     yield from make_role(window, managers, "OBJECTS")
     palette = yield from split(window, biggest_view(screen), "HORIZONTAL", px(PALETTE_PX) + EDGE, "TOP")
     yield from make_role(window, palette, "PALETTE")
     # the create column is drawn in the viewport's own toolbar strip (bars.BLENDA4D_PT_view_tools), moved to the
     # viewport's right edge: the strip keeps its width when the window is resized; a separate area would stretch
-    timeline = yield from split(window, biggest_view(screen), "HORIZONTAL", px(TIMELINE_PX) + hdr + EDGE, "BOTTOM")
-    timeline.type = "DOPESHEET_EDITOR"
-    timeline.ui_type = "TIMELINE"
-    yield
+    if spec["timeline"]:
+        yield from add_timeline(window)
+    if spec["editors"]:
+        yield from add_stack(window, sizes, materials, assets)
+        materials = assets = False                         # in already, beside the editors
     if assets:
         yield from add_assets(window)
     if materials:
         yield from add_materials(window)
-    attributes = yield from split(window, managers, "HORIZONTAL", round(managers.height * 0.56), "BOTTOM")
+    attributes = yield from split(window, managers, "HORIZONTAL", round(managers.height * min(0.85, max(0.15, sizes.get("attributes", ATTRIBUTES)))), "BOTTOM")
     yield from make_role(window, attributes, "ATTRIBUTES")
     objs = sorted(roles.areas(screen, "OBJECTS"), key=lambda a: a.y)
     if len(objs) > 1:                                      # the split can hand back the other half
@@ -294,19 +513,16 @@ def steps(window, materials=False, assets=False):
                 except RuntimeError:
                     pass
                 yield
-        elif a.type == "DOPESHEET_EDITOR":
-            st = a.spaces.active
-            st.show_region_channels = False
-            st.show_region_ui = False
+    dress_timeline(screen)
     for a in screen.areas:
         a.tag_redraw()
 
 
 def dress_view(area):
     v3d = area.spaces.active
-    # four views: the create column is one separate column beside them (quadview), not a strip in every view
-    quad = sum(a.type == "VIEW_3D" for a in area.id_data.areas) > 1
-    for attr, want in (("show_region_ui", False), ("show_region_toolbar", not quad), ("show_region_header", True),
+    # four views, or editors under the viewport: the create column is one separate column beside them, not a strip
+    apart = sum(a.type == "VIEW_3D" for a in area.id_data.areas) > 1 or bool(roles.areas(area.id_data, "CREATE"))
+    for attr, want in (("show_region_ui", False), ("show_region_toolbar", not apart), ("show_region_header", True),
                        ("show_region_tool_header", True), ("show_region_hud", False)):
         if getattr(v3d, attr) != want:
             setattr(v3d, attr, want)
@@ -333,8 +549,8 @@ def drop_modes(window, materials, assets):
         a.tag_redraw()
 
 
-def rebuild(window, done=None, force=False):
-    """Build the Standard layout; a layout that is already all there is only tidied (no area moves)."""
+def rebuild(window, done=None, force=False, spec=None):
+    """Build the window's layout; a layout that is already all there is only tidied (no area moves)."""
     if not force and intact(window.screen):
         for a in window.screen.areas:
             if a.type == "VIEW_3D":
@@ -343,7 +559,9 @@ def rebuild(window, done=None, force=False):
             done()
         return
     opts = dict(materials=bool(roles.areas(window.screen, "MATERIALS")), assets=bool(roles.areas(window.screen, "ASSETS")))
-    if not force and roles.areas(window.screen, "MODES"):
+    if spec is not None:                                   # the startup layout, for a new workspace
+        run_steps(steps(window, materials=spec["materials"], assets=spec["assets"], spec=spec), done)
+    elif not force and roles.areas(window.screen, "MODES") and not curves(window.screen):
         run_steps(drop_modes(window, **opts), done)
     else:
         run_steps(steps(window, **opts), done)

@@ -252,14 +252,9 @@ def topbar_left(self, context):
 
 
 def topbar_right(self, context):
-    from . import layouts
     layout = self.layout
     from . import updates
     updates.draw(layout)                                 # "Update to x.y.z" when the update list has a newer one
-    row = layout.row(align=True)
-    row.label(text="Layout:")
-    row.menu(layouts.BLENDA4D_MT_layouts.bl_idname, text=layouts.current_name())
-    layout.separator(factor=1.0)
     sw = layout.row(align=True)
     sw.operator("blenda4d.switch", text="Blenda 4D", depress=True).on = True
     sw.operator("blenda4d.switch", text="Blender").on = False
@@ -296,6 +291,8 @@ def view_tabs(self, context):
 
 def timeline_header(self, context):
     if context.area is None or context.area.ui_type != "TIMELINE":
+        if context.area is not None and _ours(context) and context.space_data.mode == "DOPESHEET":
+            return tracks_header(self, context)
         return _saved["DOPESHEET_HT_header"](self, context)
     scene = context.scene
     layout = self.layout
@@ -315,6 +312,47 @@ def timeline_header(self, context):
     layout.prop(scene, "frame_end", text="")
 
 
+def _ours(context):
+    from . import switch
+    return context.workspace is not None and context.workspace.name == switch.WORKSPACE
+
+
+def _editor_header(layout, context, title, short, what, classes, icons_wide):
+    """An editor's name and its menus, none cut short: what does not fit is in the > menu."""
+    u = 20.0 * context.preferences.system.ui_scale
+    wide = context.region.width
+    if wide < 12 * u:
+        title = short
+    name = layout.row()
+    name.ui_units_x = menus._text_width(title) / u + 1.4
+    name.operator("blenda4d.title", text=title, depress=True).what = what
+    free = wide - menus._text_width(title) - (2.6 + icons_wide) * u
+    if free >= 3 * u:
+        menus.menu_bar(layout, classes, avail=free)
+    layout.separator_spacer()
+    return wide > 9 * u                                    # room for the icons at the right
+
+
+def tracks_header(self, context):
+    """The tracks under the viewport: their name, Blender's own menus, and what is listed."""
+    layout = self.layout
+    if _editor_header(layout, context, "Tracks and Keys", "Keys", "Every key of the selected objects (Dope Sheet)",
+                      menus.TRACKS_CLASSES, 5):
+        layout.prop(context.space_data.dopesheet, "show_only_selected", text="")
+        layout.popover(panel="DOPESHEET_PT_filters", text="", icon="FILTER")
+
+
+def curves_header(self, context):
+    if not _ours(context) or context.space_data.mode != "FCURVES":
+        return _saved["GRAPH_HT_header"](self, context)
+    layout, st = self.layout, context.space_data
+    if _editor_header(layout, context, "Curves", "Curves", "How the keyed values move between their keys (Graph Editor)",
+                      menus.CURVES_CLASSES, 6.5):
+        layout.prop(st, "use_normalization", icon="NORMALIZE_FCURVES", text="")
+        layout.prop(st.dopesheet, "show_only_selected", text="")
+        layout.popover(panel="GRAPH_PT_filters", text="", icon="FILTER")
+
+
 def properties_header(self, context):
     """Render Settings shown in the viewport's place keeps the viewport's tab row in its header."""
     if roles.role(context.area) == "RENDER":
@@ -325,7 +363,7 @@ def properties_header(self, context):
 _saved = {}
 OVERRIDES = (("PROPERTIES_HT_header", "draw", properties_header), ("TOPBAR_HT_upper_bar", "draw_left", topbar_left), ("TOPBAR_HT_upper_bar", "draw_right", topbar_right),
              ("VIEW3D_HT_header", "draw", view_tabs), ("VIEW3D_HT_tool_header", "draw", view_header),
-             ("DOPESHEET_HT_header", "draw", timeline_header))
+             ("DOPESHEET_HT_header", "draw", timeline_header), ("GRAPH_HT_header", "draw", curves_header))
 
 
 def override():
@@ -362,7 +400,9 @@ class BLENDA4D_PT_doc_tabs(roles.RolePanel, bpy.types.Panel):
     role = "DOC_TABS"
 
     def draw(self, context):
-        row = self.layout.row(align=True)
+        from . import fitzoom, layouts
+        whole = self.layout.row(align=False)
+        row = whole.row(align=True)
         row.alignment = "LEFT"
         name = bpy.path.basename(bpy.data.filepath) or "Untitled"
         b = row.row(align=True)
@@ -370,6 +410,9 @@ class BLENDA4D_PT_doc_tabs(roles.RolePanel, bpy.types.Panel):
         b.operator("blenda4d.title", text=name, depress=True).what = (
             f"The open file: {bpy.data.filepath}" if bpy.data.filepath else "This scene has not been saved yet")
         row.operator("wm.read_homefile", text="", icon="ADD", emboss=False)
+        s = context.preferences.system.ui_scale
+        free = context.region.width / max(0.1, fitzoom.zoom_of(context.region)) / s - 2 * PANEL_MARGIN
+        layouts.draw_tabs(whole, context, free / 20.0 - 18.0)      # 18: the file tab, the + and the space after them
 
 
 PALETTE_GAP = 1.3            # between the command bar groups: about a third of a button, as in the private version
@@ -532,29 +575,6 @@ def _column(layout, scale=1.9):
     col.scale_y = scale
     col.scale_x = scale
     return col
-
-
-def draw_tools(col, context):
-    """The tools column: zoom, select, move, rotate, scale, then the modelling and spline tools."""
-    col.operator("view3d.zoom_border", text="", icon="VIEWZOOM")
-    tool = active_tool(context)
-    for t in MODES_TOOLS:
-        if t is None:
-            col.separator(factor=1.2)
-            continue
-        name = TOOL_ICONS.get(t, "")
-        iv = icons.tool_shape(name) or tool_icon(name)    # tinted tool shape, else Blender's: all drawn the same size
-        op = col.operator("wm.tool_set_by_id", text="", icon_value=iv, depress=(tool == t))
-        op.name = t                                    # no space type: Blender's lookup finds the viewport's tools
-
-
-
-class BLENDA4D_PT_modes(roles.RolePanel, bpy.types.Panel):
-    bl_label = "Tools"
-    role = "MODES"
-
-    def draw(self, context):
-        draw_tools(_column(self.layout), context)
 
 
 class BLENDA4D_PT_view_tools(bpy.types.Panel):
@@ -749,17 +769,8 @@ def draw_create(col, group_gap=0.8, strip=False):
         o.group = name
 
 
-class BLENDA4D_PT_create(roles.RolePanel, bpy.types.Panel):
-    bl_label = "Create"
-    role = "CREATE"
-
-    def draw(self, context):
-        draw_create(_column(self.layout, CREATE_SCALE))
-
-
-
 classes = (BLENDA4D_OT_set_mode, BLENDA4D_OT_shading, BLENDA4D_OT_overlay, BLENDA4D_OT_axis_lock, BLENDA4D_OT_toggle_column,
-           BLENDA4D_OT_create, *GROUP_MENUS, BLENDA4D_PT_doc_tabs, BLENDA4D_PT_palette, BLENDA4D_PT_palette_more, BLENDA4D_OT_palette_more, BLENDA4D_PT_modes, BLENDA4D_PT_create)
+           BLENDA4D_OT_create, *GROUP_MENUS, BLENDA4D_PT_doc_tabs, BLENDA4D_PT_palette, BLENDA4D_PT_palette_more, BLENDA4D_OT_palette_more)
 
 
 def register():
