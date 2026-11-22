@@ -33,7 +33,12 @@ def draw_items(layout, items):
             col.enabled = False
             col.operator("blenda4d.noop", text=label, icon=icon)
             continue
-        o = layout.operator(op, text=label, icon=icon)
+        if isinstance(icon, str) and icon.startswith("ops."):     # one of Blender's tool icons, as in the tool column
+            from . import bars, icons as _icons
+            iv = _icons.tool_shape(icon) or bars.tool_icon(icon)
+            o = layout.operator(op, text=label, icon_value=iv) if iv else layout.operator(op, text=label)
+        else:
+            o = layout.operator(op, text=label, icon=icon)
         for k, v in props.items():
             try:
                 setattr(o, k, v)
@@ -75,7 +80,7 @@ MAIN = {
              item("Quit", "wm.quit_blender", "QUIT")],
     "Edit": [item("Undo", "ed.undo", "LOOP_BACK"), item("Redo", "ed.redo", "LOOP_FORWARDS"),
              item("Undo History...", "ed.undo_history"), SEP,
-             item("Copy", "view3d.copybuffer", "COPYDOWN"), item("Paste", "view3d.pastebuffer", "PASTEDOWN"),
+             item("Copy", "blenda4d.copy", "COPYDOWN"), item("Paste", "blenda4d.paste", "PASTEDOWN"),
              item("Delete", "object.delete", "X"), SEP,
              item("Select All", "object.select_all", action="SELECT"), item("Deselect All", "object.select_all", action="DESELECT"),
              SEP, item("Preferences...", "screen.userpref_show", "PREFERENCES")],
@@ -93,20 +98,26 @@ MAIN = {
                item("Null", "object.empty_add", "OUTLINER_OB_EMPTY"), item("Camera", "blenda4d.add_camera", "OUTLINER_OB_CAMERA"),
                item("Light", "object.light_add", "OUTLINER_OB_LIGHT", type="AREA")],
     "Modes": [item("Model", "object.mode_set", "OBJECT_DATAMODE", mode="OBJECT"), item("Points", "blenda4d.set_mode", "VERTEXSEL", mode="POINTS"),
-              item("Edges", "blenda4d.set_mode", "EDGESEL", mode="EDGES"), item("Polygons", "blenda4d.set_mode", "FACESEL", mode="POLYGONS")],
+              item("Edges", "blenda4d.set_mode", "EDGESEL", mode="EDGES"), item("Polygons", "blenda4d.set_mode", "FACESEL", mode="POLYGONS"),
+              SEP, item("Model / Edit Toggle", "object.editmode_toggle", "EDITMODE_HLT")],
     "Select": [item("Select All", "object.select_all", action="SELECT"), item("Deselect All", "object.select_all", action="DESELECT"),
                item("Invert Selection", "object.select_all", action="INVERT"), SEP,
-               item("Live Selection", "wm.tool_set_by_id", "RESTRICT_SELECT_OFF", name="builtin.select_circle"),
-               item("Rectangle Selection", "wm.tool_set_by_id", name="builtin.select_box"),
-               item("Lasso Selection", "wm.tool_set_by_id", name="builtin.select_lasso"), SEP,
+               item("Live Selection", "wm.tool_set_by_id", "ops.generic.select_circle", name="builtin.select_circle"),
+               item("Rectangle Selection", "wm.tool_set_by_id", "ops.generic.select_box", name="builtin.select_box"),
+               item("Lasso Selection", "wm.tool_set_by_id", "ops.generic.select_lasso", name="builtin.select_lasso"), SEP,
                item("Phong Break Selection", "blenda4d.phong_break_selection")],
     "Tools": [item("Move", "wm.tool_set_by_id", name="builtin.move"), item("Scale", "wm.tool_set_by_id", name="builtin.scale"),
               item("Rotate", "wm.tool_set_by_id", name="builtin.rotate"), SEP, item("Measure", "wm.tool_set_by_id", name="builtin.measure")],
     "Spline": [item("Pen", "wm.tool_set_by_id", name="builtin.pen"), item("Sketch", "wm.tool_set_by_id", name="builtin.draw")],
-    "Mesh": [item("Extrude", "wm.tool_set_by_id", name="builtin.extrude_region"), item("Inset", "wm.tool_set_by_id", name="builtin.inset_faces"),
-             item("Bevel", "wm.tool_set_by_id", name="builtin.bevel"), item("Loop Cut", "wm.tool_set_by_id", name="builtin.loop_cut"),
-             item("Knife", "wm.tool_set_by_id", name="builtin.knife"), item("Polygon Pen", "wm.tool_set_by_id", name="builtin.poly_build"),
-             SEP, item("Edge to Spline", "blenda4d.edge_to_spline")],
+    "Mesh": [item("Make Editable", "blenda4d.make_editable", "MESH_DATA"), SEP,
+             item("Extrude", "wm.tool_set_by_id", "ops.mesh.extrude_region_move", name="builtin.extrude_region"),
+             item("Inset", "wm.tool_set_by_id", "ops.mesh.inset", name="builtin.inset_faces"),
+             item("Bevel", "wm.tool_set_by_id", "ops.mesh.bevel", name="builtin.bevel"),
+             item("Loop Cut", "wm.tool_set_by_id", "ops.mesh.loopcut_slide", name="builtin.loop_cut"),
+             item("Knife", "wm.tool_set_by_id", "ops.mesh.knife_tool", name="builtin.knife"),
+             item("Polygon Pen", "wm.tool_set_by_id", "ops.mesh.polybuild_hover", name="builtin.poly_build"),
+             item("Bridge", "mesh.bridge_edge_loops", "LINKED"), SEP,
+             item("Edge to Spline", "blenda4d.edge_to_spline", "CURVE_DATA")],
     "Volume": [item("Volume Builder"), item("Volume Mesher")],
     "MoClone": [item("Cloner"), item("Matrix"), item("Fracture"), item("Voronoi Fracture"), SEP, item("Effectors"), item("Fields")],
     "Character": [item("Joint", "object.armature_add", "BONE_DATA")],

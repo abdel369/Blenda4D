@@ -49,8 +49,9 @@ OM_MENUS = [menus.simple_menu("File", [I("Merge Objects...", "wm.append", "APPEN
                                         I("Paste", "view3d.pastebuffer"), I("Delete", "object.delete"), menus.SEP,
                                         I("Select All", "object.select_all", action="SELECT"), I("Deselect All", "object.select_all", action="DESELECT")], "om"),
             menus.simple_menu("View", [I("Expand All", "blenda4d.om_expand", open=True), I("Collapse All", "blenda4d.om_expand", open=False)], "om"),
-            menus.simple_menu("Object", [I("Group Objects", "blenda4d.group"), I("Make Editable", "blenda4d.make_editable"),
-                                          I("Duplicate", "object.duplicate_move")], "om"),
+            menus.simple_menu("Object", [I("Group Objects", "blenda4d.group", "OUTLINER_OB_EMPTY"),
+                                          I("Make Editable", "blenda4d.make_editable", "MESH_DATA"),
+                                          I("Duplicate", "object.duplicate_move", "DUPLICATE")], "om"),
             menus.simple_menu("Tags", [I("Material", "blenda4d.mat_tag", "MATERIAL"), I("Smoothing", "object.shade_auto_smooth", "SHADING_SMOOTH")], "om"),
             menus.simple_menu("Bookmarks", [I("Add Bookmark")], "om")]
 AM_MENUS = [menus.simple_menu("Mode", [I("Object"), I("Tag"), I("Material")], "am"),

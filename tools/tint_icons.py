@@ -54,7 +54,8 @@ OM_TYPES = {"MESH": "polygon", "CURVE": "splines", "FONT": "text", "EMPTY": "nul
 # The tool column (bars.MODES_TOOLS): which tool icons get which accent colour. Others stay Blender's own.
 TOOLS = {"ops.curve.pen": "spline_tools", "ops.curve.draw": "spline_tools", "ops.mesh.knife_tool": "spline_tools",
          "ops.gpencil.draw": "spline_tools", "ops.view3d.ruler": "spline_tools",
-         "ops.mesh.extrude_region_move": "mesh_tools", "ops.mesh.inset": "mesh_tools", "ops.mesh.bevel": "mesh_tools"}
+         "ops.mesh.extrude_region_move": "mesh_tools", "ops.mesh.inset": "mesh_tools", "ops.mesh.bevel": "mesh_tools",
+         "ops.mesh.polybuild_hover": "mesh_tools", "ops.mesh.loopcut_slide": "mesh_tools"}
 TOOL_ACCENT = (117, 255, 175)      # the accent colour Blender's tool icons use
 
 FALLBACK = {   # used only when no Blender is found

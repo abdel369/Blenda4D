@@ -211,8 +211,8 @@ class BLENDA4D_MT_view_view(bpy.types.Menu):
         layout = self.layout
         sp = _space(context)
         _heading(layout, "Frame")
-        layout.operator("view3d.view_all", text="Frame All").center = False
-        layout.operator("view3d.view_selected", text="Frame Selected")
+        layout.operator("view3d.view_all", text="Frame All", icon="ZOOM_ALL").center = False
+        layout.operator("view3d.view_selected", text="Frame Selected", icon="ZOOM_SELECTED")
         layout.operator("view3d.view_all", text="Frame All and Center Cursor").center = True
         layout.operator("view3d.view_center_cursor", text="Center on 3D Cursor")
         layout.separator()
@@ -231,6 +231,7 @@ class BLENDA4D_MT_view_view(bpy.types.Menu):
         layout.operator("view3d.camera_to_view", text="Align Camera to View")
         layout.separator()
         layout.operator("screen.screen_full_area", text="Maximize Viewport")
+        layout.operator("blenda4d.quad_view", text="Four Views / Full Size", icon="FULLSCREEN_ENTER")
 
 
 class BLENDA4D_MT_view_cameras(bpy.types.Menu):

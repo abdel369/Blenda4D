@@ -213,12 +213,11 @@ class BLENDA4D_OT_paste(bpy.types.Operator):
 M_KEYS = {"S": ("Bevel", "tool", "builtin.bevel"), "K": ("Knife", "tool", "builtin.knife"),
           "T": ("Extrude", "tool", "builtin.extrude_region"), "W": ("Inset", "tool", "builtin.inset_faces"),
           "L": ("Loop Cut", "tool", "builtin.loop_cut"), "B": ("Bridge", "op", "mesh.bridge_edge_loops"),
-          "F": ("Edge Cut", "tool", "builtin.loop_cut"),
           "E": ("Polygon Pen", "tool", "builtin.poly_build")}   # click points to build polygons; snaps to points / edges
 
 
 class BLENDA4D_OT_m_keys(bpy.types.Operator):
-    """M, then a letter: S Bevel, K Knife, T Extrude, W Inset, L Loop Cut, F Edge Cut, B Bridge, E Polygon Pen"""
+    """M, then a letter: S Bevel, K Knife, T Extrude, W Inset, L Loop Cut, B Bridge, E Polygon Pen"""
     bl_idname = "blenda4d.m_keys"
     bl_label = "Modelling Commands (M)"
     bl_options = {"REGISTER"}
