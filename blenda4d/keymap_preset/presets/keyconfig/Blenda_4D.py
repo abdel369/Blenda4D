@@ -35,12 +35,15 @@ KEYS = [
     ("3D View", "wm.tool_set_by_id", {"type": "R", "value": "PRESS"}, [("name", "builtin.rotate")]),
     ("3D View", "wm.tool_set_by_id", {"type": "T", "value": "PRESS"}, [("name", "builtin.scale")]),
     ("3D View", "wm.tool_set_by_id", {"type": "SPACE", "value": "PRESS"}, [("name", "builtin.select_box")]),
+    # Ctrl+drag with the Move tool: copy the selected objects and move the copy (Edit Mode: nothing changes)
+    ("3D View Tool: Move", "object.duplicate_move", {"type": "LEFTMOUSE", "value": "CLICK_DRAG", "ctrl": True}, None),
     # W: move along the world axes or the object's own axes
     ("3D View", "wm.context_toggle_enum", {"type": "W", "value": "PRESS"},
      [("data_path", "scene.transform_orientation_slots[0].type"), ("value_1", "GLOBAL"), ("value_2", "LOCAL")]),
-    # --- framing: S and O frame the selection, H frames everything
+    # --- framing: S, O and F frame the selection, H frames everything
     ("3D View", "view3d.view_selected", {"type": "S", "value": "PRESS"}, None),
     ("3D View", "view3d.view_selected", {"type": "O", "value": "PRESS"}, None),
+    ("3D View", "view3d.view_selected", {"type": "F", "value": "PRESS"}, None),
     ("3D View", "view3d.view_all", {"type": "H", "value": "PRESS"}, None),
     # --- views: F1 perspective / orthographic, F2 top, F3 right, F4 front
     ("3D View", "view3d.view_persportho", {"type": "F1", "value": "PRESS"}, None),
@@ -48,9 +51,9 @@ KEYS = [
     ("3D View", "view3d.view_axis", {"type": "F3", "value": "PRESS"}, [("type", "RIGHT")]),
     ("3D View", "view3d.view_axis", {"type": "F4", "value": "PRESS"}, [("type", "FRONT")]),
     # --- C: make the selected objects editable (their live result becomes a plain mesh)
-    ("3D View", "object.convert", {"type": "C", "value": "PRESS"}, [("target", "MESH")]),
-    ("Property Editor", "object.convert", {"type": "C", "value": "PRESS"}, [("target", "MESH")]),
-    ("View2D Buttons List", "object.convert", {"type": "C", "value": "PRESS"}, [("target", "MESH")]),
+    ("3D View", "blenda4d.make_editable", {"type": "C", "value": "PRESS"}, None),
+    ("Property Editor", "blenda4d.make_editable", {"type": "C", "value": "PRESS"}, None),
+    ("View2D Buttons List", "blenda4d.make_editable", {"type": "C", "value": "PRESS"}, None),
     # Alt+C: the Create menu
     ("3D View", "wm.call_menu", {"type": "C", "value": "PRESS", "alt": True}, [("name", "BLENDA4D_MT_main_create")]),
     # --- delete without asking
@@ -75,6 +78,13 @@ KEYS = [
     ("Graph Editor", "wm.context_set_enum", {"type": "TAB", "value": "PRESS"}, [("data_path", "area.type"), ("value", "DOPESHEET_EDITOR")]),
     ("Dopesheet Generic", "screen.animation_play", {"type": "SPACE", "value": "PRESS"}, None),
     ("Graph Editor Generic", "screen.animation_play", {"type": "SPACE", "value": "PRESS"}, None),
+]
+
+# Keys put first in their key map without taking any default key out (the default key still answers after ours):
+# Ctrl+drag on the Move handle copies the selected objects, then the handle's own drag moves the copies.
+ADD_FIRST = [
+    ("Generic Gizmo Maybe Drag", "blenda4d.copy_for_drag", {"type": "LEFTMOUSE", "value": "CLICK_DRAG", "ctrl": True}, None),
+    ("Generic Gizmo Drag", "blenda4d.copy_for_drag", {"type": "LEFTMOUSE", "value": "CLICK_DRAG", "ctrl": True}, None),
 ]
 
 # Default keys taken out with no replacement in the same key map.
@@ -150,6 +160,8 @@ def generate_keymaps():
             content = by_name.get(other)
             if content:
                 content["items"] = [it for it in content["items"] if not _clashes(event, it[1])]
+    for km_name, idname, event, props in ADD_FIRST:
+        ours.setdefault(km_name, []).append((idname, dict(event), {"properties": list(props)} if props else None))
     for km_name, items in ours.items():
         content = by_name.get(km_name)
         if content is not None:
