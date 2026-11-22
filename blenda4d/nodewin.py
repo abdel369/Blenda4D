@@ -226,13 +226,7 @@ class BLENDA4D_PT_nodewin(bpy.types.Panel):
             return
         lay.separator()
         lay.label(text=node.label or node.name, icon="NODE")
-        if hasattr(node, "draw_buttons_ext"):
-            box = lay.column()
-            node.draw_buttons_ext(context, box)
-        col = lay.column()
-        col.use_property_split = True
-        col.use_property_decorate = False
-        col.template_node_inputs(node)
+        matpage.draw_node(lay, context, node)
 
 
 classes = (BLENDA4D_MT_nodewin_edit, BLENDA4D_PT_nodewin)

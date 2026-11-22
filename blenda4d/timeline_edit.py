@@ -86,7 +86,13 @@ def _label(fc):
         if path.startswith(start):
             folder = path[len(start):].split('"]', 1)[0]
     name, size = path.split(".")[-1].strip('[]"').replace("_", " ").title(), 0
-    if path.endswith("default_value") and ".inputs[" in path:
+    if ".elements[" in path:                              # a gradient's knot
+        try:
+            name = f"Knot {int(path.rsplit('.elements[', 1)[1].split(']', 1)[0]) + 1} {name}"
+        except ValueError:
+            pass
+        size = 4 if path.endswith("color") else 0
+    elif path.endswith("default_value") and ".inputs[" in path:
         try:
             sock = A.owner_of(fc).path_resolve(path.rsplit(".", 1)[0])
             name = sock.name
