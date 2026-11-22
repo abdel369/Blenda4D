@@ -32,6 +32,14 @@ GREY_SMART = {"@FEATURED", "@KEYWORDS", "@OTHER"}
 UNCAT = "@UNCAT"
 SPLIT = 0.48
 
+
+def _inset(context):
+    """Pixels at the browser's left edge taken by the tools column, and the width left for the browser."""
+    from . import toolcol
+    w = toolcol.inset(context)
+    return w, context.region.width - w
+
+
 # Geometry of the grid, so a drag that starts on a picture knows which asset it is (a picture is a label and lets the
 # press through to the keymap). In row units from the top of the area; measured in tools/tests/assets_ui.py.
 TOP_UNITS = 5.25          # menu row, two rows of tabs, navigation row, then the folder list and the grid start
@@ -229,7 +237,7 @@ def _draw_tree(col, context, libs):
 
 def _columns(context, scale):
     u = _unit()
-    width = context.region.width * (1 - SPLIT) - u
+    width = _inset(context)[1] * (1 - SPLIT) - u
     return max(1, int(width // (scale * u + 0.25 * u)))
 
 
@@ -241,7 +249,7 @@ def _draw_home(right, context):
     grid = right.grid_flow(row_major=True, columns=2, even_columns=True, even_rows=True)
     from . import menus
     unit = 20 * context.preferences.system.ui_scale
-    tile = (context.region.width * (1 - SPLIT) - 2 * 8 * unit / 20) / 2 - unit * 0.5   # one tile's width in pixels
+    tile = (_inset(context)[1] * (1 - SPLIT) - 2 * 8 * unit / 20) / 2 - unit * 0.5   # one tile's width in pixels
     # every tile keeps its icon only while every name still fits beside one (Blender pads text and icon 1.75 units)
     icons = all(menus._text_width(label) + unit * 1.75 <= tile for _i, label, _t in HOME)
     for icon, label, tab in HOME:
@@ -298,6 +306,8 @@ def _draw_grid(right, context):
 
 
 def draw(layout, context):
+    from . import toolcol
+    layout = toolcol.beside(layout, context)          # the tools column runs down the browser's left edge
     wm = context.window_manager
     libs = _shown_libraries(context)
     _ensure_indexed(libs)
@@ -377,7 +387,8 @@ class BLENDA4D_PT_ab_bar(roles.RolePanel, bpy.types.Panel):
     role = "AB_BAR"
 
     def draw(self, context):
-        draw_bar(self.layout, context)
+        from . import toolcol
+        draw_bar(toolcol.beside(self.layout, context), context)
 
 
 # --- operators --------------------------------------------------------------------------------------------------------
@@ -667,7 +678,8 @@ def asset_at(context, x, y):
         return None
     u = _unit()
     vx, vy = region.view2d.region_to_view(x - region.x, y - region.y)
-    left = region.width * SPLIT
+    ins, free = _inset(context)
+    left = ins + free * SPLIT
     if vx < left:
         return None
     colw = (region.width - left) / g["cols"]
@@ -871,7 +883,8 @@ class BLENDA4D_OT_ab_folder_menu(bpy.types.Operator):
         return roles.role(context.area) == "ASSETS" and context.region is not None and context.region.type == "WINDOW"
 
     def invoke(self, context, event):
-        if event.mouse_region_x > context.region.width * SPLIT:
+        ins, free = _inset(context)
+        if event.mouse_region_x > ins + free * SPLIT:
             return {"PASS_THROUGH"}
         bpy.ops.wm.call_menu(name=BLENDA4D_MT_ab_folder.bl_idname)
         return {"FINISHED"}

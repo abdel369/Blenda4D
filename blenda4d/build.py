@@ -4,7 +4,8 @@
 Areas are made with area_split / area_close (which work without window focus), one step per redraw, because an
 area's size only updates on the next event loop:
   document tabs (full width, top) | managers column (right, full height: Objects over Attributes)
-  command palette (top, left of the managers) | modes column (left) | create column (left of the managers)
+  command palette (top, left of the managers) | tools column (drawn at the viewport's left edge, toolcol.py)
+  create column (drawn in the viewport's toolbar strip, strip.py)
   timeline (bottom, under the viewport) | optional Material Manager column (between viewport and create column)
   | optional Asset Browser column (left of the viewport)."""
 import bpy
@@ -164,7 +165,8 @@ def settle(window, *pairs):
 def _add_column(window, width_px, side, main, bar):
     """A column beside the viewport with its bottom strip, each one its final editor from the frame it appears in."""
     view = biggest_view(window.screen)
-    col = split_now(window, view, "VERTICAL", px(width_px) + EDGE, side)
+    # Blender makes the smaller part the new area: the column stays the smaller one, or it would land on the other side
+    col = split_now(window, view, "VERTICAL", min(px(width_px) + EDGE, round(view.width * 0.45)), side)
     role_now(col, main)
     yield                                                  # Blender lays the column out before it can be split
     strip = split_now(window, col, "HORIZONTAL", px(MM_BAR_PX) + EDGE, "BOTTOM")
@@ -175,7 +177,8 @@ def _add_column(window, width_px, side, main, bar):
 
 def add_assets(window):
     """The Asset Browser column, left of the viewport, with its bottom strip."""
-    yield from _add_column(window, ASSETS_PX, "LEFT", "ASSETS", "AB_BAR")
+    from . import toolcol
+    yield from _add_column(window, ASSETS_PX + toolcol.WIDTH, "LEFT", "ASSETS", "AB_BAR")   # it hosts the tools column
 
 
 def add_materials(window):
@@ -184,12 +187,14 @@ def add_materials(window):
 
 
 COLUMNS = {"MATERIALS": (add_materials, "MM_BAR"), "ASSETS": (add_assets, "AB_BAR")}
-CORE = ("DOC_TABS", "PALETTE", "MODES", "OBJECTS", "ATTRIBUTES", "OM_BAR", "OM_HEAD")
+CORE = ("DOC_TABS", "PALETTE", "OBJECTS", "ATTRIBUTES", "OM_BAR", "OM_HEAD")
 
 
 def intact(screen):
     """The Standard layout is all there (each strip once, a viewport and the timeline): nothing to rebuild."""
     if any(len(roles.areas(screen, r)) != 1 for r in CORE):
+        return False
+    if roles.areas(screen, "MODES"):                       # a layout from before 0.1.22: its tools column was an area
         return False
     if not any(a.type == "VIEW_3D" for a in screen.areas) or not any(a.type == "DOPESHEET_EDITOR" for a in screen.areas):
         return False
@@ -240,8 +245,6 @@ def steps(window, materials=False, assets=False):
     yield from make_role(window, managers, "OBJECTS")
     palette = yield from split(window, biggest_view(screen), "HORIZONTAL", px(PALETTE_PX) + EDGE, "TOP")
     yield from make_role(window, palette, "PALETTE")
-    modes = yield from split(window, biggest_view(screen), "VERTICAL", px(MODES_PX) + EDGE, "LEFT")
-    yield from make_role(window, modes, "MODES")
     # the create column is drawn in the viewport's own toolbar strip (bars.BLENDA4D_PT_view_tools), moved to the
     # viewport's right edge: the strip keeps its width when the window is resized; a separate area would stretch
     timeline = yield from split(window, biggest_view(screen), "HORIZONTAL", px(TIMELINE_PX) + hdr + EDGE, "BOTTOM")
@@ -318,6 +321,18 @@ def toggle(window, name, on):
     run_steps(column_steps(window, name, on))
 
 
+def drop_modes(window, materials, assets):
+    """A layout saved before 0.1.22 has the tools column as an area: close just that, keep everything else."""
+    for a in roles.areas(window.screen, "MODES"):
+        with _ov(window, a):
+            bpy.ops.screen.area_close()
+        yield
+    if not intact(window.screen):
+        yield from steps(window, materials=materials, assets=assets)
+    for a in window.screen.areas:
+        a.tag_redraw()
+
+
 def rebuild(window, done=None, force=False):
     """Build the Standard layout; a layout that is already all there is only tidied (no area moves)."""
     if not force and intact(window.screen):
@@ -327,5 +342,8 @@ def rebuild(window, done=None, force=False):
         if done:
             done()
         return
-    run_steps(steps(window, materials=bool(roles.areas(window.screen, "MATERIALS")),
-                    assets=bool(roles.areas(window.screen, "ASSETS"))), done)
+    opts = dict(materials=bool(roles.areas(window.screen, "MATERIALS")), assets=bool(roles.areas(window.screen, "ASSETS")))
+    if not force and roles.areas(window.screen, "MODES"):
+        run_steps(drop_modes(window, **opts), done)
+    else:
+        run_steps(steps(window, **opts), done)

@@ -690,10 +690,14 @@ def register():
     _hide_blender_tools()
     from . import strip                                  # the create column, drawn into the viewport's toolbar strip
     strip.register()
+    from . import toolcol
+    toolcol.register()
 
 
 def unregister():
     from . import strip
+    from . import toolcol
+    toolcol.unregister()
     strip.unregister()
     _show_blender_tools()
     restore()
