@@ -219,9 +219,7 @@ class BLENDA4D_PT_nodewin(bpy.types.Panel):
             node = None
         head = lay.row()
         head.label(text=f"Material [{mat.name}]", icon_value=lay.icon(mat))
-        ball = lay.split(factor=0.5)                      # the ball at the top left, half the panel wide
-        ball.template_preview(mat, show_buttons=False)
-        ball.column()
+        lay.template_preview(mat, show_buttons=False)     # live ball on the checker floor (full width: never cropped)
         from . import matpage
         if node is None:
             matpage.draw_material(lay, context, mat, head=False)
@@ -238,6 +236,62 @@ class BLENDA4D_PT_nodewin(bpy.types.Panel):
 
 
 classes = (BLENDA4D_MT_nodewin_edit, BLENDA4D_PT_nodewin)
+
+
+# --- one card per node: a frame behind each preview and its node --------------------------------------------------
+# Blender draws a node's preview above the node, on its own. Behind both (BACKDROP, under the nodes) Blenda paints a
+# frame in the node's colour from the node's top edge up around the preview, so preview and node read as one card.
+PREVIEW_PAD = 6           # px around the preview (at UI scale 1)
+_frame_handle = []
+
+
+def _ui():
+    sysp = bpy.context.preferences.system
+    return max(0.5, sysp.ui_scale * sysp.pixel_size)
+
+
+def _node_rect(node, s):
+    loc = getattr(node, "location_absolute", None) or node.location
+    x0, y1 = loc.x * s, loc.y * s
+    return x0, y1 - node.dimensions.y, x0 + node.dimensions.x, y1
+
+
+def _draw_frames():
+    ctx = bpy.context
+    if material_of(ctx.screen) is None:
+        return
+    sp, reg = ctx.space_data, ctx.region
+    if sp is None or reg is None or not sp.overlay.show_previews or not sp.overlay.show_overlays:
+        return
+    tree = sp.edit_tree
+    if tree is None:
+        return
+    from .strip import _round_rect
+    th = ctx.preferences.themes[0].node_editor
+    body = tuple(th.node_backdrop)
+
+    def rgba(c):
+        return (*c[:3], 1.0)
+    s = _ui()
+    v2d = reg.view2d
+    active = tree.nodes.active
+    for node in tree.nodes:
+        if not getattr(node, "show_preview", False) or node.hide or node.type in {"FRAME", "REROUTE"}:
+            continue
+        x0, _y0, x1, y1 = _node_rect(node, s)
+        top = y1 + (x1 - x0) - 4 * s                     # the preview is about as tall as the node is wide
+        ax, ay = v2d.view_to_region(x0, y1 - 12 * s, clip=False)
+        bx, by = v2d.view_to_region(x1, top, clip=False)
+        zoom = (bx - ax) / max(1.0, (x1 - x0))
+        r = 4 * s * zoom
+        if node.select:
+            edge = rgba(th.node_active if node == active else th.node_selected)
+            line = max(1.0, 1.5 * zoom * s)
+        else:
+            edge = rgba(th.wire)                          # unselected nodes have a dark edge
+            line = max(1.0, 0.75 * zoom * s)
+        _round_rect(ax - line, ay, bx + line, by + line, r + line, edge)
+        _round_rect(ax, ay, bx, by, r, body)
 
 
 # --- previews on nodes: Blender's experimental "Shader Node Previews" setting, on while Blenda mode is on -----------
@@ -277,9 +331,12 @@ def register():
         bpy.utils.register_class(c)
     _own_header[0] = own_draw.swap("NODE_HT_header", _header)
     _previews_setting(True)
+    _frame_handle.append(bpy.types.SpaceNodeEditor.draw_handler_add(_draw_frames, (), "WINDOW", "BACKDROP"))
 
 
 def unregister():
+    while _frame_handle:
+        bpy.types.SpaceNodeEditor.draw_handler_remove(_frame_handle.pop(), "WINDOW")
     _previews_setting(False)
     if _own_header[0] is not None:
         own_draw.restore("NODE_HT_header", _header)
