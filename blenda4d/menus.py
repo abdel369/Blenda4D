@@ -41,8 +41,11 @@ def draw_items(layout, items):
             continue
         if isinstance(icon, str) and icon.startswith("ops."):     # one of Blender's tool icons, as in the tool column
             from . import bars, icons as _icons
-            iv = _icons.tool_shape(icon) or bars.tool_icon(icon)
-            o = layout.operator(op, text=label, icon_value=iv) if iv else layout.operator(op, text=label)
+            from . import modeltools
+            iv = _icons.tool_shape(icon) or (modeltools.tool_icon(icon) if op == "blenda4d.model_tool" else 0) or bars.tool_icon(icon)
+            # these icons are larger than a menu's: Blender makes room for them on its own tool buttons only
+            text = label if op == "wm.tool_set_by_id" or not iv else "   " + label
+            o = layout.operator(op, text=text, icon_value=iv) if iv else layout.operator(op, text=label)
         else:
             o = layout.operator(op, text=label, icon=icon)
         for k, v in props.items():
@@ -75,6 +78,11 @@ class BLENDA4D_OT_noop(bpy.types.Operator):
 
     def execute(self, context):
         return {"CANCELLED"}
+
+
+def _m(label, which, icon):
+    """A modeling tool or command (modeltools.py)."""
+    return item(label, "blenda4d.model_tool", icon, which=which)
 
 
 MAIN = {
@@ -124,7 +132,15 @@ MAIN = {
              item("Polygon Pen", "wm.tool_set_by_id", "ops.mesh.polybuild_hover", name="builtin.poly_build"),
              item("Bridge", "mesh.bridge_edge_loops", "LINKED"),
              item("Move Along Normal", "blenda4d.move_along_normal", "ops.transform.shrink_fatten"), SEP,
-             item("Edge to Spline", "blenda4d.edge_to_spline", "CURVE_DATA")],
+             item("Edge to Spline", "blenda4d.edge_to_spline", "CURVE_DATA"), SEP,
+             _m("Plane Cut", "builtin.bisect", "ops.mesh.bisect"), _m("Offset Edge Loop Cut", "builtin.offset_edge_loop_cut", "ops.mesh.offset_edge_loops_slide"),
+             _m("Spin", "builtin.spin", "ops.mesh.spin"), _m("Smooth", "builtin.smooth", "ops.mesh.vertices_smooth"),
+             _m("Edge Slide", "builtin.edge_slide", "ops.transform.edge_slide"), _m("Vertex Slide", "builtin.vertex_slide", "ops.transform.vert_slide"),
+             _m("Shear", "builtin.shear", "ops.transform.shear"), _m("To Sphere", "builtin.to_sphere", "ops.transform.tosphere"),
+             _m("Rip", "builtin.rip_region", "ops.mesh.rip"), SEP,
+             _m("Close Polygon Hole", "mesh.edge_face_add", "SNAP_FACE"), _m("Weld", "mesh.merge:CENTER", "AUTOMERGE_ON"),
+             _m("Optimize", "mesh.remove_doubles", "AUTOMERGE_OFF"), _m("Subdivide", "mesh.subdivide", "MOD_SUBSURF"),
+             _m("Triangulate", "mesh.quads_convert_to_tris", "MOD_TRIANGULATE"), _m("Untriangulate", "mesh.tris_convert_to_quads", "MESH_GRID")],
     "Volume": [item("Volume Builder"), item("Volume Mesher")],
     "MoClone": [item("Cloner"), item("Matrix"), item("Fracture"), item("Voronoi Fracture"), SEP, item("Effectors"), item("Fields")],
     "Character": [item("Joint", "object.armature_add", "BONE_DATA")],

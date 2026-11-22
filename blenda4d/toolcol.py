@@ -19,6 +19,7 @@ from . import bars, icons, roles, strip, switch
 
 WIDTH = 70             # px at UI scale 1: the column, whatever the window size
 CELL = 48
+LEAST = 36             # the Modeling tab's many tools get no smaller than this, then the column scrolls
 TOP = 6
 GAP = 10
 ICON = 0.62            # the icon's share of the cell
@@ -47,13 +48,20 @@ def _icon_file(name):
 def _load_geom(name):
     if name in _geom:
         return _geom[name]
-    path, g = _icon_file(name), None
+    own = name.startswith("model:")                        # the Modeling tab's: Blender's icon in Blenda's accent colours
+    if own:
+        from . import modeltools
+        path, g = modeltools.blender_icon_file(name[6:]), None
+    else:
+        path, g = _icon_file(name), None
     if path:
         b = open(path, "rb").read()
         if b[:3] == b"VCO":
             w, h = b[4] or 256, b[5] or 256
             n = (len(b) - 8) // 18
             co, col = b[8:8 + n * 6], b[8 + n * 6:8 + n * 18]
+            if own:
+                col = modeltools.recolour(col)
             pos = [(co[i * 2] / w, co[i * 2 + 1] / h) for i in range(n * 3)]
             cols = [tuple(c / 255 for c in col[i * 4:i * 4 + 4]) for i in range(n * 3)]
             g = (pos, cols)
@@ -105,6 +113,12 @@ def _raster(name, px):
 def _draw_icon(name, x, y, size, alpha=1.0):
     if name == "magnifier":
         return _draw_magnifier(x, y, size, alpha)
+    if name.startswith("model:") and "." not in name:     # a command: a picture icon, as in the create column
+        from . import modeltools
+        path = modeltools.command_icon(name[6:])
+        if path:
+            strip._icon(path, x, y, size, alpha)
+        return None
     tex = _raster(name, max(8, int(round(size))))
     if tex is None:
         return
@@ -147,7 +161,11 @@ def _draw_magnifier(x, y, size, alpha=1.0):
 
 
 # --- the column ------------------------------------------------------------------------------------------------
-def _items():
+def _items(window=None):
+    from . import modeltools
+    window = window or bpy.context.window
+    if modeltools.active(window):
+        return modeltools.items(bpy.context, bars.active_tool(bpy.context))
     out = [{"tool": None, "icon": "magnifier", "label": "Zoom to Border"}]
     for t in bars.MODES_TOOLS:
         if t is None:
@@ -220,12 +238,15 @@ def _layout(window):
     cell, boxes = CELL * s, {}
     if not cols:
         return boxes
-    items = _items()
+    items = _items(window)
     tall = [c for c in cols if c[3] > 2 * cell]           # a bottom strip only carries the column's background
     if len(tall) != _state["hosts"]:
         _state.update(hosts=len(tall), scroll=0.0)
     for n, (a, r, width, top) in enumerate(tall):
         last = n == len(tall) - 1
+        if last and len(tall) == 1 and any(it and "entry" in it for it in items):      # many tools: smaller, not too much
+            fixed = sum(GAP * s for it in items if it is None) + 2 * TOP * s
+            cell = min(CELL * s, max(LEAST * s, (top - fixed) / max(1, sum(1 for it in items if it))))
         y = top - TOP * s
         if last:                                          # what does not fit any more scrolls here
             need = sum(cell if it else GAP * s for it in items) + 2 * TOP * s
@@ -245,6 +266,15 @@ def _layout(window):
             y -= cell
         boxes[a.as_pointer()] = here
     return boxes
+
+
+def _tri_fill(pts, color):
+    sh = gpu.shader.from_builtin("UNIFORM_COLOR")
+    gpu.state.blend_set("ALPHA")
+    sh.bind()
+    sh.uniform_float("color", color)
+    batch_for_shader(sh, "TRIS", {"pos": pts}).draw(sh)
+    gpu.state.blend_set("NONE")
 
 
 def _draw():
@@ -275,9 +305,20 @@ def _draw():
         elif it["label"] == _state["hover"]:
             strip._round_rect(x0, y0, x1, y1, strip.RADIUS * s, strip.HOVER)
         size = (x1 - x0) * ICON
-        _draw_icon(it["icon"], x0 + (x1 - x0 - size) / 2, y0 + (y1 - y0 - size) / 2, size)
+        _draw_icon(it["icon"], x0 + (x1 - x0 - size) / 2, y0 + (y1 - y0 - size) / 2, size, 0.35 if it.get("dim") else 1.0)
+        if len(it.get("members", ())) > 1:                # the corner mark: hold for more
+            m = 5 * s
+            _tri_fill([(x1 - m - 2, y0 + 2), (x1 - 2, y0 + 2), (x1 - 2, y0 + m + 2)], strip.MARK)
     if _state["scroll"] > 0:                              # scrolled cells do not show through above the column
         strip._rect(0, top, width, region.height, strip.BG)
+    if boxes and any("entry" in b[4] for b in boxes):      # more tools above or below: an arrow says so
+        mid, w = width / 2, 7 * s
+        if _state["scroll"] > 1:
+            strip._rect(0, top - 11 * s, width, top, strip.BG)
+            _tri_fill([(mid - w, top - 9 * s), (mid + w, top - 9 * s), (mid, top - 3 * s)], strip.MARK)
+        if _state["scroll"] < _state["max_scroll"] - 1:
+            strip._rect(0, 0, width, 11 * s, strip.BG)
+            _tri_fill([(mid - w, 9 * s), (mid + w, 9 * s), (mid, 3 * s)], strip.MARK)
 
 
 def _under(window, mx, my):
@@ -314,7 +355,7 @@ def _tip_set(col, box):
     if box is None:
         return
     r = col[1]
-    _tip.update(text=box[4]["label"], x=r.x + col[2], y=r.y + (box[1] + box[3]) / 2, t=time.time(), shown=False)
+    _tip.update(text=box[4].get("tip", box[4]["label"]), x=r.x + col[2], y=r.y + (box[1] + box[3]) / 2, t=time.time(), shown=False)
     if not bpy.app.timers.is_registered(_tip_tick):
         bpy.app.timers.register(_tip_tick, first_interval=strip.TIP_DELAY)
 
@@ -354,6 +395,12 @@ def _draw_tip():
     gpu.state.blend_set("NONE")
 
 
+def _view_for(window):
+    """The viewport a tool is picked for: the biggest one."""
+    view = max((a for a in window.screen.areas if a.type == "VIEW_3D"), key=lambda a: a.width * a.height, default=None)
+    return (view, _window_region(view)) if view is not None else (None, None)
+
+
 # --- input ----------------------------------------------------------------------------------------------------
 class BLENDA4D_OT_toolcol(bpy.types.Operator):
     bl_idname = "blenda4d.toolcol"
@@ -368,6 +415,31 @@ class BLENDA4D_OT_toolcol(bpy.types.Operator):
         _state["running"] = True
         context.window_manager.modal_handler_add(self)
         self._hover(event)
+        return {"RUNNING_MODAL"}
+
+    _down = None             # the button held down, since when
+    _timer = None
+
+    def _release(self, context):
+        self._down = None
+        if self._timer is not None:
+            context.window_manager.event_timer_remove(self._timer)
+            self._timer = None
+
+    def _use(self, context, it):
+        """The Modeling tab's tools and commands act in the viewport."""
+        from . import modeltools
+        area, region = _view_for(self._window)
+        if area is None:
+            return {"RUNNING_MODAL"}
+        with context.temp_override(window=self._window, area=area, region=region):
+            done = modeltools.use(bpy.context, it["entry"])
+        if done and it["entry"][0] == "command":
+            bpy.ops.ed.undo_push(message=it["entry"][3])
+        _redraw(self._window)
+        if not done:                                       # a message is up: the pointer is its
+            self._end()
+            return {"FINISHED"}
         return {"RUNNING_MODAL"}
 
     def _hover(self, event):
@@ -387,6 +459,7 @@ class BLENDA4D_OT_toolcol(bpy.types.Operator):
     def modal(self, context, event):
         col, box = self._hover(event)
         if col is None or event.type == "WINDOW_DEACTIVATE":
+            self._release(context)
             self._end()
             return {"CANCELLED", "PASS_THROUGH"}
         if event.type in {"MOUSEMOVE", "INBETWEEN_MOUSEMOVE", "RIGHTMOUSE", "MIDDLEMOUSE"}:
@@ -399,10 +472,33 @@ class BLENDA4D_OT_toolcol(bpy.types.Operator):
             _state["scroll"] = min(max(_state["scroll"] + step, 0.0), _state["max_scroll"])
             _redraw(self._window)
             return {"RUNNING_MODAL"}
+        if event.type == "TIMER" and self._timer is not None and self._down and time.time() - self._down[1] > strip.HOLD_SECONDS:
+            members = self._down[0]["members"]
+            self._release(context)
+            self._end()
+            from . import modeltools
+            modeltools.open_menu(members)
+            return {"FINISHED"}
+        if event.type == "LEFTMOUSE" and event.value == "RELEASE" and self._down:
+            it = self._down[0]
+            self._release(context)
+            return self._use(context, it)
         if event.type == "LEFTMOUSE":
             if event.value not in {"PRESS", "DOUBLE_CLICK"} or box is None:
                 return {"RUNNING_MODAL"}
             it = box[4]
+            if "entry" in it:
+                _tip.clear()
+                s = _scale()
+                x, y = event.mouse_x - col[1].x, event.mouse_y - col[1].y
+                if len(it["members"]) > 1 and x >= box[2] - strip.CORNER * s and y <= box[1] + strip.CORNER * s:
+                    self._end()
+                    from . import modeltools
+                    modeltools.open_menu(it["members"])
+                    return {"FINISHED"}
+                self._down = (it, time.time())            # used when the button is let go: nothing opens under a held press
+                self._timer = None if len(it["members"]) < 2 else context.window_manager.event_timer_add(0.03, window=self._window)
+                return {"RUNNING_MODAL"}
             view = max((a for a in self._window.screen.areas if a.type == "VIEW_3D"),
                        key=lambda a: (a == col[0], a.width * a.height))
             with context.temp_override(window=self._window, area=view, region=_window_region(view)):
@@ -417,6 +513,7 @@ class BLENDA4D_OT_toolcol(bpy.types.Operator):
         return {"PASS_THROUGH"}
 
     def cancel(self, context):
+        self._release(context)
         _state.update(running=False, hover=None)
 
 

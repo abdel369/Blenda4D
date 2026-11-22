@@ -42,6 +42,7 @@ COLOURS = {
     "moclone": "#ee9cc8", "fields": "#ee9cc8",                            # cloning and fields: pink
     "null": "#c8cfe8", "environment": "#c8cfe8", "camera": "#c8cfe8", "lights": "#c8cfe8",   # scene: pale lavender
     "spline_tools": "#f5b355",                                            # tool column accents: orange
+    "model": "#f5b355",                                                   # the Modeling tab's commands: orange
     "mesh_tools": "#b3b3b3",                                              # tool column accents: grey
 }
 AXIS = {"x": "#e0605f", "y": "#7fcb6f", "z": "#5f88d8"}
@@ -57,6 +58,9 @@ TOOLS = {"ops.curve.pen": "spline_tools", "ops.curve.draw": "spline_tools", "ops
          "ops.mesh.extrude_region_move": "mesh_tools", "ops.mesh.inset": "mesh_tools", "ops.mesh.bevel": "mesh_tools",
          "ops.mesh.polybuild_hover": "mesh_tools", "ops.mesh.loopcut_slide": "mesh_tools"}
 TOOL_ACCENT = (117, 255, 175)      # the accent colour Blender's tool icons use
+
+# the Modeling tab's commands (modeltools.py): Blender icons in the "model" colour
+MODEL = ("snap_face", "linked", "automerge_on", "automerge_off", "fullscreen_exit", "mod_subsurf", "mod_decim", "mod_triangulate", "mesh_grid")
 
 FALLBACK = {   # used only when no Blender is found
     "null": ["EMPTY_AXIS", "OUTLINER_OB_EMPTY"], "splines": ["CURVE_BEZCURVE", "CURVE_BEZCIRCLE"],
@@ -199,6 +203,7 @@ def main():
         print("no Blender answer; using the fallback table")
         uses = FALLBACK
     os.makedirs(OUT, exist_ok=True)
+    uses = dict(uses, model=list(MODEL))
     made, missing = set(), []
     for group, icons in sorted(uses.items()):
         colour = COLOURS.get(group)
