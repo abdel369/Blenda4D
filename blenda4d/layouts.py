@@ -473,7 +473,7 @@ def _settled():
         if build.busy():
             return 0.5
         _last[0] = size
-        if roles.areas(window.screen, "MODES") and spec_of(window.screen)["editors"]:
+        if roles.areas(window.screen, "MODES"):
             build.run_steps(build.renew_steps(window))
     except ReferenceError:
         pass

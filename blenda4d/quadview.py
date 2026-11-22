@@ -178,9 +178,18 @@ def split_steps(window):
     _saved.pop("ALONE", None)
     _saved[alone] = state(view)
     # one create column for all four views, full height on the right (each view's own strip would repeat it)
+    # one tools column for all four too, full height on the left (in the views it would be cut in two), unless the
+    # Asset Browser or the open Timeline has it already
+    if not roles.areas(screen, "MODES") and not roles.areas(screen, "ASSETS"):
+        tools = yield from build.split(window, view, "VERTICAL", build.side_px(), "LEFT")
+        yield from build.make_role(window, tools, "MODES")
+        view = views(screen)[0]
     if not roles.areas(screen, "CREATE"):                 # a layout with editors under the viewport has it already
         create = yield from build.split(window, view, "VERTICAL", build.px(build.CREATE_PX) + build.EDGE, "RIGHT")
         yield from build.make_role(window, create, "CREATE")
+    view = views(screen)[0]
+    tabs = yield from build.split(window, view, "HORIZONTAL", build.px(build.VIEW_TABS_PX) + build.EDGE, "TOP")
+    yield from build.make_role(window, tabs, "VIEW_TABS")     # one row of View | Render Settings | Render Viewer
     view = views(screen)[0]
     left, right = yield from _split(window, view, "VERTICAL")
     tl, bl = yield from _split(window, left, "HORIZONTAL")
@@ -223,13 +232,25 @@ def expand_steps(window, keep):
         if not ok:
             print("Blenda 4D: four views: could not join two views; leaving them as they are")
             break
-    for c in [] if roles.areas(screen, "MODES") else roles.areas(screen, "CREATE"):   # the four views' create column goes; the strip comes back
+    for t in roles.areas(screen, "VIEW_TABS"):            # first: it is as wide as the view alone
+        if views(screen):
+            yield from _join(window, t, views(screen)[0])
+    own = [] if roles.areas(screen, "TL_EDIT") else roles.areas(screen, "CREATE") + roles.areas(screen, "MODES")
+    for c in own:                                         # the four views' two columns go: the viewport draws them again
         if views(screen):
             yield from _join(window, c, views(screen)[0])
     for a in views(screen):
         build.dress_view(a)
     for a in screen.areas:
         a.tag_redraw()
+
+
+def renew_steps(window):
+    """Four views again, with their columns at their own widths."""
+    vs = views(window.screen)
+    keep = next((a for a in vs if corner_of(a, window.screen) == "PERSP"), vs[0])
+    yield from expand_steps(window, keep)
+    yield from split_steps(window)
 
 
 class BLENDA4D_OT_quad_view(bpy.types.Operator):

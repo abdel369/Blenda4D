@@ -278,6 +278,13 @@ def view_header(self, context):
     row.operator("blenda4d.quad_view", text="", icon="FULLSCREEN_EXIT" if sum(a.type == "VIEW_3D" for a in context.screen.areas) > 1 else "FULLSCREEN_ENTER", emboss=False)
 
 
+def view_row(self, context):
+    """The viewport's first row: the tabs. Four views have one row of tabs above them all, and each its menu bar here."""
+    if roles.areas(context.screen, "VIEW_TABS"):
+        return view_header(self, context)
+    return view_tabs(self, context)
+
+
 def view_tabs(self, context):
     """The viewport's tab row: View | Render Settings | Render Viewer."""
     layout = self.layout
@@ -292,13 +299,16 @@ def view_tabs(self, context):
 def properties_header(self, context):
     """Render Settings shown in the viewport's place keeps the viewport's tab row in its header."""
     if roles.role(context.area) == "RENDER":
+        if roles.areas(context.screen, "VIEW_TABS"):      # four views: their one row of tabs is above all of them
+            self.layout.operator("blenda4d.title", text="Render Settings", depress=True).what = "Render Settings"
+            return None
         return view_tabs(self, context)
     return _saved["PROPERTIES_HT_header"](self, context)
 
 
 _saved = {}
 OVERRIDES = (("PROPERTIES_HT_header", "draw", properties_header), ("TOPBAR_HT_upper_bar", "draw_left", topbar_left), ("TOPBAR_HT_upper_bar", "draw_right", topbar_right),
-             ("VIEW3D_HT_header", "draw", view_tabs), ("VIEW3D_HT_tool_header", "draw", view_header))
+             ("VIEW3D_HT_header", "draw", view_row), ("VIEW3D_HT_tool_header", "draw", view_header))
 
 
 def override():
@@ -512,6 +522,14 @@ def _column(layout, scale=1.9):
     return col
 
 
+class BLENDA4D_PT_view_tabs(roles.RolePanel, bpy.types.Panel):
+    bl_label = "Views"
+    role = "VIEW_TABS"
+
+    def draw(self, context):
+        view_tabs(self, context)
+
+
 class BLENDA4D_PT_view_tools(bpy.types.Panel):
     """The create column inside the viewport's own toolbar strip, which Blender keeps at a fixed width when the
     window is resized or a neighbouring edge is dragged (a separate area would stretch). The strip sits on the
@@ -705,7 +723,7 @@ def draw_create(col, group_gap=0.8, strip=False):
 
 
 classes = (BLENDA4D_OT_set_mode, BLENDA4D_OT_shading, BLENDA4D_OT_overlay, BLENDA4D_OT_axis_lock, BLENDA4D_OT_toggle_column,
-           BLENDA4D_OT_create, *GROUP_MENUS, BLENDA4D_PT_doc_tabs, BLENDA4D_PT_palette, BLENDA4D_PT_palette_more, BLENDA4D_OT_palette_more)
+           BLENDA4D_OT_create, *GROUP_MENUS, BLENDA4D_PT_doc_tabs, BLENDA4D_PT_view_tabs, BLENDA4D_PT_palette, BLENDA4D_PT_palette_more, BLENDA4D_OT_palette_more)
 
 
 def register():

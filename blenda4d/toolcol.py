@@ -4,8 +4,8 @@
 An area of its own would shrink and grow with the window; what is drawn inside the viewport keeps its pixel size. No
 Blender region is taken for it: the sidebar stays free for other add-ons' panels. A POST_PIXEL handler paints the
 column under the viewport's header; while the pointer is over it a small modal operator takes hover, clicks and the
-wheel (so no tool, gizmo or brush acts underneath) and hands everything else on. Four views: the column runs down the
-left-hand views, the second one taking up where the first is full. Too tall for the viewport: it scrolls."""
+wheel (so no tool, gizmo or brush acts underneath) and hands everything else on. Four views, or the Timeline open: the
+column is an area of its own, full height beside them. Too tall: it scrolls."""
 import os
 import struct
 import time
@@ -177,7 +177,7 @@ def columns(window):
     left = min(a.x for a in views)
     out = []
     hosts = [a for a in areas if roles.role(a) in HOSTS and a.x < left]
-    own = [a for a in hosts if roles.role(a) == "MODES"]  # editors under the viewport: an area of its own, full height
+    own = [a for a in hosts if roles.role(a) == "MODES"]  # four views, or the Timeline open: an area of its own, full height
     hosts = own or hosts
     if not hosts:
         hosts = [a for a in views if a.x - left <= 4]
@@ -191,7 +191,7 @@ def columns(window):
                 top = min(top, h.y)
         if own:                                           # beside the viewport: level with its first row
             from . import build
-            top -= build.view_top(window)
+            top -= build.view_top(window, a)
         out.append((a, r, WIDTH * _scale(), top - r.y))
     return out
 

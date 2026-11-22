@@ -158,7 +158,7 @@ def _inset():
     if ctx.region is None or ctx.region.type != "WINDOW" or roles.role(ctx.area) != "CREATE":
         return 0
     from . import build
-    return build.view_top(ctx.window)
+    return build.view_top(ctx.window, ctx.area)
 
 
 def _shows(area):

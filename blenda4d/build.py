@@ -19,6 +19,7 @@ PALETTE_PX = 62
 TIMELINE_PX = 97              # three rows (timeline.py)
 TOOL_ZOOM = {"PALETTE": 7}   # zoom steps (as Ctrl+scroll): larger icons, boxes stay square
 CREATE_PX = 57                # as wide as the viewport's own strip: the column stays put when it becomes an area
+VIEW_TABS_PX = 30             # four views: their one row of tabs
 EDITORS = 0.44                # the share of the viewport's height the Timeline under it takes
 STRIP_ZOOM = 0               # the create column is drawn at its own size (strip.py): the strip needs no zoom
 MANAGERS_PX = 330
@@ -210,12 +211,13 @@ def side_px():
     return px(toolcol.WIDTH) + EDGE
 
 
-def view_top(window):
-    """Pixels of header over the viewport: the columns beside it start below them, as they do in the viewport."""
+def view_top(window, area):
+    """Pixels from this column's top down to the viewport's picture: it starts level with it, as inside the viewport."""
     view = max((a for a in window.screen.areas if a.type == "VIEW_3D"), key=lambda a: (a.y + a.height, a.width), default=None)
     if view is None:
         return 0
-    return sum(r.height for r in view.regions if r.type in {"HEADER", "TOOL_HEADER"} and r.height > 1 and r.alignment == "TOP")
+    rows = sum(r.height for r in view.regions if r.type in {"HEADER", "TOOL_HEADER"} and r.height > 1 and r.alignment == "TOP")
+    return max(0, area.y + area.height - (view.y + view.height) + rows)
 
 
 def intact(screen):
@@ -225,7 +227,11 @@ def intact(screen):
     if any(len(roles.areas(screen, r)) != 1 for r in CORE):
         return False
     stacked = bool(spec["editors"])
-    if len(roles.areas(screen, "MODES")) != stacked:       # without editors a layout from before 0.1.22 has one
+    four = sum(a.type == "VIEW_3D" for a in screen.areas) > 1
+    own = roles.areas(screen, "MODES")                     # the tools column's own area: with the Timeline or four views
+    if len(own) > 1 or (len(own) != stacked and not four):
+        return False
+    if len(roles.areas(screen, "VIEW_TABS")) > four:
         return False
     if any(len(roles.areas(screen, r)) != stacked for r in ("TL_BAR", "TL_EDIT")) or (stacked and len(roles.areas(screen, "CREATE")) != 1):
         return False
@@ -258,6 +264,8 @@ def add_stack(window, sizes, materials=False, assets=False):
     view = biggest_view(screen)
     dress_view(view)
     share = min(0.8, max(0.15, sizes.get("editors", EDITORS)))
+    if "editors" not in sizes:                             # a short window: still a few rows of tracks
+        share = max(share, min(0.6, px(220) / max(1, view.height)))
     low = yield from split(window, view, "HORIZONTAL", round(view.height * share), "BOTTOM")
     yield from make_role(window, low, "TL_EDIT")
     from . import timeline_edit
@@ -310,14 +318,27 @@ def renew_steps(window):
     screen = window.screen
     spec = layouts.spec_of(screen)
     on = [n for n in COLUMNS if roles.areas(screen, n)]
-    if len(quadview.views(screen)) > 1:
-        return                                             # four views are left as they are
+    four = len(quadview.views(screen)) > 1
+    if four and not spec["editors"]:
+        yield from quadview.renew_steps(window)
+        return
+    if four:
+        yield from quadview.expand_steps(window, _persp(screen))
     yield from remove_stack(window)
     yield from add_stack(window, spec["sizes"], "MATERIALS" in on, "ASSETS" in on)
     if not intact(screen):
         yield from steps(window, materials="MATERIALS" in on, assets="ASSETS" in on)
+    if four:
+        yield from quadview.split_steps(window)
     for a in screen.areas:
         a.tag_redraw()
+
+
+def _persp(screen):
+    """The Perspective one of the four views."""
+    from . import quadview
+    vs = quadview.views(screen)
+    return next((a for a in vs if quadview.corner_of(a, screen) == "PERSP"), vs[0])
 
 
 def dock_steps(window, on):
@@ -330,8 +351,7 @@ def dock_steps(window, on):
     yield
     four = len(quadview.views(screen)) > 1
     if four:
-        keep = next((a for a in quadview.views(screen) if quadview.corner_of(a, screen) == "PERSP"), quadview.views(screen)[0])
-        yield from quadview.expand_steps(window, keep)
+        yield from quadview.expand_steps(window, _persp(screen))
     ws[layouts.DOCK] = bool(on)
     want = layouts.spec_of(screen)["timeline"]
     if on:
@@ -380,8 +400,7 @@ def switch_steps(window, name):
     layouts.set_current(ws, name)
     views = quadview.views(screen)
     if whole and len(views) > 1:                           # four views: back to the Perspective one
-        keep = next((a for a in views if quadview.corner_of(a, screen) == "PERSP"), views[0])
-        yield from quadview.expand_steps(window, keep)
+        yield from quadview.expand_steps(window, _persp(screen))
     if whole:
         moved = (old["timeline"], old["editors"]) != (new["timeline"], new["editors"]) or (bool(new["editors"]) and (
             old["sizes"] != new["sizes"] or any(bool(roles.areas(screen, n)) != new[n.lower()] for n in COLUMNS)))
@@ -413,11 +432,12 @@ def column_steps(window, name, on):
     from . import layouts, quadview
     add = COLUMNS[name][0]
     spec = layouts.spec_of(screen)
+    four = len(quadview.views(screen)) > 1
+    if four:                                               # beside all four views, not inside one of them
+        yield from quadview.expand_steps(window, _persp(screen))
     if name == "MATERIALS" and spec["editors"] and roles.areas(screen, "MODES"):  # beside the editors too: they are put in again after it
         want = {n: bool(roles.areas(screen, n)) for n in COLUMNS}
         want[name] = on
-        if len(quadview.views(screen)) > 1:
-            yield from quadview.expand_steps(window, quadview.views(screen)[0])
         yield from remove_stack(window)
         yield from add_stack(window, spec["sizes"], want["MATERIALS"], want["ASSETS"])
     elif on:
@@ -427,6 +447,8 @@ def column_steps(window, name, on):
     if not intact(screen):                                 # the change did not land as planned: build it all
         yield from steps(window, materials=bool(roles.areas(screen, "MATERIALS")) if name != "MATERIALS" else on,
                          assets=bool(roles.areas(screen, "ASSETS")) if name != "ASSETS" else on)
+    if four:
+        yield from quadview.split_steps(window)
     for a in screen.areas:
         a.tag_redraw()
 
@@ -513,7 +535,7 @@ def dress_view(area):
     # four views, or editors under the viewport: the create column is one separate column beside them, not a strip
     apart = sum(a.type == "VIEW_3D" for a in area.id_data.areas) > 1 or bool(roles.areas(area.id_data, "CREATE"))
     for attr, want in (("show_region_ui", False), ("show_region_toolbar", not apart), ("show_region_header", True),
-                       ("show_region_tool_header", True), ("show_region_hud", False)):
+                       ("show_region_tool_header", not roles.areas(area.id_data, "VIEW_TABS")), ("show_region_hud", False)):
         if getattr(v3d, attr) != want:
             setattr(v3d, attr, want)
     v3d.show_gizmo_navigate = False
@@ -557,7 +579,11 @@ def rebuild(window, done=None, force=False, spec=None):
         for a in window.screen.areas:
             if a.type == "VIEW_3D":
                 dress_view(a)
-        if done:
+        four = sum(a.type == "VIEW_3D" for a in window.screen.areas) > 1
+        if four and not roles.areas(window.screen, "VIEW_TABS"):
+            from . import quadview                         # four views saved by 0.1.22: a tab row in each, the column cut in two
+            run_steps(quadview.renew_steps(window), done)
+        elif done:
             done()
         return
     opts = dict(materials=bool(roles.areas(window.screen, "MATERIALS")), assets=bool(roles.areas(window.screen, "ASSETS")))
