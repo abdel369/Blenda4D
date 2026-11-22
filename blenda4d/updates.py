@@ -11,7 +11,7 @@ import os
 
 import bpy
 
-_state = {"latest": None, "synced": False, "tries": 0, "mtime": 0.0}
+_state = {"latest": None, "synced": False, "tries": 0, "mtime": 0.0, "done": False}
 
 
 def _repo():
@@ -81,6 +81,7 @@ def _check():
     """Once per session: refresh the update list (Blender's own job, in the background), then read what it found."""
     index, repo = _repo()
     if repo is None:
+        _state["done"] = True
         return None
     if not _state["synced"]:
         _state["synced"] = True
@@ -105,6 +106,7 @@ def _check():
         fresh = False
     _state["tries"] += 1
     if fresh or _state["tries"] > 30 or not bpy.app.online_access:
+        _state["done"] = True
         return None
     return 2.0                                          # the refresh runs in the background: look again shortly
 
@@ -134,6 +136,64 @@ class BLENDA4D_OT_update(bpy.types.Operator):
         return {"FINISHED"}
 
 
+def start_check():
+    """Look at the update list again now (it is otherwise looked at once, when Blender starts)."""
+    if bpy.app.timers.is_registered(_check):
+        bpy.app.timers.unregister(_check)
+    _state.update(synced=False, tries=0, done=False)
+    bpy.app.timers.register(_check, first_interval=0.1)
+
+
+class BLENDA4D_OT_check_updates(bpy.types.Operator):
+    bl_idname = "blenda4d.check_updates"
+    bl_label = "Check for Blenda 4D Updates"
+    bl_description = "Look on the Blenda 4D update list for a newer version now"
+
+    def invoke(self, context, event):
+        index, repo = _repo()
+        if repo is None:
+            self.report({"WARNING"}, "Blenda 4D was installed from a file: get new versions at blenda4d.com")
+            return {"CANCELLED"}
+        if not bpy.app.online_access:
+            self.report({"WARNING"}, "Online access is off: turn on Preferences > System > Network > Allow Online Access")
+            return {"CANCELLED"}
+        start_check()
+        self._timer = context.window_manager.event_timer_add(0.5, window=context.window)
+        context.window_manager.modal_handler_add(self)
+        self.report({"INFO"}, "Checking for Blenda 4D updates...")
+        return {"RUNNING_MODAL"}
+
+    def execute(self, context):
+        return self.invoke(context, None)
+
+    def modal(self, context, event):
+        if event.type != "TIMER" or not _state["done"]:
+            return {"PASS_THROUGH"}
+        context.window_manager.event_timer_remove(self._timer)
+        new = available()
+        if new:
+            self.report({"INFO"}, f"Blenda 4D {new} is available: use Update to {new} (top right, or in Blenda 4D's add-on settings)")
+        else:
+            self.report({"INFO"}, f"Blenda 4D is up to date ({installed()})")
+        for w in context.window_manager.windows:
+            for a in w.screen.areas:
+                a.tag_redraw()
+        return {"FINISHED"}
+
+
+def draw_prefs(layout):
+    """Blenda 4D's add-on settings: the version, Check for Updates, and Update when there is a newer one."""
+    row = layout.row(align=True)
+    row.label(text=f"Installed: {installed()}", icon="INFO")
+    if not hasattr(bpy.types, "BLENDA4D_OT_check_updates"):     # Blenda mode is off: its commands are not loaded
+        return
+    new = available()
+    if new:                                               # found one: the button installs it
+        row.operator("blenda4d.update", text=f"Update to {new}", icon="IMPORT")
+    else:
+        row.operator("blenda4d.check_updates", text="Check for Updates", icon="FILE_REFRESH")
+
+
 def _install(index, pkg_id):
     wm = bpy.context.window_manager
     window = wm.windows[0] if wm and wm.windows else None
@@ -150,6 +210,7 @@ def _install(index, pkg_id):
 
 def register():
     bpy.utils.register_class(BLENDA4D_OT_update)
+    bpy.utils.register_class(BLENDA4D_OT_check_updates)
     _state.update(synced=False, tries=0)
     if not bpy.app.background and not bpy.app.timers.is_registered(_check):
         bpy.app.timers.register(_check, first_interval=3.0)
@@ -158,4 +219,5 @@ def register():
 def unregister():
     if bpy.app.timers.is_registered(_check):
         bpy.app.timers.unregister(_check)
+    bpy.utils.unregister_class(BLENDA4D_OT_check_updates)
     bpy.utils.unregister_class(BLENDA4D_OT_update)

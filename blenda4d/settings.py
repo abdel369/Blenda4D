@@ -11,6 +11,8 @@ class BLENDA4D_Prefs(bpy.types.AddonPreferences):
 
     def draw(self, context):
         self.layout.prop(self, "mode")
+        from . import updates
+        updates.draw_prefs(self.layout)
 
 
 def get():

@@ -28,6 +28,12 @@ def draw_items(layout, items):
             layout.menu(it[2], text=it[1], icon=it[3])
             continue
         label, op, props, icon = it
+        if op == "blenda4d.check_updates":                 # found a newer version: the item installs it
+            from . import updates
+            new = updates.available()
+            if new:
+                layout.operator("blenda4d.update", text=f"Update Blenda 4D to {new}", icon="IMPORT")
+                continue
         if op is None:
             col = layout.column()
             col.enabled = False
@@ -129,7 +135,8 @@ MAIN = {
                item("Render Animation", "blenda4d.render", "RENDER_ANIMATION", animation=True), SEP,
                item("Render Viewer", "render.view_show", "IMAGE"), item("Render Settings...", "blenda4d.render_settings", "SCENE"), SEP],
     "Add-ons": [item("Get Extensions...", "screen.userpref_show", "PLUGIN", section="EXTENSIONS"),
-                item("Add-on Preferences...", "screen.userpref_show", "PREFERENCES", section="ADDONS"), SEP,
+                item("Add-on Preferences...", "screen.userpref_show", "PREFERENCES", section="ADDONS"),
+                item("Check for Blenda 4D Updates...", "blenda4d.check_updates", "FILE_REFRESH"), SEP,
                 item("Add Menu Items...", "blenda4d.addons_menu", "ADD", menu="BLENDA4D_MT_addons_add"),
                 item("Object Menu Items...", "blenda4d.addons_menu", "OBJECT_DATA", menu="BLENDA4D_MT_addons_object"),
                 item("Add-on Panels", "blenda4d.addon_panels", "MENU_PANEL"),
