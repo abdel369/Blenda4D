@@ -247,7 +247,8 @@ def topbar_left(self, context):
     row.operator("ed.undo", text="", icon="LOOP_BACK", emboss=False)
     row.operator("ed.redo", text="", icon="LOOP_FORWARDS", emboss=False)
     layout.separator(factor=0.5)
-    menus.menu_bar(layout, menus.MAIN_CLASSES)
+    u = 20 * context.preferences.system.ui_scale       # the logo, undo, redo and the gaps beside them: 5 units
+    menus.menu_bar(layout, menus.MAIN_CLASSES, avail=max(u, context.region.width - 5 * u))   # never cut mid-word
 
 
 def topbar_right(self, context):
@@ -267,7 +268,8 @@ def topbar_right(self, context):
 def view_header(self, context):
     layout = self.layout
     layout.label(text="", icon="COLLAPSEMENU")
-    menus.menu_bar(layout, menus.VIEW_CLASSES)
+    u = 20 * context.preferences.system.ui_scale       # the display and navigation icons on the right: 10 units
+    menus.menu_bar(layout, menus.VIEW_CLASSES, avail=max(u, context.region.width - 11.5 * u))
     layout.separator_spacer()
     sh = context.space_data.shading
     row = layout.row(align=True)
@@ -381,55 +383,134 @@ def _palette_button(row, op, icon=None, icon_value=0, depress=False, **props):
     return o
 
 
+BUTTON = 24.0                # a command bar button's width in layout pixels (Blender's 20 x the bar's 1.2 scale)
+DROPDOWN = 1.6               # the axis-space dropdown's width in buttons
+PANEL_MARGIN = 10.0          # Blender's inset at each side of a panel
+
+
+def palette_groups(context):
+    """The command bar, left to right: groups of (width in buttons, draw(row)). The last group sits at the right."""
+    screen = context.window.screen
+    mode = context.mode
+    sel = context.tool_settings.mesh_select_mode if mode == "EDIT_MESH" else (False, False, False)
+    tool = active_tool(context)
+    locks = context.window_manager.b4d_axis
+    # a picture icon, which fits its button exactly (Blender's large tool icon spilled past the highlight here)
+    sel_iv = icons.icon("ops.generic.select_box", "palette") or tool_icon("ops.generic.select_box")
+
+    def axis(i, letter):
+        def draw(g):
+            iv = icons.icon("axis_" + letter.lower(), "axis")    # the letter with its axis colour under it
+            g.operator("blenda4d.axis_lock", text="" if iv else letter, depress=locks[i], **({"icon_value": iv} if iv else {})).axis = i
+        return draw
+    out = [
+        [(1, lambda g: _palette_button(g, "blenda4d.toggle_column", "ASSET_MANAGER", depress=bool(roles.areas(screen, "ASSETS")), name="ASSETS"))],
+        [(1, lambda g: _palette_button(g, "wm.tool_set_by_id", icon_value=sel_iv, depress=tool.startswith("builtin.select"), name="builtin.select_box"))],
+        [(1, axis(i, c)) for i, c in enumerate("XYZ")] +
+        [(DROPDOWN, lambda g: g.prop(context.scene.transform_orientation_slots[0], "type", text="", icon_only=True))],
+        # left to right: Points, Edges, Polygons, Model (Joseph, Nov 20: Model rightmost, then Polygon, Edge, Point)
+        [(1, lambda g: _palette_button(g, "blenda4d.set_mode", "VERTEXSEL", depress=sel[0], mode="POINTS")),
+         (1, lambda g: _palette_button(g, "blenda4d.set_mode", "EDGESEL", depress=sel[1], mode="EDGES")),
+         (1, lambda g: _palette_button(g, "blenda4d.set_mode", "FACESEL", depress=sel[2], mode="POLYGONS")),
+         (1, lambda g: _palette_button(g, "blenda4d.set_mode", "OBJECT_DATAMODE", depress=(mode == "OBJECT"), mode="MODEL"))],
+    ]
+    from . import topbar
+    if topbar.registered():          # Axis, Snapping, Workplane, Soft Selection, Symmetry, Solo, Render (topbar.py)
+        out += topbar.groups(context)
+    out.append([(1, lambda g: _palette_button(g, "blenda4d.toggle_column", "MATERIAL", depress=bool(roles.areas(screen, "MATERIALS")), name="MATERIALS")),
+                (1, lambda g: _palette_button(g, "screen.userpref_show", "PREFERENCES"))])
+    return out
+
+
+def palette_fit(context, groups):
+    """(groups that fit, buttons left over): every button keeps its size. As the bar gets narrower the empty space goes
+    first, then whole buttons from the right end, which move into the > menu; none is ever squeezed or overlapped."""
+    from . import fitzoom
+    s = context.preferences.system.ui_scale
+    region = context.region
+    free = region.width / max(0.1, fitzoom.zoom_of(region)) / s - 2 * PANEL_MARGIN      # in layout pixels at scale 1
+    gap = PALETTE_GAP * 6.0
+
+    def total(gs):
+        return sum(w for g in gs for w, _d in g) * BUTTON + gap * max(0, len(gs) - 1)
+    if total(groups) <= free:
+        return groups, []
+    keep, used, rest = [], BUTTON + gap, []                # room for the > button
+    for n, g in enumerate(groups):
+        here = []
+        for w, draw in g:
+            need = w * BUTTON + (gap if n and not here else 0)
+            if not rest and used + need <= free:
+                here.append((w, draw))
+                used += need
+            else:
+                rest.append((w, draw))
+        if here:
+            keep.append(here)
+    return keep, rest
+
+
+class BLENDA4D_OT_palette_more(bpy.types.Operator):
+    bl_idname = "blenda4d.palette_more"
+    bl_label = "More"
+    bl_description = "The command bar buttons that do not fit in this window"
+    bl_options = {"INTERNAL"}
+
+    def invoke(self, context, event):
+        bpy.ops.wm.call_panel(name="BLENDA4D_PT_palette_more", keep_open=False)
+        return {"FINISHED"}
+
+
+class BLENDA4D_PT_palette_more(bpy.types.Panel):
+    bl_label = "More"
+    bl_description = "Command bar buttons that do not fit in this window"
+    bl_space_type = "TOPBAR"                                # only opened from the bar's > button
+    bl_region_type = "HEADER"
+    bl_options = {"INSTANCED"}
+
+    def draw(self, context):
+        area = next(iter(roles.areas(context.window.screen, "PALETTE")), None)
+        region = next((r for r in area.regions if r.type == "WINDOW"), None) if area else None
+        if region is None:
+            return
+        groups = palette_groups(context)
+        with context.temp_override(area=area, region=region):
+            rest = palette_fit(bpy.context, groups)[1]
+        grid = self.layout.grid_flow(row_major=True, columns=min(6, max(1, len(rest))), even_columns=True, align=True)
+        for _w, draw in rest:
+            draw(grid)
+
+
 class BLENDA4D_PT_palette(roles.RolePanel, bpy.types.Panel):
     bl_label = "Command Palette"
     role = "PALETTE"
 
     def draw(self, context):
-        layout = self.layout
-        whole = layout.row(align=False)
+        groups = palette_groups(context)
+        keep, rest = palette_fit(context, groups)
+        whole = self.layout.row(align=False)
         top = whole.row(align=True)                      # joined: only the separators below space the groups
         top.alignment = "LEFT"
         top.scale_y = 1.2
         top.scale_x = 1.2
-        screen = context.window.screen
-        g = top.row(align=True)
-        _palette_button(g, "blenda4d.toggle_column", "ASSET_MANAGER", depress=bool(roles.areas(screen, "ASSETS")), name="ASSETS")
-        top.separator(factor=PALETTE_GAP)
-        tool = active_tool(context)
-        g = top.row(align=True)
-        # a picture icon, which fits its button exactly (Blender's large tool icon spilled past the highlight here)
-        sel_iv = icons.icon("ops.generic.select_box", "palette") or tool_icon("ops.generic.select_box")
-        _palette_button(g, "wm.tool_set_by_id", icon_value=sel_iv, depress=tool.startswith("builtin.select"), name="builtin.select_box")
-        top.separator(factor=PALETTE_GAP)
-        g = top.row(align=True)
-        locks = context.window_manager.b4d_axis
-        for i, letter in enumerate(("X", "Y", "Z")):
-            b = g.row(align=True)
-            iv = icons.icon("axis_" + letter.lower(), "axis")        # the letter with its axis colour under it
-            o = b.operator("blenda4d.axis_lock", text="" if iv else letter, depress=locks[i], **({"icon_value": iv} if iv else {}))
-            o.axis = i
-        g.prop(context.scene.transform_orientation_slots[0], "type", text="", icon_only=True)
-        top.separator(factor=PALETTE_GAP)
-        g = top.row(align=True)
-        mode = context.mode
-        sel = context.tool_settings.mesh_select_mode if mode == "EDIT_MESH" else (False, False, False)
-        # left to right: Points, Edges, Polygons, Model (Joseph, Nov 20: Model rightmost, then Polygon, Edge, Point)
-        _palette_button(g, "blenda4d.set_mode", "VERTEXSEL", depress=sel[0], mode="POINTS")
-        _palette_button(g, "blenda4d.set_mode", "EDGESEL", depress=sel[1], mode="EDGES")
-        _palette_button(g, "blenda4d.set_mode", "FACESEL", depress=sel[2], mode="POLYGONS")
-        _palette_button(g, "blenda4d.set_mode", "OBJECT_DATAMODE", depress=(mode == "OBJECT"), mode="MODEL")
-        top.separator(factor=PALETTE_GAP)
-        from . import topbar
-        if topbar.registered():          # Axis, Snapping, Workplane, Soft Selection, Symmetry, Solo, Render (topbar.py)
-            topbar.draw(top, context)
-        end = whole.row(align=True)
-        end.alignment = "RIGHT"
-        end.scale_y = 1.2                                # the same size as the buttons on the left
-        end.scale_x = 1.2
-        g = end.row(align=True)
-        _palette_button(g, "blenda4d.toggle_column", "MATERIAL", depress=bool(roles.areas(screen, "MATERIALS")), name="MATERIALS")
-        _palette_button(g, "screen.userpref_show", "PREFERENCES")
+        left, right = (keep, []) if rest else (keep[:-1], keep[-1:])
+        for n, g in enumerate(left):
+            if n:
+                top.separator(factor=PALETTE_GAP)
+            row = top.row(align=True)
+            for _w, draw in g:
+                draw(row)
+        if rest:
+            top.separator(factor=PALETTE_GAP)
+            top.operator("blenda4d.palette_more", text="", icon="RIGHTARROW_THIN")
+        for g in right:
+            end = whole.row(align=True)
+            end.alignment = "RIGHT"
+            end.scale_y = 1.2                            # the same size as the buttons on the left
+            end.scale_x = 1.2
+            row = end.row(align=True)
+            for _w, draw in g:
+                draw(row)
 
 
 MODES_TOOLS = ("builtin.select_box", "builtin.move", "builtin.rotate", "builtin.scale", None, "builtin.extrude_region",
@@ -678,7 +759,7 @@ class BLENDA4D_PT_create(roles.RolePanel, bpy.types.Panel):
 
 
 classes = (BLENDA4D_OT_set_mode, BLENDA4D_OT_shading, BLENDA4D_OT_overlay, BLENDA4D_OT_axis_lock, BLENDA4D_OT_toggle_column,
-           BLENDA4D_OT_create, *GROUP_MENUS, BLENDA4D_PT_doc_tabs, BLENDA4D_PT_palette, BLENDA4D_PT_modes, BLENDA4D_PT_create)
+           BLENDA4D_OT_create, *GROUP_MENUS, BLENDA4D_PT_doc_tabs, BLENDA4D_PT_palette, BLENDA4D_PT_palette_more, BLENDA4D_OT_palette_more, BLENDA4D_PT_modes, BLENDA4D_PT_create)
 
 
 def register():
@@ -690,13 +771,15 @@ def register():
     _hide_blender_tools()
     from . import strip                                  # the create column, drawn into the viewport's toolbar strip
     strip.register()
-    from . import toolcol
+    from . import fitzoom, toolcol
     toolcol.register()
+    fitzoom.register()
 
 
 def unregister():
     from . import strip
-    from . import toolcol
+    from . import fitzoom, toolcol
+    fitzoom.unregister()
     toolcol.unregister()
     strip.unregister()
     _show_blender_tools()

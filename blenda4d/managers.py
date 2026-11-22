@@ -567,13 +567,20 @@ def _om_menu_share():
 def draw_om_head(layout, context):
     """The Object Manager's title, menus, search and tool row."""
     manager_title(layout, "Objects")
+    from . import build                                   # a short window: whole rows go, none is cut in half
+    room = context.area.height / max(1.0, build.px(build.OM_HEAD_PX)) if roles.role(context.area) == "OM_HEAD" else 1.0
+    if room < 0.55:
+        return
     share = _om_menu_share()
     sp = layout.split(factor=share, align=True)           # menus on the left, the search box at the right edge
     bar = sp.row(align=True)
     bar.label(text="", icon="COLLAPSEMENU")
     menus.menu_bar(bar, OM_MENUS, avail=menus.panel_width(share, _icon_px()))
     sp.prop(context.window_manager, "b4d_om_search", text="", icon="VIEWZOOM", placeholder="Search")
-    tools = layout.split(factor=0.2, align=True).row(align=True)   # the tool row: scroll to the active object, solo
+    if room < 0.8:
+        return
+    tools = layout.row(align=True)                        # the tool row: scroll to the active object, solo
+    tools.alignment = "LEFT"                              # its icons keep their size however narrow the panel is
     tools.operator("blenda4d.om_scroll_active", text="", icon="ZOOM_SELECTED", emboss=False)
     tools.operator("blenda4d.om_solo", text="", icon="SELECT_INTERSECT", emboss=False,
                    depress=_in_solo(context))
