@@ -210,6 +210,13 @@ class BLENDA4D_MT_view_view(bpy.types.Menu):
     def draw(self, context):
         layout = self.layout
         sp = _space(context)
+        from . import viewhistory
+        for op, text, icon, redo in (("blenda4d.view_undo", "Undo View", "LOOP_BACK", False),
+                                     ("blenda4d.view_redo", "Redo View", "LOOP_FORWARDS", True)):
+            row = layout.row()
+            row.enabled = viewhistory.available(context, redo)
+            row.operator(op, text=text, icon=icon)
+        layout.separator()
         _heading(layout, "Frame")
         layout.operator("view3d.view_all", text="Frame All", icon="ZOOM_ALL").center = False
         layout.operator("view3d.view_selected", text="Frame Selected", icon="ZOOM_SELECTED")

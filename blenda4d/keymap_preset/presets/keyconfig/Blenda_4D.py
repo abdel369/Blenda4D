@@ -65,6 +65,11 @@ KEYS = [
     ("3D View", "view3d.view_selected", {"type": "O", "value": "PRESS"}, None),
     ("3D View", "view3d.view_selected", {"type": "F", "value": "PRESS"}, None),
     ("3D View", "view3d.view_all", {"type": "H", "value": "PRESS"}, None),
+    # --- Undo View / Redo View: Ctrl+Shift+Z / Ctrl+Shift+Y over a viewport. On a Mac these are the real Ctrl key only
+    # (see NO_CMD): Cmd+Shift+Z stays redo. Elsewhere Ctrl+Shift+Z is redo too, so redo is also on Ctrl+Y everywhere.
+    ("3D View", "blenda4d.view_undo", {"type": "Z", "value": "PRESS", "ctrl": True, "shift": True, "repeat": True}, None),
+    ("3D View", "blenda4d.view_redo", {"type": "Y", "value": "PRESS", "ctrl": True, "shift": True, "repeat": True}, None),
+    ("Screen", "ed.redo", {"type": "Y", "value": "PRESS", "ctrl": True, "repeat": True}, None),
     # --- views: F1 perspective / orthographic, F2 top, F3 right, F4 front
     ("3D View", "view3d.view_persportho", {"type": "F1", "value": "PRESS"}, None),
     ("3D View", "view3d.view_axis", {"type": "F2", "value": "PRESS"}, [("type", "TOP")]),
@@ -114,6 +119,8 @@ REMOVE = [
     ("Frames", {"type": "SPACE", "value": "PRESS"}),
 ]
 REMOVE_MODAL = {"View3D Rotate Modal": ("AXIS_SNAP_ENABLE", "AXIS_SNAP_DISABLE")}
+
+NO_CMD = {"blenda4d.view_undo", "blenda4d.view_redo"}      # no Cmd version of these on a Mac
 
 MODIFIERS = ("shift", "ctrl", "alt", "oskey")
 
@@ -198,6 +205,8 @@ def load():
     if platform == "darwin":
         from bl_keymap_utils.platform_helpers import keyconfig_data_oskey_from_ctrl_for_macos
         data = keyconfig_data_oskey_from_ctrl_for_macos(data)
+        for _name, _args, content in data:
+            content["items"] = [it for it in content["items"] if not (it[0] in NO_CMD and it[1].get("oskey"))]
     keyconfig_init_from_data(kc, data)
 
 
