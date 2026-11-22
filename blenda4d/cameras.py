@@ -104,7 +104,7 @@ def page_composition(col, ob):
 PAGES = {"OBJECT": page_object, "PHYSICAL": page_physical, "DETAILS": page_details, "COMPOSITION": page_composition}
 
 
-# --- settings shown in the C4D-style units ---------------------------------------------------------------------------
+# --- settings shown in photographic units ---------------------------------------------------------------------------
 def _offset(axis):
     attr = "shift_" + axis
 

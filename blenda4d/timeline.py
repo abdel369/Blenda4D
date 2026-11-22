@@ -5,7 +5,7 @@
   2 The ruler. Its numbers scrub (Shift: from key to key). Under them, the selected objects' keys: drag a key to move
     it, drag over empty space for a range, drag the range to move its keys and its ends to scale them (Alt: about the
     middle). Ctrl kept down at the end of a drag leaves the original keys. Ctrl+click makes a key.
-  3 The scene's first and last frame, and the Power Slider between them: the preview range the ruler shows. Drag it or
+  3 The scene's first and last frame, and the slider between them: the preview range the ruler shows. Drag it or
     its ends (Alt: both); a double-click shows the whole scene, and the next one goes back.
 
 Rows 1 and 3 are Blender's own buttons and fields. Keys, playback and ranges are Blender's own too."""
