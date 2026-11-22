@@ -183,6 +183,17 @@ def dat_to_svg(path, accent):
     return "\n".join(parts)
 
 
+# Blenda's own drawings, in place of a Blender icon: the Sky is a dome (Blender's world icon is a globe)
+OWN = {"world__environment": (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><defs><linearGradient id="g" x1="0.2" y1="0" x2="0.9" y2="1">'
+    '<stop offset="0" stop-color="{c}" stop-opacity="0.55"/><stop offset="1" stop-color="{c}" stop-opacity="0.05"/></linearGradient>'
+    '</defs><g fill="none" stroke="{c}" stroke-linecap="round" stroke-linejoin="round">'
+    '<path d="M1.6 10.6 A6.4 6.6 0 0 1 14.4 10.6 A6.4 2.2 0 0 1 1.6 10.6 Z" fill="url(#g)" stroke="none"/>'
+    '<path d="M1.6 10.6 A6.4 6.6 0 0 1 14.4 10.6" stroke-width="1.15"/>'
+    '<path d="M1.6 10.6 A6.4 2.2 0 0 0 14.4 10.6" stroke-width="1.15"/>'
+    '<path d="M1.6 10.6 A6.4 2.2 0 0 1 14.4 10.6" stroke-width="0.6" stroke-opacity="0.55"/>'
+    '<path d="M8 4 C4.9 5.4 4.2 9 4.6 12.4 M8 4 C11.1 5.4 11.8 9 11.4 12.4" stroke-width="0.75" stroke-opacity="0.85"/>'
+    '</g></svg>')}
 LETTERS = {   # simple stroked capitals on a 16 x 16 grid, a coloured bar under each
     "x": "M4 1.5 L12 11.5 M12 1.5 L4 11.5", "y": "M4 1.5 L8 7 L12 1.5 M8 7 L8 11.5", "z": "M4 1.5 L12 1.5 L4 11.5 L12 11.5"}
 
@@ -228,6 +239,9 @@ def main():
         name = f"{tool}__{group}.dat"
         if recolour_dat(src, os.path.join(OUT, name), COLOURS[group]):
             made.add(name)
+    for own, svg in OWN.items():
+        rasterise(svg.replace("{c}", COLOURS[own.partition("__")[2]]), os.path.join(OUT, own + ".png"), args.size)
+        made.add(own + ".png")
     for axis in AXIS:
         name = f"axis_{axis}__axis.png"
         rasterise(letter_svg(axis), os.path.join(OUT, name), args.size)

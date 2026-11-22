@@ -53,7 +53,8 @@ def _frame(sp, region, e):
 def _enter(area, sp, region):
     rv = sp.region_3d
     rv.update()
-    e = {"local": sp.use_local_camera, "camera": sp.camera, "lock": sp.lock_camera, "mag": 1.0, "sx": 0.0, "sy": 0.0}
+    e = {"local": sp.use_local_camera, "camera": sp.camera, "lock": sp.lock_camera, "mag": 1.0, "sx": 0.0, "sy": 0.0,
+         "zoom": rv.view_camera_zoom, "offset": tuple(rv.view_camera_offset)}
     cd = bpy.data.cameras.new(NAME)
     ob = bpy.data.objects.new(NAME, cd)
     cd.show_passepartout = False
@@ -110,6 +111,7 @@ def leave(area):
     pose = ob.matrix_world.copy() if ob is not None and rv.view_perspective == "CAMERA" and sp.camera == ob else None
     if rv.view_perspective == "CAMERA":                    # undo can put another camera in its place
         rv.view_perspective = "PERSP"
+    rv.view_camera_zoom, rv.view_camera_offset = e["zoom"], e["offset"]      # a scene camera's own, for next time
     sp.use_local_camera = e["local"]
     if e["local"]:
         sp.camera = e["camera"]

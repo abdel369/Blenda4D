@@ -10,3 +10,5 @@ These are Blender's own interface icons, recoloured for Blenda 4D's colour hiera
 
 Blender is free software under the GNU General Public License (see Blender's `COPYING`); these recoloured copies are
 distributed under the same terms as the rest of this add-on (GPL-3.0-or-later). They are made by `tools/tint_icons.py`.
+
+The Sky dome (`world__environment.png`) is drawn for Blenda 4D.

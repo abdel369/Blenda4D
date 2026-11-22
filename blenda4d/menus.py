@@ -208,8 +208,10 @@ def _make(label, items, prefix):
         extra = kinds.menu_items(label)
         if extra:
             self.layout.separator()
+            from . import icons
             for text, kind, icon in extra:
-                self.layout.operator("blenda4d.add_kind", text=text, icon=icon).kind = kind
+                kw = icons.kw(icon, "environment") if icon == "WORLD" else {"icon": icon}     # the Sky's own dome
+                self.layout.operator("blenda4d.add_kind", text=text, **kw).kind = kind
     return type(idname, (bpy.types.Menu,), {"bl_idname": idname, "bl_label": label, "bl_description": tip, "draw": draw})
 
 
