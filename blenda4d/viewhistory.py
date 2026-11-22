@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Undo View and Redo View: step back and forward through a viewport's own views (orbit, pan, zoom, framing, side
-views). Blender's undo does not cover these. Each viewport has its own history, as long as the file is open.
+views). Blender's undo does not cover these. Each viewport has its own history, as long as the file is open,
+and in it the perspective and each side view (F1 to F4, four views) their own: a step never swaps one for the other.
 
 A view counts once it has been still for a moment, so one drag is one step. Looking through a camera, orbiting moves
 the camera object itself and Blender's normal undo already covers that: here only going into and out of the camera,
@@ -11,7 +12,7 @@ import bpy
 
 LIMIT = 100                  # steps kept per viewport
 STILL = 0.3                  # seconds without a change: the view is a step
-_views = {}                  # RegionView3D pointer -> {"undo", "redo", "at" (the view of the last step), "seen", "t"}
+_views = {}                  # (RegionView3D pointer, its side) -> {"undo", "redo", "at" (the last step's view), "seen", "t"}
 _handles = []
 
 
@@ -53,12 +54,9 @@ def _put(rv, s):
 
 def _commit(h, now):
     """The view has come to rest: the one it came from becomes a step."""
+    if now[0] == "PERSP":
+        h["persp"] = now
     if same(h["at"], now):
-        return
-    if "SIDE" in (h["at"][0], now[0]) and h["at"][0] != now[0]:     # four views came or went: a new start, not a step
-        h["undo"].clear()
-        h["redo"].clear()
-        h["at"] = now
         return
     h["undo"].append(h["at"])
     del h["undo"][:-LIMIT]
@@ -66,11 +64,17 @@ def _commit(h, now):
     h["at"] = now
 
 
+def _key(rv):
+    """Which history a viewport is in: the free view's, or that of the side a locked view looks from."""
+    side = tuple(round(v, 1) for v in rv.view_rotation) if rv.lock_rotation and rv.view_perspective != "CAMERA" else None
+    return rv.as_pointer(), side
+
+
 def _entry(rv):
-    key = rv.as_pointer()
+    key = _key(rv)
     if key not in _views:
         s = state(rv)
-        _views[key] = {"undo": [], "redo": [], "at": s, "seen": s, "t": 0.0}
+        _views[key] = {"undo": [], "redo": [], "at": s, "seen": s, "t": 0.0, "persp": s if s[0] == "PERSP" else None}
     return _views[key]
 
 
@@ -93,7 +97,7 @@ def _settle():
             rv = _rv3d(a)
             if rv is None:
                 continue
-            h = _views.get(rv.as_pointer())
+            h = _views.get(_key(rv))
             if h is None:
                 continue
             if same(h["seen"], h["at"]):
@@ -105,15 +109,24 @@ def _settle():
     return STILL if waiting else None
 
 
+def to_last_perspective(rv):
+    """The viewport's own perspective as it was last left (before a camera or a side view). False: none is known."""
+    h = _views.get((rv.as_pointer(), None))
+    if h is None or h["persp"] is None:
+        return False
+    rv.lock_rotation = False
+    _put(rv, h["persp"])
+    return True
+
+
 def available(context, redo):
     rv = _rv3d(context.area)
     if rv is None:
         return False
-    h = _views.get(rv.as_pointer())
+    h = _views.get(_key(rv))
     if h is None:
         return False
-    now = state(rv)
-    moved = not same(h["at"], now) and (h["at"][0] == now[0] or "SIDE" not in (h["at"][0], now[0]))
+    moved = not same(h["at"], state(rv))
     return bool(h["redo"]) and not moved if redo else bool(h["undo"]) or moved
 
 
@@ -129,6 +142,8 @@ def step(context, redo):
     dst.append(h["at"])
     h["at"] = src.pop()
     _put(rv, h["at"])
+    if h["at"][0] == "PERSP":
+        h["persp"] = h["at"]
     h["at"] = h["seen"] = state(rv)
     context.area.tag_redraw()
     return True

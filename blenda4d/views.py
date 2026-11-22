@@ -5,7 +5,7 @@ import math
 import bpy
 from mathutils import Euler
 
-from . import build, quadview, viewmenus
+from . import build, quadview, viewhistory, viewmenus
 
 START_ROTATION = Euler((math.radians(65.0), 0.0, math.radians(35.0))).to_quaternion()
 
@@ -37,11 +37,28 @@ def _leave_scene_camera(area):
         viewmenus.back_to_editor(area, sp)
 
 
+def _to_perspective(window, area):
+    """The viewport's own perspective, as left: out of a camera however it was entered (the Cameras menu or Blender's own
+    Numpad 0), out of Cameras > Left, Back, Bottom and Blender's own side views. A parallel view at a free angle keeps
+    its angle."""
+    rv = area.spaces.active.region_3d
+    if rv.view_perspective == "CAMERA":
+        _leave_scene_camera(area)                         # also puts the viewport's own focal length back
+        if not viewhistory.to_last_perspective(rv):
+            rv.view_perspective = "PERSP"
+    elif rv.view_perspective == "ORTHO":
+        if not rv.is_orthographic_side_view:
+            rv.view_perspective = "PERSP"
+        elif not viewhistory.to_last_perspective(rv):
+            _start_perspective(window, area)
+
+
 def switch_single(window, area, target):
     current = quadview.corner_of_single(area)
     if current == target:
         if target == "PERSP":
-            _leave_scene_camera(area)
+            _to_perspective(window, area)
+            area.tag_redraw()
         return
 
     quadview._saved[current] = quadview.state(area)
@@ -54,8 +71,8 @@ def switch_single(window, area, target):
         _start_perspective(window, area)
 
     if target == "PERSP":
-        _leave_scene_camera(area)
         area.spaces.active.region_3d.lock_rotation = False
+        _to_perspective(window, area)
     quadview._saved["ALONE"] = target
     area.tag_redraw()
 
@@ -91,11 +108,20 @@ def _make_operator(target, label, description):
 CLASSES = [_make_operator(*v) for v in VIEWS]
 
 
+@bpy.app.handlers.persistent
+def _loaded(_file):
+    quadview._saved.clear()                               # another file's views are not this one's
+
+
 def register():
     for cls in CLASSES:
         bpy.utils.register_class(cls)
+    if _loaded not in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.append(_loaded)
 
 
 def unregister():
+    if _loaded in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.remove(_loaded)
     for cls in reversed(CLASSES):
         bpy.utils.unregister_class(cls)

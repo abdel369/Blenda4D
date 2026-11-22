@@ -274,9 +274,12 @@ class BLENDA4D_MT_view_cameras(bpy.types.Menu):
         layout.operator("blenda4d.projection", text="Perspective", icon="CHECKMARK" if persp else "BLANK1").kind = "PERSP"
         layout.operator("blenda4d.projection", text="Parallel", icon="CHECKMARK" if ortho else "BLANK1").kind = "ORTHO"
         layout.separator()
-        for axis, label in (("LEFT", "Left"), ("RIGHT", "Right"), ("FRONT", "Front"), ("BACK", "Back"),
-                            ("TOP", "Top"), ("BOTTOM", "Bottom")):
-            layout.operator("view3d.view_axis", text=label).type = axis
+        _heading(layout, "Views")                       # F1 to F4: each view comes back where it was left (views.py)
+        for op, label, icon in (("persp", "Perspective", "VIEW_PERSPECTIVE"), ("top", "Top", "AXIS_TOP"),
+                                ("right", "Right", "AXIS_SIDE"), ("front", "Front", "AXIS_FRONT")):
+            layout.operator("blenda4d.view_" + op, text=label, icon=icon)
+        for axis, label, icon in (("LEFT", "Left", "AXIS_SIDE"), ("BACK", "Back", "AXIS_FRONT"), ("BOTTOM", "Bottom", "AXIS_TOP")):
+            layout.operator("view3d.view_axis", text=label, icon=icon).type = axis
         if sp is not None:
             layout.separator()
             layout.prop(sp, "lens", text="Viewport Focal Length")
