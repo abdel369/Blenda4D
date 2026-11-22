@@ -76,7 +76,93 @@ class BLENDA4D_OT_copy_for_drag(bpy.types.Operator):
         return {"FINISHED", "PASS_THROUGH"}
 
 
-classes = (BLENDA4D_OT_make_editable, BLENDA4D_OT_copy_for_drag)
+class BLENDA4D_OT_edge_to_spline(bpy.types.Operator):
+    """Make a spline object from the selected edges; the polygon object stays as it is"""
+    bl_idname = "blenda4d.edge_to_spline"
+    bl_label = "Edge to Spline"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        ob = context.edit_object
+        return ob is not None and ob.type == "MESH"
+
+    def execute(self, context):
+        ob = context.edit_object
+        ob.update_from_editmode()
+        if not any(e.select for e in ob.data.edges):
+            self.report({"INFO"}, "Select the edges to turn into a spline first")
+            return {"CANCELLED"}
+        before = set(bpy.data.objects)
+        bpy.ops.mesh.duplicate()
+        bpy.ops.mesh.separate(type="SELECTED")             # the copy of the edges becomes an object of its own
+        new = next((o for o in bpy.data.objects if o not in before), None)
+        bpy.ops.object.mode_set(mode="OBJECT")
+        if new is None:
+            return {"CANCELLED"}
+        for o in context.view_layer.objects:
+            o.select_set(False)
+        new.select_set(True)
+        context.view_layer.objects.active = new
+        new.modifiers.clear()                               # the copy carries the mesh's modifiers: not wanted
+        bpy.ops.object.convert(target="CURVE")
+        new.name = ob.name + " Spline"
+        new.data.name = new.name
+        new.data.materials.clear()
+        if "b4d_type" in new:
+            del new["b4d_type"]
+        return {"FINISHED"}
+
+
+# M, then a letter: the modelling commands that have a two-key shortcut (Edit Mode).
+M_KEYS = {"S": ("Bevel", "tool", "builtin.bevel"), "K": ("Knife", "tool", "builtin.knife"),
+          "T": ("Extrude", "tool", "builtin.extrude_region"), "W": ("Inset", "tool", "builtin.inset_faces"),
+          "L": ("Loop Cut", "tool", "builtin.loop_cut"), "B": ("Bridge", "op", "mesh.bridge_edge_loops"),
+          "F": ("Edge Cut", "tool", "builtin.loop_cut"),
+          "E": ("Polygon Pen", "tool", "builtin.poly_build")}   # click points to build polygons; snaps to points / edges
+
+
+class BLENDA4D_OT_m_keys(bpy.types.Operator):
+    """M, then a letter: S Bevel, K Knife, T Extrude, W Inset, L Loop Cut, F Edge Cut, B Bridge, E Polygon Pen"""
+    bl_idname = "blenda4d.m_keys"
+    bl_label = "Modelling Commands (M)"
+    bl_options = {"REGISTER"}
+
+    @classmethod
+    def poll(cls, context):
+        return context.mode == "EDIT_MESH"
+
+    def invoke(self, context, event):
+        hint = "   ".join(f"{k} {v[0]}" for k, v in M_KEYS.items())
+        context.workspace.status_text_set("M:   " + hint + "   (Esc cancels)")
+        context.window_manager.modal_handler_add(self)
+        return {"RUNNING_MODAL"}
+
+    def _done(self, context):
+        context.workspace.status_text_set(None)
+
+    def modal(self, context, event):
+        if event.value != "PRESS" or event.type in {"MOUSEMOVE", "INBETWEEN_MOUSEMOVE", "LEFT_SHIFT", "RIGHT_SHIFT",
+                                                     "LEFT_CTRL", "RIGHT_CTRL", "LEFT_ALT", "RIGHT_ALT", "OSKEY"}:
+            return {"RUNNING_MODAL"}
+        self._done(context)
+        hit = M_KEYS.get(event.type)
+        if hit is None:
+            return {"CANCELLED"}
+        _label, kind, ident = hit
+        try:
+            if kind == "tool":
+                bpy.ops.wm.tool_set_by_id(name=ident)
+            else:
+                mod, name = ident.split(".")
+                getattr(getattr(bpy.ops, mod), name)("INVOKE_DEFAULT")
+        except RuntimeError as ex:
+            self.report({"INFO"}, str(ex).split("Error: ")[-1].strip())
+            return {"CANCELLED"}
+        return {"FINISHED"}
+
+
+classes = (BLENDA4D_OT_make_editable, BLENDA4D_OT_copy_for_drag, BLENDA4D_OT_m_keys, BLENDA4D_OT_edge_to_spline)
 
 
 def register():

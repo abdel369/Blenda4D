@@ -37,6 +37,23 @@ KEYS = [
     ("3D View", "wm.tool_set_by_id", {"type": "SPACE", "value": "PRESS"}, [("name", "builtin.select_box")]),
     # Ctrl+drag with the Move tool: copy the selected objects and move the copy (Edit Mode: nothing changes)
     ("3D View Tool: Move", "object.duplicate_move", {"type": "LEFTMOUSE", "value": "CLICK_DRAG", "ctrl": True}, None),
+    # --- selection tools: 9 Live (paint), 0 Rectangle, 8 Lasso
+    ("3D View", "wm.tool_set_by_id", {"type": "NINE", "value": "PRESS"}, [("name", "builtin.select_circle")]),
+    ("3D View", "wm.tool_set_by_id", {"type": "ZERO", "value": "PRESS"}, [("name", "builtin.select_box")]),
+    ("3D View", "wm.tool_set_by_id", {"type": "EIGHT", "value": "PRESS"}, [("name", "builtin.select_lasso")]),
+    # --- modelling (Edit Mode): K Knife, D Extrude, I Inset, B Bridge, M then a letter for the rest
+    ("Mesh", "wm.tool_set_by_id", {"type": "K", "value": "PRESS"}, [("name", "builtin.knife")]),
+    ("Mesh", "wm.tool_set_by_id", {"type": "D", "value": "PRESS"}, [("name", "builtin.extrude_region")]),
+    ("Mesh", "wm.tool_set_by_id", {"type": "I", "value": "PRESS"}, [("name", "builtin.inset_faces")]),
+    ("Mesh", "mesh.bridge_edge_loops", {"type": "B", "value": "PRESS"}, None),
+    ("Mesh", "blenda4d.m_keys", {"type": "M", "value": "PRESS"}, None),
+    # Enter: between the object and its points / edges / polygons (Edit Mode)
+    ("3D View", "object.editmode_toggle", {"type": "RET", "value": "PRESS"}, None),
+    # Alt+G: group the selected objects under a null; F5: four views
+    ("Object Mode", "blenda4d.group", {"type": "G", "value": "PRESS", "alt": True}, None),
+    ("3D View", "blenda4d.quad_view", {"type": "F5", "value": "PRESS"}, None),
+    # F9: record a key for the selected objects (I is Inset in Edit Mode)
+    ("Object Mode", "anim.keyframe_insert", {"type": "F9", "value": "PRESS"}, None),
     # W: move along the world axes or the object's own axes
     ("3D View", "wm.context_toggle_enum", {"type": "W", "value": "PRESS"},
      [("data_path", "scene.transform_orientation_slots[0].type"), ("value_1", "GLOBAL"), ("value_2", "LOCAL")]),
