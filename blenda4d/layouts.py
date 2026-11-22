@@ -14,12 +14,16 @@ from . import roles
 
 KEY = "b4d_layout"
 DEFAULT = "Layout"
-#        name: (icon, what it is for, timeline shown, Timeline editors open above it)
+#        name: (icon, what it is for, timeline shown, what is open under the viewport, Material Manager shown)
 TABS = {
-    "Layout": ("WORKSPACE", "General work: the viewport, the managers and the timeline", True, False),
-    "Modeling": ("EDITMODE_HLT", "Building shapes: the timeline steps aside for a taller viewport", False, False),
-    "Animation": ("ANIM", "Movement: the Timeline opens under the viewport, with the Dope Sheet or the F-Curves", True, True),
+    "Layout": ("WORKSPACE", "General work: the viewport, the managers and the timeline", True, "", False),
+    "Modeling": ("EDITMODE_HLT", "Building shapes: the timeline steps aside for a taller viewport", False, "", False),
+    "Shading": ("SHADING_RENDERED", "Materials: the Node Editor opens under the viewport, and the Material Manager", False, "SHADER", True),
+    "Animation": ("ANIM", "Movement: the Timeline opens under the viewport, with the Dope Sheet or the F-Curves", True, "KEYS", False),
+    "Compositing": ("NODE_COMPOSITING", "Finishing: the result beside the viewport, the compositor's nodes below", False, "COMPOSITE", False),
+    "Geometry Nodes": ("GEOMETRY_NODES", "Procedural objects: the spreadsheet beside the viewport, the nodes below", True, "GEOMETRY", False),
 }
+UNDER = ("", "KEYS", "SHADER", "COMPOSITE", "GEOMETRY")    # what can be open under the viewport
 OLD_NAMES = {"Standard": DEFAULT}                          # the built-in layout's name before the tabs
 _last = [None]                                             # the window size each column was last put right for
 
@@ -103,8 +107,11 @@ def spec(name):
 def _spec(base, entry):
     base = base if base in TABS else DEFAULT
     sizes = entry.get("sizes")
-    editors = bool(entry.get("editors", TABS[base][3]))
-    return {"base": base, "timeline": TABS[base][2] or editors, "editors": editors, "materials": bool(entry.get("materials")),
+    editors = entry.get("editors", TABS[base][3])
+    if editors not in UNDER:                               # saved before the node tabs: true or false
+        editors = "KEYS" if editors else ""
+    return {"base": base, "timeline": TABS[base][2] or editors == "KEYS", "editors": editors,
+            "materials": bool(entry.get("materials", TABS[base][4])),
             "assets": bool(entry.get("assets")),
             "sizes": {k: float(v) for k, v in sizes.items() if isinstance(v, (int, float)) and v > 0} if isinstance(sizes, dict) else {}}
 
@@ -123,8 +130,9 @@ def spec_of(screen):
     ws = workspace_of(screen)
     out = spec(current(ws))
     if ws is not None and DOCK in ws:
-        out["editors"] = bool(ws[DOCK])
-        out["timeline"] = out["timeline"] or out["editors"]
+        nodes = out["editors"] if out["editors"] != "KEYS" else ""      # a node tab has its nodes when it is folded away
+        out["editors"] = "KEYS" if ws[DOCK] else nodes
+        out["timeline"] = TABS[out["base"]][2] or out["editors"] == "KEYS"
     return out
 
 
@@ -168,8 +176,10 @@ def snapshot(window):
         high = sum(a.height for a in views if abs(a.x - views[0].x) < 8)
         mine = sum(a.height for a in dock) + build.EDGE
         sizes["editors"] = round((mine + 1) / max(1, mine + high + build.EDGE), 3)
+    from . import nodetabs
+    nodetabs.sizes_of(screen, sizes)
     return {"base": spec(current(ws))["base"], "materials": bool(roles.areas(screen, "MATERIALS")),
-            "assets": bool(roles.areas(screen, "ASSETS")), "editors": len(dock) == 2, "sizes": sizes}
+            "assets": bool(roles.areas(screen, "ASSETS")), "editors": spec_of(screen)["editors"], "sizes": sizes}
 
 
 # --- operators ----------------------------------------------------------------------------------------------------

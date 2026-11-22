@@ -8,7 +8,7 @@ area's size only updates on the next event loop:
   create column (drawn in the viewport's toolbar strip, strip.py)
   timeline (bottom, under the viewport) | optional Material Manager column (between viewport and create column)
   | optional Asset Browser column (left of the viewport).
-With the Timeline open under the viewport (timeline_edit.py) the layout has the tools and create columns as two areas down its sides, so they stay
+With the Timeline (timeline_edit.py) or the Node Editor (nodetabs.py) open under the viewport the layout has the tools and create columns as two areas down its sides, so they stay
 full height; what is drawn in them keeps its size, and they get their width back after the window is resized."""
 import bpy
 
@@ -224,18 +224,20 @@ def view_top(window, area):
 
 def intact(screen):
     """The layout is all there (each strip once, a viewport, its timeline and editors): nothing to rebuild."""
-    from . import layouts
+    from . import layouts, nodetabs
     spec = layouts.spec_of(screen)
     if any(len(roles.areas(screen, r)) != 1 for r in CORE):
         return False
-    stacked = bool(spec["editors"])
+    stacked, keys = bool(spec["editors"]), spec["editors"] == "KEYS"
     four = sum(a.type == "VIEW_3D" for a in screen.areas) > 1
     own = roles.areas(screen, "MODES")                     # the tools column's own area: with the Timeline or four views
     if len(own) > 1 or (len(own) != stacked and not four):
         return False
     if len(roles.areas(screen, "VIEW_TABS")) > four:
         return False
-    if any(len(roles.areas(screen, r)) != stacked for r in ("TL_BAR", "TL_EDIT")) or (stacked and len(roles.areas(screen, "CREATE")) != 1):
+    if not nodetabs.intact(screen, spec["editors"]):
+        return False
+    if any(len(roles.areas(screen, r)) != keys for r in ("TL_BAR", "TL_EDIT")) or (stacked and len(roles.areas(screen, "CREATE")) != 1):
         return False
     if not any(a.type == "VIEW_3D" for a in screen.areas) or len(roles.areas(screen, "TIMELINE")) != spec["timeline"]:
         return False
@@ -253,9 +255,17 @@ def add_timeline(window):
     yield from make_role(window, strip, "TIMELINE")
 
 
-def add_stack(window, sizes, materials=False, assets=False):
-    """The tools and create columns down the sides and the Timeline under the viewport between them. The Material Manager
-    stays right of the create column; the Asset Browser is beside the viewport, above the Timeline."""
+def stacked(screen):
+    """Is there an editor under the viewport, between the two columns?"""
+    from . import nodetabs
+    return bool(roles.areas(screen, "TL_EDIT")) or nodetabs.editor(screen) is not None
+
+
+def add_stack(window, spec, materials=False, assets=False):
+    """The tools and create columns down the sides and, between them under the viewport, the Timeline or the Node Editor.
+    The Material Manager stays right of the create column; the Asset Browser is beside the viewport, above the editors."""
+    from . import nodetabs
+    kind, sizes = spec["editors"], spec["sizes"]
     screen = window.screen
     if materials:
         yield from add_materials(window)
@@ -265,14 +275,19 @@ def add_stack(window, sizes, materials=False, assets=False):
     yield from make_role(window, create, "CREATE")
     view = biggest_view(screen)
     dress_view(view)
-    share = min(0.8, max(0.15, sizes.get("editors", EDITORS)))
-    if "editors" not in sizes:                             # a short window: still a few rows of tracks
+    nodes = kind in nodetabs.KINDS
+    key = "nodes" if nodes else "editors"
+    share = min(0.8, max(0.15, sizes.get(key, nodetabs.NODES if nodes else EDITORS)))
+    if key not in sizes:                             # a short window: still a few rows of tracks
         share = max(share, min(0.6, px(220) / max(1, view.height)))
     low = yield from split(window, view, "HORIZONTAL", round(view.height * share), "BOTTOM")
-    yield from make_role(window, low, "TL_EDIT")
-    from . import timeline_edit
-    bar = yield from split(window, low, "HORIZONTAL", min(px(timeline_edit.BAR_PX) + EDGE, round(low.height * 0.45)), "TOP")
-    yield from make_role(window, bar, "TL_BAR")
+    if nodes:
+        yield from nodetabs.add_steps(window, low, kind, sizes)
+    else:
+        yield from make_role(window, low, "TL_EDIT")
+        from . import timeline_edit
+        bar = yield from split(window, low, "HORIZONTAL", min(px(timeline_edit.BAR_PX) + EDGE, round(low.height * 0.45)), "TOP")
+        yield from make_role(window, bar, "TL_BAR")
     if assets:
         yield from add_assets(window)
 
@@ -284,11 +299,12 @@ def _into_view(window, area):
 
 
 def remove_stack(window):
-    """The Timeline and the two columns go back into the viewport, each one a join along a whole edge."""
-    from . import quadview
+    """The editors and the two columns go back into the viewport, each one a join along a whole edge."""
+    from . import nodetabs, quadview
     screen = window.screen
     if roles.areas(screen, "ASSETS"):
         yield from remove_column(window, "ASSETS")
+    yield from nodetabs.remove_steps(window)
     for bar in roles.areas(screen, "TL_BAR"):
         if roles.areas(screen, "TL_EDIT"):
             yield from quadview._join(window, bar, roles.areas(screen, "TL_EDIT")[0])
@@ -327,7 +343,7 @@ def renew_steps(window):
     if four:
         yield from quadview.expand_steps(window, _persp(screen))
     yield from remove_stack(window)
-    yield from add_stack(window, spec["sizes"], "MATERIALS" in on, "ASSETS" in on)
+    yield from add_stack(window, spec, "MATERIALS" in on, "ASSETS" in on)
     if not intact(screen):
         yield from steps(window, materials="MATERIALS" in on, assets="ASSETS" in on)
     if four:
@@ -355,18 +371,19 @@ def dock_steps(window, on):
     if four:
         yield from quadview.expand_steps(window, _persp(screen))
     ws[layouts.DOCK] = bool(on)
-    want = layouts.spec_of(screen)["timeline"]
-    if on:
-        for n in COLUMNS:
-            if roles.areas(screen, n):
-                yield from remove_column(window, n)
-        if want and not roles.areas(screen, "TIMELINE"):
-            yield from add_timeline(window)
-        yield from add_stack(window, spec["sizes"], cols["MATERIALS"], cols["ASSETS"])
-    else:
+    spec = layouts.spec_of(screen)
+    if stacked(screen):                                    # the Node Editor makes way for the Timeline, and comes back
         yield from remove_stack(window)
-        for a in [] if want else roles.areas(screen, "TIMELINE"):
-            yield from _into_view(window, a)
+    for n in COLUMNS:
+        if spec["editors"] and roles.areas(screen, n):
+            yield from remove_column(window, n)
+    if spec["timeline"] and not roles.areas(screen, "TIMELINE"):
+        yield from add_timeline(window)
+    for a in [] if spec["timeline"] else roles.areas(screen, "TIMELINE"):
+        yield from _into_view(window, a)
+    if spec["editors"]:
+        yield from add_stack(window, spec, cols["MATERIALS"], cols["ASSETS"])
+    else:
         for n in ("ASSETS", "MATERIALS"):
             if cols[n]:
                 yield from COLUMNS[n][0](window)
@@ -418,7 +435,7 @@ def switch_steps(window, name):
             elif new["timeline"] and not old["timeline"]:
                 yield from add_timeline(window)
             if new["editors"]:
-                yield from add_stack(window, new["sizes"], new["materials"], new["assets"])
+                yield from add_stack(window, new, new["materials"], new["assets"])
         for n in ("ASSETS", "MATERIALS"):
             if new[n.lower()] and not roles.areas(screen, n):
                 yield from COLUMNS[n][0](window)
@@ -441,7 +458,7 @@ def column_steps(window, name, on):
         want = {n: bool(roles.areas(screen, n)) for n in COLUMNS}
         want[name] = on
         yield from remove_stack(window)
-        yield from add_stack(window, spec["sizes"], want["MATERIALS"], want["ASSETS"])
+        yield from add_stack(window, spec, want["MATERIALS"], want["ASSETS"])
     elif on:
         yield from add(window)
     else:
@@ -483,7 +500,7 @@ def steps(window, materials=False, assets=False, spec=None):
     if spec["timeline"]:
         yield from add_timeline(window)
     if spec["editors"]:
-        yield from add_stack(window, sizes, materials, assets)
+        yield from add_stack(window, spec, materials, assets)
         materials = assets = False                         # in already, beside the editors
     if assets:
         yield from add_assets(window)

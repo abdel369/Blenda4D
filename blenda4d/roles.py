@@ -23,6 +23,7 @@ ROLE_FLAGS = {
     "TL_BAR": "show_properties_collection",
     "TL_EDIT": "show_properties_object",
     "VIEW_TABS": "show_properties_strip",
+    "ND_LIST": "show_properties_strip_modifier",
     "MM_BAR": "show_properties_scene",
     "OM_BAR": "show_properties_output",
     "OM_HEAD": "show_properties_view_layer",

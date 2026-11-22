@@ -240,7 +240,7 @@ def expand_steps(window, keep):
     for t in roles.areas(screen, "VIEW_TABS"):            # first: it is as wide as the view alone
         if views(screen):
             yield from _join(window, t, views(screen)[0])
-    own = [] if roles.areas(screen, "TL_EDIT") else roles.areas(screen, "CREATE") + roles.areas(screen, "MODES")
+    own = [] if build.stacked(screen) else roles.areas(screen, "CREATE") + roles.areas(screen, "MODES")
     for c in own:                                         # the four views' two columns go: the viewport draws them again
         if views(screen):
             yield from _join(window, c, views(screen)[0])
