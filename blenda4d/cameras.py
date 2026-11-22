@@ -148,6 +148,8 @@ class BLENDA4D_OT_add_camera(bpy.types.Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
+        from . import magnify
+        magnify.leave_all()                                # the new camera sees what the viewport's own view sees
         sp = _view_for(context)
         if context.mode != "OBJECT" and context.object is not None:
             bpy.ops.object.mode_set(mode="OBJECT")

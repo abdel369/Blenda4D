@@ -30,6 +30,14 @@ KEYS = [
     ("3D View", "view3d.rotate", {"type": "MIDDLEMOUSE", "value": "CLICK_DRAG"}, None),
     ("3D View", "blenda4d.quad_view", {"type": "MIDDLEMOUSE", "value": "CLICK"}, None),
     ("3D View", "view3d.zoom", {"type": "RIGHTMOUSE", "value": "PRESS", "alt": True}, None),
+    # Alt+wheel zooms like the wheel alone; Ctrl+Alt+wheel (Cmd+Option on a Mac) magnifies the picture around the
+    # pointer without moving the camera, and Ctrl+Alt+middle drag moves the magnified picture
+    ("3D View", "view3d.zoom", {"type": "WHEELINMOUSE", "value": "PRESS", "alt": True}, [("delta", 1)]),
+    ("3D View", "view3d.zoom", {"type": "WHEELOUTMOUSE", "value": "PRESS", "alt": True}, [("delta", -1)]),
+    ("3D View", "blenda4d.magnify_in", {"type": "WHEELINMOUSE", "value": "PRESS", "ctrl": True, "alt": True}, None),
+    ("3D View", "blenda4d.magnify_out", {"type": "WHEELOUTMOUSE", "value": "PRESS", "ctrl": True, "alt": True}, None),
+    ("3D View", "blenda4d.magnify_scroll", {"type": "TRACKPADPAN", "value": "ANY", "ctrl": True, "alt": True}, None),
+    ("3D View", "blenda4d.magnify_pan", {"type": "MIDDLEMOUSE", "value": "PRESS", "ctrl": True, "alt": True}, None),
     ("3D View", "view3d.move", {"type": "ONE", "value": "PRESS"}, None),
     ("3D View", "view3d.zoom", {"type": "TWO", "value": "PRESS"}, None),
     ("3D View", "view3d.rotate", {"type": "THREE", "value": "PRESS"}, None),
@@ -118,7 +126,10 @@ ADD_FIRST = [
 # Default keys taken out with no replacement in the same key map.
 #   Space no longer plays everywhere (it picks the selection tool in the viewport; it still plays in the timeline).
 #   Orbiting while Alt is held must not snap the view to the nearest side view.
+#   Alt+wheel zooms the viewport instead of changing the frame.
 REMOVE = [
+    ("Frames", {"type": "WHEELUPMOUSE", "value": "PRESS", "alt": True}),
+    ("Frames", {"type": "WHEELDOWNMOUSE", "value": "PRESS", "alt": True}),
     ("Frames", {"type": "SPACE", "value": "PRESS"}),
 ]
 REMOVE_MODAL = {"View3D Rotate Modal": ("AXIS_SNAP_ENABLE", "AXIS_SNAP_DISABLE")}

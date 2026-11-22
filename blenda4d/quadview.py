@@ -170,6 +170,8 @@ def _join(window, gone, keep):
 
 def split_steps(window):
     """One view -> four."""
+    from . import magnify
+    magnify.leave_all()
     screen = window.screen
     vs = views(screen)
     if len(vs) != 1:
@@ -213,6 +215,8 @@ def split_steps(window):
 
 def expand_steps(window, keep):
     """Four views -> the one pressed, full size; the others are remembered."""
+    from . import magnify
+    magnify.leave_all()
     screen = window.screen
     vs = views(screen)
     if len(vs) < 2 or keep not in vs:

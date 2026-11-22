@@ -665,8 +665,10 @@ def looking_through(context, ob):
     """True while the viewport looks through this camera."""
     if context.scene.camera != ob:
         return False
-    r3 = _region_3d(_big_view(context))
-    return r3 is not None and r3.view_perspective == "CAMERA"
+    from . import magnify
+    area = _big_view(context)
+    r3 = _region_3d(area)
+    return r3 is not None and r3.view_perspective == "CAMERA" and not magnify.on(area.spaces.active)
 
 
 class BLENDA4D_OT_om_look_through(bpy.types.Operator):

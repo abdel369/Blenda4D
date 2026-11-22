@@ -20,7 +20,15 @@ def _rv3d(area):
     return area.spaces.active.region_3d if area is not None and area.type == "VIEW_3D" else None
 
 
+def _magnified(rv):
+    """Magnify looks through a camera of its own: for the history that is still the free perspective."""
+    from . import magnify
+    return rv.as_pointer() in magnify._on
+
+
 def state(rv):
+    if rv.view_perspective == "CAMERA" and _magnified(rv):
+        return ("PERSP", tuple(rv.view_location), tuple(rv.view_rotation), rv.view_distance)
     if rv.view_perspective == "CAMERA":
         return ("CAMERA", tuple(rv.view_camera_offset), rv.view_camera_zoom)
     if rv.lock_rotation:                                  # a side view of the four: it pans and zooms, never turns
@@ -134,6 +142,8 @@ def step(context, redo):
     rv = _rv3d(context.area)
     if rv is None:
         return False
+    from . import magnify
+    magnify.leave(context.area)
     h = _entry(rv)
     _commit(h, state(rv))                                 # a move that has not settled yet is a step too
     src, dst = (h["redo"], h["undo"]) if redo else (h["undo"], h["redo"])

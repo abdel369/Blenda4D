@@ -101,6 +101,8 @@ _editor_view = {}           # viewport -> where its own (editor) camera was befo
 def look_through(area, sp, cam):
     """Look through a scene camera: the editor camera's place is kept for the way back, and orbit / pan / zoom then
     move the scene camera itself (Lock Camera to View)."""
+    from . import magnify
+    magnify.leave(area)
     rv = sp.region_3d
     if rv.view_perspective != "CAMERA":
         _editor_view[area.as_pointer()] = {"rot": rv.view_rotation.copy(), "loc": rv.view_location.copy(),
@@ -168,6 +170,8 @@ class BLENDA4D_OT_default_camera(bpy.types.Operator):
         if sp is None:
             return {"CANCELLED"}
         area = _area_of(context, sp)
+        from . import magnify
+        magnify.leave(area)
         if sp.region_3d.view_perspective == "CAMERA" and area is not None:
             back_to_editor(area, sp)
         return {"FINISHED"}
@@ -183,6 +187,8 @@ class BLENDA4D_OT_projection(bpy.types.Operator):
         sp = _space(context)
         if sp is None:
             return {"CANCELLED"}
+        from . import magnify
+        magnify.leave(_area_of(context, sp))
         sp.region_3d.view_perspective = self.kind
         return {"FINISHED"}
 
@@ -227,9 +233,18 @@ class BLENDA4D_MT_view_view(bpy.types.Menu):
         layout.operator("view3d.zoom", text="Zoom In").delta = 1
         layout.operator("view3d.zoom", text="Zoom Out").delta = -1
         layout.separator()
+        _heading(layout, "Magnify")
+        layout.operator_context = "EXEC_DEFAULT"
+        layout.operator("blenda4d.magnify_in", text="Magnify In", icon="ZOOM_IN")
+        layout.operator("blenda4d.magnify_out", text="Magnify Out", icon="ZOOM_OUT")
+        layout.operator("blenda4d.magnify_reset", text="Reset Magnify", icon="LOOP_BACK")
+        layout.operator_context = "INVOKE_DEFAULT"
+        layout.separator()
         _heading(layout, "Render")
-        layout.operator("view3d.render_border", text="Render Region")
-        layout.operator("view3d.clear_render_border", text="Clear Render Region")
+        layout.operator("view3d.render_border", text="Render Region", icon="SELECT_SET")
+        layout.operator("blenda4d.region_resume", icon="PLAY")
+        layout.operator("blenda4d.region_pause", icon="PAUSE")
+        layout.operator("blenda4d.region_close", icon="X")
         layout.operator("render.opengl", text="Viewport Render Image", icon="RENDER_STILL")
         layout.operator("blenda4d.render_still", text="Render Image", icon="RENDER_STILL").use_viewport = True
         layout.separator()
@@ -250,7 +265,8 @@ class BLENDA4D_MT_view_cameras(bpy.types.Menu):
         layout = self.layout
         sp = _space(context)
         _heading(layout, "Camera")
-        in_cam = sp is not None and sp.region_3d.view_perspective == "CAMERA"
+        from . import magnify
+        in_cam = sp is not None and sp.region_3d.view_perspective == "CAMERA" and not magnify.on(sp)
         layout.operator("blenda4d.default_camera", text="Default Camera", icon="CHECKMARK" if not in_cam else "BLANK1")
         cams = sorted((o for o in context.scene.objects if o.type == "CAMERA"), key=lambda o: o.name)
         for ob in cams:

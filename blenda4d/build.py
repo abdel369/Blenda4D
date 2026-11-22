@@ -39,6 +39,8 @@ def busy():
 
 def run_steps(gen, done=None):
     """Run a generator one step per redraw; a step that fails while the window is not ready is retried."""
+    from . import magnify
+    magnify.leave_all()                                    # areas are split and joined: plain views only
     state = {"retries": 20}
     _active[0] += 1
 

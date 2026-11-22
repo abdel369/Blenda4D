@@ -78,6 +78,8 @@ def switch_single(window, area, target):
 
 
 def _run(context, target):
+    from . import magnify
+    magnify.leave_all()
     screen = context.screen
     views = quadview.views(screen)
     if len(views) > 1:
