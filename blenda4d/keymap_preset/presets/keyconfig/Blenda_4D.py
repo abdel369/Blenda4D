@@ -70,11 +70,11 @@ KEYS = [
     ("3D View", "blenda4d.view_undo", {"type": "Z", "value": "PRESS", "ctrl": True, "shift": True, "repeat": True}, None),
     ("3D View", "blenda4d.view_redo", {"type": "Y", "value": "PRESS", "ctrl": True, "shift": True, "repeat": True}, None),
     ("Screen", "ed.redo", {"type": "Y", "value": "PRESS", "ctrl": True, "repeat": True}, None),
-    # --- views: F1 perspective / orthographic, F2 top, F3 right, F4 front
-    ("3D View", "view3d.view_persportho", {"type": "F1", "value": "PRESS"}, None),
-    ("3D View", "view3d.view_axis", {"type": "F2", "value": "PRESS"}, [("type", "TOP")]),
-    ("3D View", "view3d.view_axis", {"type": "F3", "value": "PRESS"}, [("type", "RIGHT")]),
-    ("3D View", "view3d.view_axis", {"type": "F4", "value": "PRESS"}, [("type", "FRONT")]),
+    # --- views: F1 perspective, F2 top, F3 right, F4 front
+    ("3D View", "blenda4d.view_persp", {"type": "F1", "value": "PRESS"}, None),
+    ("3D View", "blenda4d.view_top", {"type": "F2", "value": "PRESS"}, None),
+    ("3D View", "blenda4d.view_right", {"type": "F3", "value": "PRESS"}, None),
+    ("3D View", "blenda4d.view_front", {"type": "F4", "value": "PRESS"}, None),
     # --- C: make the selected objects editable (their live result becomes a plain mesh)
     ("3D View", "blenda4d.make_editable", {"type": "C", "value": "PRESS"}, None),
     ("Property Editor", "blenda4d.make_editable", {"type": "C", "value": "PRESS"}, None),
