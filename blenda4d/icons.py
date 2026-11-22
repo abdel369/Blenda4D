@@ -80,7 +80,7 @@ def kw(name, group):
 
 
 # --- which group an object belongs to (Object Manager and Attribute Manager headers) ------------------------------
-_TYPE_GROUP = {"CURVE": "splines", "FONT": "text", "EMPTY": "null", "LIGHT": "lights", "CAMERA": "camera",
+_TYPE_GROUP = {"MESH": "polygon", "CURVE": "splines", "FONT": "text", "EMPTY": "null", "LIGHT": "lights", "CAMERA": "camera",
                "META": "generators", "VOLUME": "volume"}
 
 

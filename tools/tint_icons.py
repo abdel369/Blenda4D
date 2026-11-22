@@ -36,6 +36,7 @@ RSVG = shutil.which("rsvg-convert") or "/opt/homebrew/bin/rsvg-convert"
 # The colour hierarchy (sampled from the private layout's columns). Groups not listed keep Blender's plain icons.
 COLOURS = {
     "shapes": "#6fd3d9", "splines": "#6fd3d9", "text": "#6fd3d9",           # things you build from: cyan
+    "polygon": "#93b1b4",                                                 # editable polygon objects: muted grey-cyan
     "generators": "#8fd36a", "volume": "#8fd36a",                         # objects that make geometry: green
     "deformers": "#a690e6", "effectors": "#a690e6",                       # objects that change others: violet
     "moclone": "#ee9cc8", "fields": "#ee9cc8",                            # cloning and fields: pink
@@ -47,7 +48,7 @@ AXIS = {"x": "#e0605f", "y": "#7fcb6f", "z": "#5f88d8"}
 LETTER = "#d1d1d1"
 
 # Object Manager: plain Blender object types that get a group colour (primitives and module kinds come from GROUPS).
-OM_TYPES = {"CURVE": "splines", "FONT": "text", "EMPTY": "null", "LIGHT": "lights", "CAMERA": "camera",
+OM_TYPES = {"MESH": "polygon", "CURVE": "splines", "FONT": "text", "EMPTY": "null", "LIGHT": "lights", "CAMERA": "camera",
             "META": "generators", "VOLUME": "volume"}
 
 # The tool column (bars.MODES_TOOLS): which tool icons get which accent colour. Others stay Blender's own.
