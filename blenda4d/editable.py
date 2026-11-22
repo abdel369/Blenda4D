@@ -209,6 +209,30 @@ class BLENDA4D_OT_paste(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class BLENDA4D_OT_move_along_normal(bpy.types.Operator):
+    """Move the selected points, edges or polygons straight out or in along the surface (Shrink/Fatten in Blender)"""
+    bl_idname = "blenda4d.move_along_normal"
+    bl_label = "Move Along Normal"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        return context.mode == "EDIT_MESH"
+
+    def invoke(self, context, event):
+        return bpy.ops.transform.shrink_fatten("INVOKE_DEFAULT")
+
+
+def _edge_menu(self, context):
+    """Blender's right-click menu in Edit Mode, edge selection: Blenda's edge commands at the end."""
+    if context.mode != "EDIT_MESH" or not context.tool_settings.mesh_select_mode[1]:
+        return
+    lay = self.layout
+    lay.separator()
+    lay.operator("blenda4d.move_along_normal", icon="ORIENTATION_NORMAL")   # small icons, as in the rest of the menu
+    lay.operator("blenda4d.edge_to_spline", icon="CURVE_DATA")
+
+
 # M, then a letter: the modelling commands that have a two-key shortcut (Edit Mode).
 M_KEYS = {"S": ("Bevel", "tool", "builtin.bevel"), "K": ("Knife", "tool", "builtin.knife"),
           "T": ("Extrude", "tool", "builtin.extrude_region"), "W": ("Inset", "tool", "builtin.inset_faces"),
@@ -256,14 +280,16 @@ class BLENDA4D_OT_m_keys(bpy.types.Operator):
         return {"FINISHED"}
 
 
-classes = (BLENDA4D_OT_make_editable, BLENDA4D_OT_copy_for_drag, BLENDA4D_OT_m_keys, BLENDA4D_OT_edge_to_spline, BLENDA4D_OT_copy, BLENDA4D_OT_paste)
+classes = (BLENDA4D_OT_make_editable, BLENDA4D_OT_copy_for_drag, BLENDA4D_OT_m_keys, BLENDA4D_OT_edge_to_spline, BLENDA4D_OT_copy, BLENDA4D_OT_paste, BLENDA4D_OT_move_along_normal)
 
 
 def register():
     for c in classes:
         bpy.utils.register_class(c)
+    bpy.types.VIEW3D_MT_edit_mesh_context_menu.append(_edge_menu)
 
 
 def unregister():
+    bpy.types.VIEW3D_MT_edit_mesh_context_menu.remove(_edge_menu)
     for c in reversed(classes):
         bpy.utils.unregister_class(c)
