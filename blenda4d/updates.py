@@ -127,12 +127,12 @@ class BLENDA4D_OT_update(bpy.types.Operator):
     def execute(self, context):
         index, repo = _repo()
         if repo is None:
-            self.report({"WARNING"}, "Blenda 4D was not installed from the update list")
+            _tell(context, "Blenda 4D was installed from a file: get new versions at blenda4d.com", "ERROR")
             return {"CANCELLED"}
         # Blender's installer replaces Blenda 4D, this button included: it runs a moment later, once nothing of
         # Blenda 4D is running (installing from inside this button crashed Blender as the button was swapped out)
         bpy.app.timers.register(lambda: _install(index, _pkg_id()), first_interval=0.1)
-        self.report({"INFO"}, "Updating Blenda 4D: restart Blender when it says it is installed")
+        _tell(context, "Updating Blenda 4D: restart Blender when it is installed.", "IMPORT")
         return {"FINISHED"}
 
 
@@ -144,6 +144,18 @@ def start_check():
     bpy.app.timers.register(_check, first_interval=0.1)
 
 
+def _tell(context, text, icon="INFO", new=None):
+    """A small popup by the mouse (Blenda 4D's layout has no status bar for reports)."""
+    def draw(self, _context):
+        self.layout.label(text=text)
+        if new:
+            self.layout.operator("blenda4d.update", text=f"Update to {new}", icon="IMPORT")
+    try:
+        context.window_manager.popup_menu(draw, title="Blenda 4D", icon=icon)
+    except (RuntimeError, AttributeError):
+        pass
+
+
 class BLENDA4D_OT_check_updates(bpy.types.Operator):
     bl_idname = "blenda4d.check_updates"
     bl_label = "Check for Blenda 4D Updates"
@@ -152,15 +164,14 @@ class BLENDA4D_OT_check_updates(bpy.types.Operator):
     def invoke(self, context, event):
         index, repo = _repo()
         if repo is None:
-            self.report({"WARNING"}, "Blenda 4D was installed from a file: get new versions at blenda4d.com")
+            _tell(context, "Blenda 4D was installed from a file: get new versions at blenda4d.com", "ERROR")
             return {"CANCELLED"}
         if not bpy.app.online_access:
-            self.report({"WARNING"}, "Online access is off: turn on Preferences > System > Network > Allow Online Access")
+            _tell(context, "Online access is off: turn on Preferences > System > Network > Allow Online Access", "ERROR")
             return {"CANCELLED"}
         start_check()
         self._timer = context.window_manager.event_timer_add(0.5, window=context.window)
         context.window_manager.modal_handler_add(self)
-        self.report({"INFO"}, "Checking for Blenda 4D updates...")
         return {"RUNNING_MODAL"}
 
     def execute(self, context):
@@ -172,9 +183,9 @@ class BLENDA4D_OT_check_updates(bpy.types.Operator):
         context.window_manager.event_timer_remove(self._timer)
         new = available()
         if new:
-            self.report({"INFO"}, f"Blenda 4D {new} is available: use Update to {new} (top right, or in Blenda 4D's add-on settings)")
+            _tell(context, f"Blenda 4D {new} is available.", "IMPORT", new)
         else:
-            self.report({"INFO"}, f"Blenda 4D is up to date ({installed()})")
+            _tell(context, "You are up to date.", "CHECKMARK")
         for w in context.window_manager.windows:
             for a in w.screen.areas:
                 a.tag_redraw()
