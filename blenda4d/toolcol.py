@@ -40,9 +40,8 @@ def _icon_file(name):
     for f in os.listdir(icons.DIR):                       # Blenda's tinted copy first
         if f.startswith(name + "__") and f.endswith(".dat"):
             return os.path.join(icons.DIR, f)
-    v = "%d.%d" % bpy.app.version[:2]
-    p = os.path.join(os.path.dirname(bpy.app.binary_path), "..", "Resources", v, "datafiles", "icons", name + ".dat")
-    return p if os.path.exists(p) else None
+    from . import modeltools
+    return modeltools.blender_icon_file(name)               # Blender's own folder on every system
 
 
 def _load_geom(name):
