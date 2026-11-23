@@ -90,9 +90,13 @@ def areas(screen, name):
 
 def hide_nav(area, window=None):
     """A Properties editor's tab column can only be toggled with the operator."""
+    if window is None:
+        window = next((w for w in bpy.context.window_manager.windows if w.screen == area.id_data), None)
+        if window is None:                                 # no window shows it: Blender cannot lay a region out
+            return False
     for region in area.regions:
         if region.type == "NAVIGATION_BAR" and region.width > 1:
-            kw = {"window": window} if window is not None else {}
+            kw = {"window": window}
             with bpy.context.temp_override(area=area, region=region, **kw):
                 bpy.ops.screen.region_toggle(region_type="NAVIGATION_BAR")
             return True

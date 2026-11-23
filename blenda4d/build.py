@@ -150,14 +150,22 @@ def split_now(window, area, direction, size_px, side, size=None):
     return next(a for a in window.screen.areas if a.as_pointer() not in before)
 
 
-def role_now(area, name):
+def role_now(area, name, window=None):
     """The area becomes its role's editor in the same step it appears (no frame shows a stray editor)."""
     area.type = "PROPERTIES"
     roles.set_role(area, name)
     try:
-        roles.hide_nav(area)
+        roles.hide_nav(area, window or _window_of(area))
     except RuntimeError:
         pass
+
+
+def _window_of(area):
+    """The window showing this area's screen: Blender needs it to lay a region out (without it, it crashed on Windows)."""
+    for w in bpy.context.window_manager.windows:
+        if w.screen == area.id_data:
+            return w
+    return None
 
 
 def settle(window, *pairs):
@@ -175,10 +183,10 @@ def _add_column(window, width_px, side, main, bar):
     view = biggest_view(window.screen)
     # Blender makes the smaller part the new area: the column stays the smaller one, or it would land on the other side
     col = split_now(window, view, "VERTICAL", min(px(width_px) + EDGE, round(view.width * 0.45)), side)
-    role_now(col, main)
+    role_now(col, main, window)
     yield                                                  # Blender lays the column out before it can be split
     strip = split_now(window, col, "HORIZONTAL", px(MM_BAR_PX) + EDGE, "BOTTOM")
-    role_now(strip, bar)
+    role_now(strip, bar, window)
     yield
     yield from settle(window, (col, main), (strip, bar))
 

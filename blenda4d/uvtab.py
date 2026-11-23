@@ -162,6 +162,19 @@ class BLENDA4D_PG_uv(bpy.types.PropertyGroup):
 
 
 # --- the commands --------------------------------------------------------------------------------------------------------------
+def _flat(meshes, everything):
+    """Do the UVs worked on cover no area at all (all on one spot)?"""
+    for ob in meshes:
+        bm = bmesh.from_edit_mesh(ob.data)
+        lay = bm.loops.layers.uv.active
+        if lay is None:
+            continue
+        us = [lo[lay].uv[:] for f in bm.faces if (everything or f.select) and not f.hide for lo in f.loops]
+        if us and (max(u for u, _v in us) - min(u for u, _v in us) > 1e-6 or max(v for _u, v in us) - min(v for _u, v in us) > 1e-6):
+            return False
+    return True
+
+
 def _op(name, **kw):
     mod, op = name.split(".")
     return getattr(getattr(bpy.ops, mod), op)("EXEC_DEFAULT", False, **kw)
@@ -331,6 +344,9 @@ class BLENDA4D_OT_uv_do(bpy.types.Operator):
             if not ob.data.uv_layers:
                 ob.data.uv_layers.new(name="UVMap")
         everything = c[5] and not any(ob.data.total_face_sel for ob in meshes)
+        if self.what in {"PACK", "AVERAGE", "MAX", "FIT"} and _flat(meshes, everything):
+            self.report({"INFO"}, f"{c[0]}: the UVs lie on one spot; unwrap them first")   # Blender itself can crash on these
+            return {"CANCELLED"}
         area = build.biggest_view(context.screen) if c[4] == "VIEW" else editor(context.screen)
         try:
             with context.temp_override(window=context.window, area=area, region=_region(area)):
