@@ -60,9 +60,11 @@ def _props():
     O.b4d_fx_pos_on = P.BoolProperty(name="Position", default=True, update=_live, description="Move the clones")
     O.b4d_fx_pos = P.FloatVectorProperty(name="P", size=3, default=(0.0, 50.0, 0.0), update=_live, description="How far to move them (cm)")
     O.b4d_fx_scale_on = P.BoolProperty(name="Scale", default=False, update=_live, description="Scale the clones")
-    O.b4d_fx_scale = P.FloatVectorProperty(name="S", size=3, default=(0.0, 0.0, 0.0), update=_live, description="How much to scale them (%: 100 = twice the size)")
+    O.b4d_fx_scale = P.FloatVectorProperty(name="S", size=3, default=(100.0, 100.0, 100.0), soft_min=0.0, soft_max=200.0, update=_live,
+                                           description="The clones' size in %: 100 is their own size, 0 makes them vanish, 200 doubles them")
     O.b4d_fx_uniform = P.BoolProperty(name="Uniform Scale", default=False, update=_live, description="One scale for all three axes")
-    O.b4d_fx_uscale = P.FloatProperty(name="Scale", default=0.0, update=_live, description="How much to scale them on all axes (%)")
+    O.b4d_fx_uscale = P.FloatProperty(name="Scale", default=100.0, soft_min=0.0, soft_max=200.0, update=_live,
+                                      description="The clones' size on all axes in %: 100 is their own size, 0 makes them vanish, 200 doubles them")
     O.b4d_fx_rot_on = P.BoolProperty(name="Rotation", default=False, update=_live, description="Turn the clones")
     O.b4d_fx_rot = P.FloatVectorProperty(name="R", size=3, default=(0.0, 0.0, 0.0), update=_live, description="How far to turn them (degrees)")
     O.b4d_fx_color_mode = P.EnumProperty(name="Color Mode", items=fx.COLOR_MODES, default="OFF", update=_live, description="How the effector colours the clones")
@@ -106,6 +108,27 @@ DEFAULTS = {"fx_random": {"b4d_fx_pos": (50.0, 50.0, 50.0)},
             "fx_time": {"b4d_fx_pos_on": False, "b4d_fx_rot_on": True, "b4d_fx_rot": (0.0, 90.0, 0.0)}}
 
 
+SCALE_PCT = "b4d_fx_scale_pct"
+
+
+def _convert_scale():
+    """Effectors from 0.1.30 to 0.1.34 kept Scale as a change (0 = as it is, -100 = gone); it is now the clone's size
+    in % (100 = as it is, 0 = gone). A value that was set moves up by 100 once, so the clones look the same."""
+    for ob in bpy.data.objects:
+        if not fx.is_effector(ob) or ob.get(SCALE_PCT):
+            continue
+        if ob.is_property_set("b4d_fx_scale"):              # never set: it reads the new default, 100
+            ob.b4d_fx_scale = [c + 100.0 for c in ob.b4d_fx_scale]
+        if ob.is_property_set("b4d_fx_uscale"):
+            ob.b4d_fx_uscale = ob.b4d_fx_uscale + 100.0
+        ob[SCALE_PCT] = 1
+
+
+@bpy.app.handlers.persistent
+def _loaded(*_args):
+    _convert_scale()
+
+
 def create(context, k):
     from .primitives import tidy_name
     label = (fx.EFFECTORS.get(k) or fx.FIELDS.get(k))[0]
@@ -114,6 +137,7 @@ def create(context, k):
     ob.empty_display_type = "PLAIN_AXES"
     ob.empty_display_size = 0.15
     ob["b4d_type"] = k
+    ob[SCALE_PCT] = 1                                       # Scale is in % of the clone's size (see _convert_scale)
     context.collection.objects.link(ob)
     tidy_name(ob)
     for attr, v in DEFAULTS.get(k, {}).items():
@@ -318,10 +342,10 @@ def page_parameter(col, ob):
     sub = c.column(align=True); sub.active = ob.b4d_fx_scale_on
     sub.prop(ob, "b4d_fx_uniform")
     if ob.b4d_fx_uniform:
-        sub.prop(ob, "b4d_fx_uscale", text="S")
+        sub.prop(ob, "b4d_fx_uscale", text="S %")
     else:
         for i, a in enumerate("XYZ"):
-            sub.prop(ob, "b4d_fx_scale", index=i, text=f"S . {a}")
+            sub.prop(ob, "b4d_fx_scale", index=i, text=f"S % . {a}")
     c.separator()
     c.prop(ob, "b4d_fx_rot_on")
     sub = c.column(align=True); sub.active = ob.b4d_fx_rot_on
@@ -534,10 +558,18 @@ def register():
         managers.OM_DROP.append(drop)
     if _handle is None:
         _handle = bpy.types.SpaceView3D.draw_handler_add(_draw, (), "WINDOW", "POST_VIEW")
+    if _loaded not in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.append(_loaded)
+    try:
+        _convert_scale()                                    # the file open while Blenda starts
+    except AttributeError:
+        pass
 
 
 def unregister():
     global _handle
+    if _loaded in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.remove(_loaded)
     if _handle is not None:
         bpy.types.SpaceView3D.draw_handler_remove(_handle, "WINDOW")
         _handle = None

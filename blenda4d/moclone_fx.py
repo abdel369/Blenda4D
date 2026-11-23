@@ -250,12 +250,13 @@ def falloff(nodes, links, eff):
 # --- effectors ----------------------------------------------------------------------------------------------------
 
 def _params(nodes, links, e):
-    """The Parameter tab: position (cm), scale (fraction, 0 = no change), rotation (radians), as Blender vectors."""
+    """The Parameter tab: position (cm), scale, rotation (radians), as Blender vectors. Scale is set as a percentage of
+    the clone's own size (100 = as it is, 0 = gone, 200 = twice); here it becomes the change from 100 (0 = none)."""
     pos = gc.vmath(nodes, links, "SCALE", _vec(nodes, links, e, "b4d_fx_pos", "var*0.01"), scale=_driven(nodes, e, "b4d_fx_pos_on"))
     uni = _driven(nodes, e, "b4d_fx_uniform")
-    us = _driven(nodes, e, "b4d_fx_uscale", "var*0.01")
+    us = _driven(nodes, e, "b4d_fx_uscale", "(var-100)*0.01")
     sc = gc.switch(nodes, links, "VECTOR", _math(nodes, "GREATER_THAN", uni, 0.5, links),
-                   _vec(nodes, links, e, "b4d_fx_scale", "var*0.01"), gc.combine(nodes, links, us, us, us))
+                   _vec(nodes, links, e, "b4d_fx_scale", "(var-100)*0.01"), gc.combine(nodes, links, us, us, us))
     sc = gc.vmath(nodes, links, "SCALE", sc, scale=_driven(nodes, e, "b4d_fx_scale_on"))
     rot = gc.vmath(nodes, links, "SCALE", _vec(nodes, links, e, "b4d_fx_rot", f"var*{math.pi / 180.0!r}"), scale=_driven(nodes, e, "b4d_fx_rot_on"))
     return pos, sc, rot
@@ -268,6 +269,7 @@ def _apply_transform(nodes, links, geo, w, pos, sc, rot):
     sp = nodes.new("GeometryNodeSetPosition"); links.new(geo, sp.inputs["Geometry"]); links.new(rv.outputs[0], sp.inputs["Offset"])
     geo = sp.outputs["Geometry"]
     grow = gc.vmath(nodes, links, "ADD", gc.combine(nodes, links, 1.0, 1.0, 1.0), gc.vmath(nodes, links, "SCALE", sc, scale=w))
+    grow = gc.vmath(nodes, links, "MAXIMUM", grow, (0.0, 0.0, 0.0))     # a clone shrinks to nothing, never inside out
     geo = _store(nodes, links, geo, "b4d_scale", "FLOAT_VECTOR", gc.vmath(nodes, links, "MULTIPLY", _attr(nodes, "b4d_scale", "FLOAT_VECTOR"), grow))
     rr = nodes.new("FunctionNodeRotateRotation"); rr.rotation_space = "LOCAL"
     links.new(q, rr.inputs["Rotation"]); links.new(_euler(nodes, links, gc.vmath(nodes, links, "SCALE", rot, scale=w)), rr.inputs["Rotate By"])
