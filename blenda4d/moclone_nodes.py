@@ -345,7 +345,14 @@ def _object_points(nodes, links, o):
     straight = nodes.new("FunctionNodeEulerToRotation")
     rot = gc.switch(nodes, links, "ROTATION", o["Align Clone"], straight.outputs[0], al.outputs[0])
     pts = _store(nodes, links, pts, "b4d_rot_q", "QUATERNION", rot)
-    return pts
+    # a spline: Count clones spread evenly along it (Axis: one at its origin), turned along the spline with Align Clone
+    c2p = nodes.new("GeometryNodeCurveToPoints"); c2p.mode = "COUNT"
+    links.new(info.outputs["Geometry"], c2p.inputs["Curve"]); links.new(o["Object Count"], c2p.inputs["Count"])
+    along = gc.switch(nodes, links, "ROTATION", o["Align Clone"], nodes.new("FunctionNodeEulerToRotation").outputs[0], c2p.outputs["Rotation"])
+    on_curve = _store(nodes, links, c2p.outputs["Points"], "b4d_rot_q", "QUATERNION", along)
+    is_axis = _math(nodes, "GREATER_THAN", o["Distribution"], 4.5, links)
+    on_curve = gc.switch(nodes, links, "GEOMETRY", is_axis, on_curve, nodes.new("GeometryNodeJoinGeometry").outputs[0])
+    return gc.join(nodes, links, [pts, on_curve])
 
 
 # --- the clones ----------------------------------------------------------------------------------------------------

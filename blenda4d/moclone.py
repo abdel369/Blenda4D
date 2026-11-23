@@ -20,6 +20,11 @@ def _mode(v):
     return v("Mode")
 
 
+def _on_spline(v):
+    ob = v("Object")
+    return ob is not None and getattr(ob, "type", "") == "CURVE"
+
+
 def _mode_rows(cloner):
     rows = [("Mode", "Mode")]
     if cloner:
@@ -28,7 +33,7 @@ def _mode_rows(cloner):
              # Object
              ("Object", "Object", lambda v: _mode(v) == "Object"),
              ("Distribution", "Distribution", lambda v: _mode(v) == "Object"),
-             ("Object Count", "Count", lambda v: _mode(v) == "Object" and v("Distribution") in ("Surface", "Volume")),
+             ("Object Count", "Count", lambda v: _mode(v) == "Object" and (v("Distribution") in ("Surface", "Volume") or _on_spline(v))),
              ("Align Clone", "Align Clone", lambda v: _mode(v) == "Object"),
              # Linear
              ("Count", "Count", lambda v: _mode(v) == "Linear"), ("Offset", "Offset", lambda v: _mode(v) == "Linear"),
