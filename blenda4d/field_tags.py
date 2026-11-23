@@ -265,6 +265,27 @@ def _sync(scene, depsgraph=None):
         _busy[0] = False
 
 
+_pending = [False]
+
+
+@bpy.app.handlers.persistent
+def _on_update(scene, depsgraph=None):
+    """Blender's update handlers must not add objects or evaluate the scene (Blender 5.2 crashes): the work is done
+    from a timer, right after the update."""
+    if _pending[0] or _busy[0]:
+        return
+    _pending[0] = True
+
+    def run():
+        _pending[0] = False
+        try:
+            _sync(bpy.context.scene)
+        except Exception as ex:
+            print("Blenda 4D:", __name__, ex)
+        return None
+    bpy.app.timers.register(run, first_interval=0.0)
+
+
 # --- pages -----------------------------------------------------------------------------------------------------------
 
 def page(col, ob, key):
@@ -422,7 +443,9 @@ def register():
         tag_pages.EXTRA_PAGES[key] = (lambda key: lambda col, ob: page(col, ob, key))(key)
     if drop not in managers.OM_DROP:
         managers.OM_DROP.insert(0, drop)
-    for h in (bpy.app.handlers.depsgraph_update_post, bpy.app.handlers.frame_change_post, bpy.app.handlers.load_post):
+    if _on_update not in bpy.app.handlers.depsgraph_update_post:
+        bpy.app.handlers.depsgraph_update_post.append(_on_update)
+    for h in (bpy.app.handlers.frame_change_post, bpy.app.handlers.load_post):
         if _sync not in h:
             h.append(_sync)
 
@@ -430,8 +453,9 @@ def register():
 def unregister():
     from . import managers, om_menu, tag_pages
     for h in (bpy.app.handlers.depsgraph_update_post, bpy.app.handlers.frame_change_post, bpy.app.handlers.load_post):
-        if _sync in h:
-            h.remove(_sync)
+        for fn in (_sync, _on_update):
+            if fn in h:
+                h.remove(fn)
     if drop in managers.OM_DROP:
         managers.OM_DROP.remove(drop)
     for key in SPECS:

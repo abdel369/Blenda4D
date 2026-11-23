@@ -478,6 +478,27 @@ def _sync(scene, depsgraph=None):
         bpy.data.objects.remove(ob)                       # the Cloner went or lost its tag
 
 
+_pending = [False]
+
+
+@bpy.app.handlers.persistent
+def _on_update(scene, depsgraph=None):
+    """Blender's update handlers must not add objects or evaluate the scene (Blender 5.2 crashes): the work is done
+    from a timer, right after the update."""
+    if _pending[0] or _busy[0]:
+        return
+    _pending[0] = True
+
+    def run():
+        _pending[0] = False
+        try:
+            _sync(bpy.context.scene)
+        except Exception as ex:
+            print("Blenda 4D:", __name__, ex)
+        return None
+    bpy.app.timers.register(run, first_interval=0.0)
+
+
 def _changed(self, context):
     for ob in bodies(self):
         _settings(self, ob)
@@ -534,16 +555,17 @@ def register():
     O.b4d_dyn_follow = P.FloatProperty(name="Follow Position", default=100.0, min=0.0, max=1000.0, soft_max=100.0, subtype="PERCENTAGE",
                                        update=_restart, description="How firmly each clone holds its place before the field loosens it")
     O.b4d_dyn_dynamic = P.BoolProperty(name="Dynamic", default=True, update=_changed, description="Clones move with the simulation")
-    if _sync not in bpy.app.handlers.depsgraph_update_post:
-        bpy.app.handlers.depsgraph_update_post.append(_sync)
-    if _sync not in bpy.app.handlers.frame_change_post:
-        bpy.app.handlers.frame_change_post.append(_sync)
+    if _on_update not in bpy.app.handlers.depsgraph_update_post:
+        bpy.app.handlers.depsgraph_update_post.append(_on_update)
+    if _on_update not in bpy.app.handlers.frame_change_post:
+        bpy.app.handlers.frame_change_post.append(_on_update)
 
 
 def unregister():
     for h in (bpy.app.handlers.depsgraph_update_post, bpy.app.handlers.frame_change_post):
-        if _sync in h:
-            h.remove(_sync)
+        for fn in (_sync, _on_update):
+            if fn in h:
+                h.remove(fn)
     for n in PROPS:
         if hasattr(bpy.types.Object, n):
             delattr(bpy.types.Object, n)
