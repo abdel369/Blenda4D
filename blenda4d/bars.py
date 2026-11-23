@@ -291,9 +291,10 @@ def view_tabs(self, context):
     row = layout.row(align=True)
     row.alignment = "LEFT"
     docked = bool(roles.areas(context.screen, "RENDER"))
-    row.operator("blenda4d.view_tab", text="View", depress=not docked)
+    viewer = bool(roles.areas(context.screen, "PV_TOP"))
+    row.operator("blenda4d.view_tab", text="View", depress=not docked and not viewer)
     row.operator("blenda4d.render_settings", text="Render Settings", depress=docked)
-    row.operator("render.view_show", text="Render Viewer")
+    row.operator("blenda4d.render_viewer", text="Render Viewer", depress=viewer)
 
 
 def properties_header(self, context):

@@ -25,7 +25,6 @@ TABS = {
 }
 UNDER = ("", "KEYS", "SHADER", "COMPOSITE", "GEOMETRY")    # what can be open under the viewport
 OLD_NAMES = {"Standard": DEFAULT}                          # the built-in layout's name before the tabs
-_last = [None]                                             # the window size each column was last put right for
 
 
 # --- the files: saved layouts, the startup layout, the lock -------------------------------------------------------
@@ -450,44 +449,7 @@ def _redraw():
             a.tag_redraw()
 
 
-# --- the tools and create columns keep their width when the window is resized --------------------------------------
-_handles = []
 _keymaps = []
-
-
-def _watch():
-    from . import build
-    ctx = bpy.context
-    area, window = ctx.area, ctx.window
-    if area is None or window is None or ctx.region.type != "WINDOW" or roles.role(area) != "MODES" or build.busy():
-        return
-    size = (window.as_pointer(), window.width, window.height)
-    if abs(area.width - build.side_px()) <= 6 or _last[0] == size or bpy.app.timers.is_registered(_settled):
-        return
-    _state.update(size=size, window=window)
-    bpy.app.timers.register(_settled, first_interval=0.5)
-
-
-_state = {"size": None, "window": None}
-
-
-def _settled():
-    """The window has kept its size for half a second: build the columns and editors at their own sizes again."""
-    from . import build
-    window = _state["window"]
-    try:
-        size = (window.as_pointer(), window.width, window.height)
-        if size != _state["size"]:
-            _state["size"] = size
-            return 0.5
-        if build.busy():
-            return 0.5
-        _last[0] = size
-        if roles.areas(window.screen, "MODES"):
-            build.run_steps(build.renew_steps(window))
-    except ReferenceError:
-        pass
-    return None
 
 
 classes = (BLENDA4D_OT_layout_use, BLENDA4D_OT_layout_save, BLENDA4D_OT_layout_rename, BLENDA4D_OT_layout_delete,
@@ -499,7 +461,6 @@ def register():
     _cache.clear()
     for c in classes:
         bpy.utils.register_class(c)
-    _handles.append(bpy.types.SpaceProperties.draw_handler_add(_watch, (), "WINDOW", "POST_PIXEL"))
     kc = bpy.context.window_manager.keyconfigs.addon
     if kc:
         km = kc.keymaps.new(name="Screen Editing", space_type="EMPTY", region_type="WINDOW")
@@ -513,9 +474,5 @@ def unregister():
         except (ReferenceError, RuntimeError):
             pass
     _keymaps.clear()
-    while _handles:
-        bpy.types.SpaceProperties.draw_handler_remove(_handles.pop(), "WINDOW")
-    if bpy.app.timers.is_registered(_settled):
-        bpy.app.timers.unregister(_settled)
     for c in reversed(classes):
         bpy.utils.unregister_class(c)

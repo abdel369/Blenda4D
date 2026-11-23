@@ -154,7 +154,7 @@ MAIN = {
     "Tracker": [item("Motion Tracker")],
     "Render": [item("Render View", "blenda4d.render_still", "RENDER_STILL"), item("Render to Render Viewer", "blenda4d.render", "RENDER_RESULT"),
                item("Render Animation", "blenda4d.render", "RENDER_ANIMATION", animation=True), SEP,
-               item("Render Viewer", "render.view_show", "IMAGE"), item("Render Settings...", "blenda4d.render_settings", "SCENE"), SEP],
+               item("Render Viewer", "blenda4d.render_viewer", "IMAGE"), item("Render Settings...", "blenda4d.render_settings", "SCENE"), SEP],
     "Add-ons": [item("Get Extensions...", "screen.userpref_show", "PLUGIN", section="EXTENSIONS"),
                 item("Add-on Preferences...", "screen.userpref_show", "PREFERENCES", section="ADDONS"),
                 item("Check for Blenda 4D Updates...", "blenda4d.check_updates", "FILE_REFRESH"), SEP,

@@ -130,17 +130,27 @@ def _area_of(context, sp):
 class BLENDA4D_OT_render_still(bpy.types.Operator):
     bl_idname = "blenda4d.render_still"
     bl_label = "Render"
-    bl_description = "Render the current frame and show it in a render window"
+    bl_description = "Render the current frame and show it in the Render Viewer"
     use_viewport: bpy.props.BoolProperty(default=False, options={"SKIP_SAVE"})
 
     @classmethod
     def description(cls, context, properties):
         if properties.use_viewport:
-            return "Render the current frame as this viewport sees it, and show it in a render window"
-        return "Render the current frame through the scene camera, and show it in a render window"
+            return "Render the current frame as this viewport sees it, and show it in the Render Viewer"
+        return "Render the current frame through the scene camera, and show it in the Render Viewer"
 
     def execute(self, context):
-        return bpy.ops.render.render("INVOKE_DEFAULT", use_viewport=self.use_viewport)
+        from . import viewer
+        if bpy.app.is_job_running("RENDER"):
+            return {"CANCELLED"}
+        scene = context.scene
+        viewer.begin(scene, scene.frame_current, scene.frame_current, False)
+        try:
+            return bpy.ops.render.render("INVOKE_DEFAULT", use_viewport=self.use_viewport, write_still=True)
+        except RuntimeError as ex:
+            viewer.failed()
+            self.report({"ERROR"}, str(ex))
+            return {"CANCELLED"}
 
 
 class BLENDA4D_OT_use_camera(bpy.types.Operator):

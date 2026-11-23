@@ -79,7 +79,8 @@ def _region(area, kind):
 
 
 def _ov(window, area, region="WINDOW"):
-    return bpy.context.temp_override(window=window, screen=window.screen, area=area, region=_region(area, region))
+    kw = {} if window.screen.is_temporary else {"screen": window.screen}      # Blender refuses one of a small window
+    return bpy.context.temp_override(window=window, area=area, region=_region(area, region), **kw)
 
 
 def biggest_view(screen):
@@ -116,7 +117,7 @@ def make_role(window, area, name):
             break
         area.tag_redraw()
         yield
-    roles.hide_nav(area)
+    roles.hide_nav(area, window)
     yield
     if name in TOOL_ZOOM:
         _zoom(window, area, TOOL_ZOOM[name])
@@ -367,6 +368,8 @@ def dock_steps(window, on):
     cols = {n: bool(roles.areas(screen, n)) for n in COLUMNS}
     render_settings.show_view(screen)
     yield
+    from . import viewer
+    yield from viewer.leave_steps(window)
     four = len(quadview.views(screen)) > 1
     if four:
         yield from quadview.expand_steps(window, _persp(screen))
@@ -415,6 +418,8 @@ def switch_steps(window, name):
     old, new = layouts.spec_of(screen), layouts.spec(name)
     render_settings.show_view(screen)                     # Render Settings in the viewport's place: viewport back first
     yield
+    from . import viewer
+    yield from viewer.leave_steps(window)
     whole = intact(screen) and not drifted(screen, new["sizes"])
     layouts.set_current(ws, name)
     views = quadview.views(screen)
@@ -450,6 +455,9 @@ def column_steps(window, name, on):
     screen = window.screen
     from . import layouts, quadview
     add = COLUMNS[name][0]
+    from . import viewer
+    again = viewer.docked(window)
+    yield from viewer.leave_steps(window)
     spec = layouts.spec_of(screen)
     four = len(quadview.views(screen)) > 1
     if four:                                               # beside all four views, not inside one of them
@@ -468,6 +476,8 @@ def column_steps(window, name, on):
                          assets=bool(roles.areas(screen, "ASSETS")) if name != "ASSETS" else on)
     if four:
         yield from quadview.split_steps(window)
+    if again:                                              # the Render Viewer was in the viewport's place: again beside it
+        yield from viewer.dock_steps(window)
     for a in screen.areas:
         a.tag_redraw()
 
@@ -478,6 +488,8 @@ def steps(window, materials=False, assets=False, spec=None):
     spec = spec or layouts.spec_of(screen)
     sizes = spec["sizes"]
     render_settings.show_view(screen)                     # Render Settings in the viewport's place: viewport back first
+    from . import viewer
+    yield from viewer.leave_steps(window)
     # 1. everything back into one viewport
     for _ in range(40):
         extra = [a for a in screen.areas if a.type != "VIEW_3D"] + \
@@ -591,6 +603,10 @@ def _renew_timeline(window, done, spec):
 
 def rebuild(window, done=None, force=False, spec=None):
     """Build the window's layout; a layout that is already all there is only tidied (no area moves)."""
+    from . import viewer
+    if viewer.docked(window):                              # saved with the Render Viewer in the viewport's place
+        run_steps(viewer.leave_steps(window), lambda: rebuild(window, done, force, spec))
+        return
     if not force and old_timelines(window.screen):        # a layout from before 0.1.23: the new strip in the old one's place
         run_steps(_renew_timeline(window, done, spec))
         return

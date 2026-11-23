@@ -720,12 +720,20 @@ class BLENDA4D_OT_render(bpy.types.Operator):
 
     def execute(self, context):
         scene = context.scene
+        if bpy.app.is_job_running("RENDER"):
+            self.report({"INFO"}, "A render is running")
+            return {"CANCELLED"}
         prepare(scene, self.animation)
-        save = scene.b4d_render.save and not self.animation
+        keep = scene.b4d_render.save or self.animation       # animations are always written
+        from . import viewer
+        if not bpy.app.background:
+            first, last = (scene.frame_start, scene.frame_end) if self.animation else (scene.frame_current,) * 2
+            viewer.begin(scene, first, last, keep)
         try:
             res = bpy.ops.render.render("EXEC_DEFAULT" if bpy.app.background else "INVOKE_DEFAULT",
-                                        animation=self.animation, write_still=save)
+                                        animation=self.animation, write_still=not self.animation and (keep or not bpy.app.background))
         except RuntimeError as ex:
+            viewer.failed()
             _restore()
             self.report({"ERROR"}, str(ex))
             return {"CANCELLED"}
@@ -751,6 +759,13 @@ class BLENDA4D_OT_render_settings(bpy.types.Operator):
         ensure(context.scene)
         wm = context.window_manager
         ensure_pages(wm)
+        if roles.areas(context.screen, "PV_TOP") and roles.areas(context.screen, "OBJECTS"):      # the Render Viewer is there
+            from . import build, viewer
+            if build.busy():
+                return {"CANCELLED"}
+            win = context.window
+            build.run_steps(viewer.leave_steps(win), done=lambda: dock(win))
+            return {"FINISHED"}
         if roles.areas(context.screen, "OBJECTS"):           # Blenda's layout: in the viewport's place, under its tabs
             return {"FINISHED"} if dock(context.window) else {"CANCELLED"}
         old = _window_with_role(context)
@@ -840,6 +855,11 @@ class BLENDA4D_OT_view_tab(bpy.types.Operator):
 
     def execute(self, context):
         show_view(context.screen)
+        if roles.areas(context.screen, "PV_TOP"):
+            from . import build, viewer
+            if build.busy():
+                return {"CANCELLED"}
+            build.run_steps(viewer.leave_steps(context.window))
         return {"FINISHED"}
 
 

@@ -28,7 +28,22 @@ ROLE_FLAGS = {
     "OM_BAR": "show_properties_output",
     "OM_HEAD": "show_properties_view_layer",
     "AB_BAR": "show_properties_bone",
+    # all the single tab flags are taken: these three have two
+    "PV_TOP": ("show_properties_output", "show_properties_scene"),
+    "PV_SIDE": ("show_properties_output", "show_properties_bone"),
+    "PV_BOTTOM": ("show_properties_scene", "show_properties_bone"),
 }
+_by_flags = {}
+
+
+def _named(space):
+    """The role whose flags, and no others of Blenda's, are on."""
+    if _by_flags.get("count") != len(ROLE_FLAGS):
+        _by_flags.clear()
+        _by_flags["all"] = sorted({f for v in ROLE_FLAGS.values() for f in (v if isinstance(v, tuple) else (v,))})
+        _by_flags["names"] = {frozenset(v if isinstance(v, tuple) else (v,)): n for n, v in ROLE_FLAGS.items()}
+        _by_flags["count"] = len(ROLE_FLAGS)
+    return _by_flags["names"].get(frozenset(f for f in _by_flags["all"] if getattr(space, f, False)))
 
 
 def _flags(space):
@@ -45,11 +60,9 @@ def role(area):
         return None
     if space.show_region_header:               # only Render Settings, shown in the viewport's place, keeps its header:
         if getattr(space, "show_properties_render", False) and "RENDER" in ROLE_FLAGS:   # the viewport's tab row
-            on = [name for name, flag in ROLE_FLAGS.items() if getattr(space, flag, False)]
-            return "RENDER" if on == ["RENDER"] else None
+            return "RENDER" if _named(space) == "RENDER" else None
         return None
-    on = [name for name, flag in ROLE_FLAGS.items() if getattr(space, flag, False)]
-    return on[0] if len(on) == 1 else None
+    return _named(space)
 
 
 def role_of(context):
@@ -62,8 +75,10 @@ def set_role(area, name):
         space.context = "TOOL"
     except TypeError:
         pass
+    mine = ROLE_FLAGS.get(name)
+    mine = mine if isinstance(mine, tuple) else (mine,)
     for flag in _flags(space):
-        setattr(space, flag, flag == "show_properties_tool" or flag == ROLE_FLAGS.get(name))
+        setattr(space, flag, flag == "show_properties_tool" or flag in mine)
     space.show_region_header = False
     return space.context == "TOOL"
 
