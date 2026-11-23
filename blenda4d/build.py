@@ -273,11 +273,11 @@ def add_assets(window):
     yield from _add_column(window, _width(window, "assets", ASSETS_PX + toolcol.WIDTH) - toolcol.WIDTH + tools, "LEFT", "ASSETS", "AB_BAR")
 
 
-def add_materials(window):
+def add_materials(window, own_create=True):
     """The Material Manager column between the viewport and the create column, with its bottom strip. Where the create
     column is still the viewport's own strip, it first becomes a column of its own at the right edge."""
 
-    if not roles.areas(window.screen, "CREATE"):
+    if own_create and not roles.areas(window.screen, "CREATE"):   # four views lay out their own create column
         create = yield from split(window, biggest_view(window.screen), "VERTICAL", px(CREATE_PX) + EDGE, "RIGHT")
         yield from make_role(window, create, "CREATE")
         for a in window.screen.areas:
@@ -327,8 +327,6 @@ def intact(screen):
         return False
     if any(len(roles.areas(screen, r)) != keys for r in ("TL_BAR", "TL_EDIT")) or (stacked and len(roles.areas(screen, "CREATE")) != 1):
         return False
-    if roles.areas(screen, "MATERIALS") and not roles.areas(screen, "CREATE"):
-        return False                                       # the Material Manager sits left of the create column's own area
     if not any(a.type == "VIEW_3D" for a in screen.areas) or len(roles.areas(screen, "TIMELINE")) != spec["timeline"]:
         return False
     if old_timelines(screen):
@@ -579,7 +577,7 @@ def column_steps(window, name, on):
         yield from remove_stack(window)
         yield from add_stack(window, spec, want["MATERIALS"], want["ASSETS"])
     elif on:
-        yield from add(window)
+        yield from (add(window, own_create=not four) if name == "MATERIALS" else add(window))
     else:                                                  # with four views their create column stays as it is
         yield from remove_column(window, name, fold=not four)
     if not intact(screen):                                 # the change did not land as planned: build it all
