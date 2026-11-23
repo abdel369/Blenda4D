@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Tags that fields can drive, as in C4D: Vertex Map, Vertex Color, Point / Edge / Polygon Selection and Normal (Other
+"""Tags that fields can drive: Vertex Map, Vertex Color, Point / Edge / Polygon Selection and Normal (Other
 Tags, with Transfer: Off or Fields), MoClone Weightmap and MoClone Selection (MoClone Tags, with Use Fields) and Field
 Driver (Animation Tags, always fields).
 

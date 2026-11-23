@@ -221,7 +221,7 @@ def make_editable(context, gen):
     k = generators.kind(gen)
     if k is None:
         return False
-    if k == "cloner":                                   # a Null with each clone as its own object, as C4D does
+    if k == "cloner":                                   # a Null with each clone as its own object
         from . import moclone
         return moclone.make_editable(context, gen)
     if k in generators.NODE_KINDS:
