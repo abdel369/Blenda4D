@@ -72,8 +72,9 @@ def gval(ob, name):
 
 
 def kids_of(gen):
-    """Children in Object Manager order (by name, as the Object Manager lists them)."""
-    return sorted(gen.children, key=lambda c: c.name)
+    """Children in Object Manager order: where they were dropped, else by name."""
+    from .managers import om_key
+    return sorted((c for c in gen.children if not c.get("b4d_internal")), key=om_key)
 
 
 def generator_of(ob, want):
