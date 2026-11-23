@@ -124,6 +124,23 @@ def create(context, k):
     else:
         for e in [o for o in sel if fx.is_effector(o)]:                     # a selected effector takes the field
             add_field(e, ob)
+        subject = getattr(context.window_manager, "b4d_am_subject", "")
+        if subject.startswith("OTAG:"):                                     # made from a tag's page: it joins that page's list
+            name, _s, key = subject[5:].rpartition(":")
+            owner = bpy.data.objects.get(name)
+            if owner is not None and key == "RIGID" and owner.get("b4d_type") in MOGENS:
+                add_field(owner, ob)
+                owner.pop("b4d_dyn_sig", None)
+            elif owner is not None:
+                from . import field_tags
+                _i, t = field_tags.entry(owner, key) if key in field_tags.SPECS else (None, None)
+                if t is not None:
+                    it = t.fields.add(); it.obj = ob
+                    if field_tags.SPECS[key][4]:
+                        t.transfer = "FIELDS"
+                    else:
+                        t.use_fields = True
+                    field_tags._touch(owner)
     return ob
 
 

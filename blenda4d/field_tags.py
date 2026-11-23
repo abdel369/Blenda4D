@@ -303,6 +303,7 @@ def _field_list(col, ob, i, t):
     box.use_property_split = False
     if not len(t.fields):
         box.label(text="Drag fields here from the Object Manager", icon="INFO")
+    col.menu("BLENDA4D_MT_field_add", text="Add Field", icon="ADD")
     for j, it in enumerate(t.fields):
         line = box.row(align=True)
         split = line.split(factor=0.62, align=True)

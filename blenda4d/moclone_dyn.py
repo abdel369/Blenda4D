@@ -510,8 +510,9 @@ def page(col, gen):
     c.prop(gen, "b4d_dyn_bounce", text="Bounce", slider=True)
     c.prop(gen, "b4d_dyn_shape", text="Shape")
     c.separator()
-    c.label(text="Each clone is its own body. Change the Cloner at the first frame;", icon="INFO")
-    c.label(text="play to simulate. Objects with a Collider Body tag are hit.")
+    c.label(text="Each clone is its own body.", icon="INFO")
+    c.label(text="Change the Cloner at the first frame, then play.")
+    c.label(text="Collider Body objects are hit.")
 
 
 def _restart(self, context):
