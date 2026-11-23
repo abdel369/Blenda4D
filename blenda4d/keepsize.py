@@ -22,13 +22,25 @@ STRIPS = (("DOC_TABS", build.DOC_TABS_PX, "BOTTOM"), ("PALETTE", build.PALETTE_P
           ("PV_TOP", None, "BOTTOM"), ("TIMELINE", build.TIMELINE_PX, "TOP"), ("PV_BOTTOM", None, "TOP"), ("TL_BAR", None, "BOTTOM"),
           ("OM_HEAD", build.OM_HEAD_PX, "BOTTOM"), ("OM_BAR", build.MM_BAR_PX, "TOP"), ("MM_BAR", build.MM_BAR_PX, "TOP"), ("AB_BAR", build.MM_BAR_PX, "TOP"), ("UV_BAR", build.UV_BAR_PX, "TOP"))
 #          column: (its width when fixed, the edge that moves), from the window's edges inwards
-COLUMNS = (("OBJECTS", 0, "LEFT"), ("MATERIALS", 0, "LEFT"), ("CREATE", build.CREATE_PX, "LEFT"), ("MODES", None, "RIGHT"),
+COLUMNS = (("OBJECTS", 0, "LEFT"), ("CREATE", build.CREATE_PX, "LEFT"), ("MATERIALS", 0, "LEFT"), ("MODES", None, "RIGHT"),
            ("ASSETS", 0, "RIGHT"), ("ND_LIST", 0, "RIGHT"), ("PV_SIDE", 0, "LEFT"))
 LISTEN = 0.5                 # seconds after a new size in which the next one is expected
 LEAST = 90                   # pixels at scale 1: the least that is left of a panel that gives way
 _seen = {}                   # window -> {"state", "widths"}
 _later = {}
 _handles = []
+
+
+def _columns(screen):
+    """COLUMNS outermost first, by where they are now: a column's own edge is moved only after the ones outside it
+    (the create column and the Material Manager change places with four views)."""
+    def key(entry):
+        name, _px, edge = entry
+        a = _one(screen, name)
+        if a is None:
+            return (2, 0)
+        return (0, -a.x) if edge == "LEFT" else (1, a.x)
+    return sorted(COLUMNS, key=key)
 
 
 def _height(name, px):
@@ -67,7 +79,7 @@ class Corners:
     all of it agrees with the panels' places and sizes as Blender tells them."""
 
     def __init__(self, win, check=True, size=None):
-        self.ok, self.at, self.areas = False, {}, {}
+        self.ok, self.at, self.areas, self.win = False, {}, {}, win
         areas = list(win.screen.areas)
         width, height = size or (win.width, win.height)
         ptrs = {a.as_pointer() for a in areas}
@@ -152,12 +164,21 @@ class Corners:
         return True
 
     def write(self):
+        """Put the corners where they are meant to be: only while Blender still keeps exactly these corners. One that
+        Blender has freed since they were read (a panel was joined or tidied away) must never be written to."""
+        try:
+            now = Corners(self.win, check=False)
+        except ReferenceError:
+            return False
+        if not now.ok or set(now.at) != set(self.at) or now.areas != self.areas:
+            return False
         used = [self.at[v] for vs in self.areas.values() for v in vs]
         x0, x1, y0, y1 = min(p[0] for p in used), max(p[0] for p in used), min(p[1] for p in used), max(p[1] for p in used)
         for v, (x, y) in self.at.items():
             x, y = min(max(x, x0), x1), min(max(y, y0), y1)
             c = _Vert.from_address(v)
             c.x, c.y = int(round(x)), int(round(y))
+        return True
 
     def scale_to(self, dx, dy):
         """The panels scaled to a window that is wider and higher by pixels, as Blender does it."""
@@ -180,7 +201,7 @@ def _solve(win, c, widths):
         if by:
             c.move(a, edge, by if edge == "BOTTOM" else -by)
             moved = True
-    for name, px, edge in COLUMNS:
+    for name, px, edge in _columns(screen):
         a = _one(screen, name)
         if a is None:
             continue
@@ -208,7 +229,8 @@ def _refresh(win):
             bpy.ops.screen.area_move(x=int(x), y=int((y0 + y1) // 2), delta=-12, snap=False)
     except (RuntimeError, TypeError):
         pass
-    keep.write()
+    if not keep.write():                                   # the panels changed under the move: Blender's own command instead
+        build.run_steps(steps(win, _seen.get(win.as_pointer(), {}).get("widths", {})))
     for b in win.screen.areas:
         b.tag_redraw()
 
@@ -231,7 +253,7 @@ def _wrong(win, widths):
         if a is not None and abs(a.height - build.px(_height(name, px)) - 1) > 8:
             by = a.height - build.px(_height(name, px)) - 1
             yield a, edge, by if edge == "BOTTOM" else -by
-    for name, px, edge in COLUMNS:
+    for name, px, edge in _columns(screen):
         a = _one(screen, name)
         want = 0 if a is None else build.side_px() if name == "MODES" else build.px(px) if px else widths.get(name, 0) * s - build.EDGE
         if want > 0 and abs(a.width - want) > 8:
