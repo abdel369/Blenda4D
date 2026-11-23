@@ -40,6 +40,8 @@ def intact(screen, kind):
 
 
 def _region(area, kind="WINDOW"):
+    if not roles.alive(area):                              # freed: reading it would crash
+        return None
     return next((r for r in area.regions if r.type == kind), None)
 
 
@@ -598,7 +600,11 @@ def _watch():
     if img is None or sp.image == img or sp.use_image_pin:
         return
 
+    area = context.area
+
     def put():
+        if not roles.alive(area):
+            return None
         try:
             sp.image = img
         except (ReferenceError, AttributeError):

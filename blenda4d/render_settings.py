@@ -782,6 +782,8 @@ class BLENDA4D_OT_render_settings(bpy.types.Operator):
         roles.set_role(area, ROLE)
 
         def finish():
+            if not roles.alive(area):
+                return None
             try:
                 roles.hide_nav(area, win)
                 area.tag_redraw()
@@ -806,6 +808,8 @@ def dock(window):
     tries = [0]
 
     def finish():
+        if not roles.alive(area):
+            return None
         try:
             if not roles.set_role(area, ROLE) and tries[0] < 20:
                 tries[0] += 1

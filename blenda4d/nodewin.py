@@ -10,7 +10,7 @@ Opened by double-clicking a material in the Material Manager, or Open Node Edito
 screen carries the material's name (KEY), which is how the header and the panel know they are in this window."""
 import bpy
 
-from . import own_draw
+from . import roles, own_draw
 
 KEY = "b4d_node_window"
 CATEGORY = "Blenda 4D"
@@ -63,6 +63,8 @@ def _previews_on(tree):
 
 
 def _region(area, kind):
+    if not roles.alive(area):                              # freed: reading it would crash
+        return None
     return next((r for r in area.regions if r.type == kind), None)
 
 
@@ -111,6 +113,8 @@ def open_window(context, mat):
 
     def settle(tries=[30]):
         tries[0] -= 1
+        if not roles.alive(ar):
+            return None
         try:
             reg = _region(ar, "WINDOW")
             side = _region(ar, "UI")
@@ -129,6 +133,8 @@ def open_window(context, mat):
     bpy.app.timers.register(settle, first_interval=0.1)
 
     def reframe():                                        # again once the previews above the nodes are drawn
+        if not roles.alive(ar):
+            return None
         try:
             reg = _region(ar, "WINDOW")
             with bpy.context.temp_override(window=new, area=ar, region=reg):

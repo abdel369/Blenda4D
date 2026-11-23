@@ -76,6 +76,8 @@ def px(v):
 
 
 def _region(area, kind):
+    if not roles.alive(area):                              # freed: reading it would crash
+        return None
     return next((r for r in area.regions if r.type == kind), None)
 
 

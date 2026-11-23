@@ -59,6 +59,8 @@ def intact(screen, kind):
 
 
 def _region(area, kind="WINDOW"):
+    if not roles.alive(area):                              # freed: reading it would crash
+        return None
     return next((r for r in area.regions if r.type == kind), None)
 
 
@@ -152,6 +154,8 @@ def sizes_of(screen, sizes):
 
 def _category(area, tries=[20]):
     """The sidebar opens on Blenda's page."""
+    if not roles.alive(area):
+        return None
     try:
         side = _region(area, "UI")
         if side is not None and side.width > 1:
@@ -200,6 +204,9 @@ def _watch():
 
 def _follow(window, area, st):
     """The material picked in the Material Manager is shown; a canvas with another tree is framed."""
+    if not roles.alive(area):
+        st["waiting"] = False
+        return None
     try:
         sp = area.spaces.active
         ob = window.view_layer.objects.active
@@ -258,6 +265,8 @@ def _rects(tree, previews):
 
 def frame(window, area, room=False):
     """All the nodes in sight (room: for the previews above them, which Blender's framing leaves out)."""
+    if not roles.alive(area):
+        return None
     try:
         region = _region(area)
         with bpy.context.temp_override(window=window, screen=window.screen, area=area, region=region):
@@ -291,6 +300,8 @@ def _result(context):
 
         def put():
             _state["result"] = False
+            if not roles.alive(area):
+                return None
             try:
                 if sp.image is None:
                     sp.image = viewer() or rendered()

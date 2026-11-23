@@ -42,6 +42,9 @@ def views(screen):
 
 
 def _region(area):
+    from .roles import alive
+    if not alive(area):                                    # freed: reading it would crash
+        return None
     return next((r for r in area.regions if r.type == "WINDOW"), None)
 
 

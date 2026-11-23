@@ -88,6 +88,17 @@ def areas(screen, name):
     return [a for a in screen.areas if role(a) == name]
 
 
+def alive(area):
+    """Is this area still on a screen that a window shows? Blender frees an area when it is closed or joined, and
+    reading a freed one crashes (it did on Windows); a job that runs later checks first."""
+    try:
+        ptr = area.as_pointer()
+        wm = bpy.context.window_manager
+    except (ReferenceError, AttributeError):
+        return False
+    return wm is not None and any(a.as_pointer() == ptr for w in wm.windows for a in w.screen.areas)
+
+
 def hide_nav(area, window=None):
     """A Properties editor's tab column can only be toggled with the operator."""
     if window is None:
@@ -160,6 +171,8 @@ def _nav_watch():
 
     def hide():
         _nav_pending.discard(key)
+        if not alive(area):
+            return None
         try:
             hide_nav(area, window)
         except (ReferenceError, RuntimeError):
