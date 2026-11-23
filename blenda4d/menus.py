@@ -19,6 +19,53 @@ def sub(label, idname, icon="NONE"):
     return ("menu", label, idname, icon)
 
 
+MENU_ICON_SCALE = 0.7      # Blender draws a tool shape larger than a menu row; its menu copy is drawn this much smaller
+_menu_icons = {}
+
+
+def _shape_file(name, model_tool):
+    """(path of the tool shape's triangles, whether Blender's accents need Blenda's colours) or (None, False)."""
+    import os
+    from . import icons as _icons, modeltools
+    try:
+        own = next((f for f in os.listdir(_icons.DIR) if f.endswith(".dat") and f.split("__")[0] == name), None)
+    except OSError:
+        own = None
+    if own:
+        return os.path.join(_icons.DIR, own), False
+    return modeltools.blender_icon_file(name), model_tool
+
+
+def menu_icon(name, model_tool=False):
+    """icon_value of a tool shape redrawn at a menu row's size: the same triangles, scaled toward the left middle of
+    the square Blender draws them in, so they line up with the menu's other icons and leave the label alone. 0 when
+    the shape can't be read."""
+    key = (name, model_tool)
+    if key not in _menu_icons:
+        iv = 0
+        path, recol = _shape_file(name, model_tool)
+        try:
+            with open(path, "rb") as f:
+                b = f.read()
+            if b[:3] == b"VCO":
+                w, h = b[4] or 256, b[5] or 256
+                n = (len(b) - 8) // 18
+                co = bytearray(b[8:8 + n * 6])
+                k = MENU_ICON_SCALE
+                for i in range(0, len(co), 2):
+                    co[i] = min(255, round(co[i] * k))
+                    co[i + 1] = min(255, round(co[i + 1] * k + h * (1 - k) / 2))
+                cols = b[8 + n * 6:8 + n * 18]
+                if recol:
+                    from . import modeltools
+                    cols = modeltools.recolour(cols)
+                iv = bpy.app.icons.new_triangles((w, h), bytes(co), cols)
+        except (OSError, TypeError, ValueError):
+            iv = 0
+        _menu_icons[key] = iv
+    return _menu_icons[key]
+
+
 def draw_items(layout, items):
     for it in items:
         if it == SEP:
@@ -42,10 +89,12 @@ def draw_items(layout, items):
         if isinstance(icon, str) and icon.startswith("ops."):     # one of Blender's tool icons, as in the tool column
             from . import bars, icons as _icons
             from . import modeltools
-            iv = _icons.tool_shape(icon) or (modeltools.tool_icon(icon) if op == "blenda4d.model_tool" else 0) or bars.tool_icon(icon)
-            # these icons are larger than a menu's: Blender makes room for them on its own tool buttons only
-            text = label if op == "wm.tool_set_by_id" or not iv else "   " + label
-            o = layout.operator(op, text=text, icon_value=iv) if iv else layout.operator(op, text=label)
+            iv = menu_icon(icon, op == "blenda4d.model_tool")
+            if not iv:
+                iv = _icons.tool_shape(icon) or (modeltools.tool_icon(icon) if op == "blenda4d.model_tool" else 0) or bars.tool_icon(icon)
+            if iv and op == "wm.tool_set_by_id":          # Blender widens a tool switch's icon slot: go through our own
+                op = "blenda4d.menu_tool"                    # operator so the row lines up with the menu's others
+            o = layout.operator(op, text=label, icon_value=iv) if iv else layout.operator(op, text=label)
         else:
             o = layout.operator(op, text=label, icon=icon)
         for k, v in props.items():
@@ -120,9 +169,12 @@ MAIN = {
                item("Rectangle Selection", "wm.tool_set_by_id", "ops.generic.select_box", name="builtin.select_box"),
                item("Lasso Selection", "wm.tool_set_by_id", "ops.generic.select_lasso", name="builtin.select_lasso"), SEP,
                item("Phong Break Selection", "blenda4d.phong_break_selection")],
-    "Tools": [item("Move", "wm.tool_set_by_id", name="builtin.move"), item("Scale", "wm.tool_set_by_id", name="builtin.scale"),
-              item("Rotate", "wm.tool_set_by_id", name="builtin.rotate"), SEP, item("Measure", "wm.tool_set_by_id", name="builtin.measure")],
-    "Spline": [item("Pen", "wm.tool_set_by_id", name="builtin.pen"), item("Sketch", "wm.tool_set_by_id", name="builtin.draw")],
+    "Tools": [item("Move", "wm.tool_set_by_id", "ops.transform.translate", name="builtin.move"),
+              item("Scale", "wm.tool_set_by_id", "ops.transform.resize", name="builtin.scale"),
+              item("Rotate", "wm.tool_set_by_id", "ops.transform.rotate", name="builtin.rotate"), SEP,
+              item("Measure", "wm.tool_set_by_id", "ops.view3d.ruler", name="builtin.measure")],
+    "Spline": [item("Pen", "wm.tool_set_by_id", "ops.curve.pen", name="builtin.pen"),
+               item("Sketch", "wm.tool_set_by_id", "ops.curve.draw", name="builtin.draw")],
     "Mesh": [item("Make Editable", "blenda4d.make_editable", "MESH_DATA"), item("Current State to Object", "blenda4d.current_state", "FREEZE"), SEP,
              item("Extrude", "wm.tool_set_by_id", "ops.mesh.extrude_region_move", name="builtin.extrude_region"),
              item("Inset", "wm.tool_set_by_id", "ops.mesh.inset", name="builtin.inset_faces"),
@@ -304,7 +356,27 @@ def simple_menu(label, items, manager="mgr"):
     return _make(label, items, manager)
 
 
-classes = (BLENDA4D_OT_title, BLENDA4D_OT_noop, *VIEW_OPS, *MAIN_CLASSES, *VIEW_CLASSES, make_more(MAIN_CLASSES), make_more(VIEW_CLASSES))
+class BLENDA4D_OT_menu_tool(bpy.types.Operator):
+    bl_idname = "blenda4d.menu_tool"
+    bl_label = "Tool"
+    bl_options = {"INTERNAL"}
+    name: bpy.props.StringProperty()
+
+    @classmethod
+    def description(cls, context, props):
+        n = props.name.rpartition(".")[2].replace("_", " ")
+        return f"Use the {n} tool in the viewport"
+
+    def execute(self, context):
+        from . import topbar
+        area, region, _sp = topbar.main_view(context)
+        if area is None:
+            return {"CANCELLED"}
+        with context.temp_override(window=context.window, area=area, region=region):
+            return bpy.ops.wm.tool_set_by_id(name=self.name)
+
+
+classes = (BLENDA4D_OT_title, BLENDA4D_OT_menu_tool, BLENDA4D_OT_noop, *VIEW_OPS, *MAIN_CLASSES, *VIEW_CLASSES, make_more(MAIN_CLASSES), make_more(VIEW_CLASSES))
 
 
 def register():

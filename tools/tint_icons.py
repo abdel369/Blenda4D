@@ -12,7 +12,8 @@ What it does:
      rsvg-convert to blenda4d/icons/<icon name>__<group>.png.
   3. Copies the tool column's large tool icons (Blender's datafiles/icons/*.dat triangle files from the installed
      Blender) with their accent colour changed to the column's colour, to blenda4d/icons/<tool icon>__<group>.dat.
-  4. Draws the three axis letters for the command palette (X, Y, Z with a coloured bar under each).
+  4. Draws the three axis letters for the command palette (X, Y, Z with a coloured bar under each), and the Object
+     Manager's visibility dots (grey: as the parent, green: always shown, red: hidden).
 Re-runnable: files are rewritten in place; files no longer used are removed. Downloads are cached in the system temp folder.
 """
 import argparse
@@ -198,6 +199,15 @@ LETTERS = {   # simple stroked capitals on a 16 x 16 grid, a coloured bar under 
     "x": "M4 1.5 L12 11.5 M12 1.5 L4 11.5", "y": "M4 1.5 L8 7 L12 1.5 M8 7 L8 11.5", "z": "M4 1.5 L12 1.5 L4 11.5 L12 11.5"}
 
 
+DOTS = {"default": "#8c8c8c", "on": "#45c85a", "off": "#e2463b"}   # the Object Manager's visibility dots
+
+
+def dots_svg(top, bottom):
+    """Two dots on top of each other, as in an Object Manager row: the viewport's above, the render's below."""
+    return ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">'
+            f'<circle cx="8" cy="4.6" r="2.4" fill="{top}"/><circle cx="8" cy="11.4" r="2.4" fill="{bottom}"/></svg>')
+
+
 def letter_svg(axis):
     return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="{LETTERS[axis]}" fill="none" '
             f'stroke="{LETTER}" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>'
@@ -246,6 +256,11 @@ def main():
         name = f"axis_{axis}__axis.png"
         rasterise(letter_svg(axis), os.path.join(OUT, name), args.size)
         made.add(name)
+    for top, c1 in DOTS.items():
+        for bottom, c2 in DOTS.items():
+            name = f"dots_{top}_{bottom}__om.png"
+            rasterise(dots_svg(c1, c2), os.path.join(OUT, name), args.size)
+            made.add(name)
     for f in os.listdir(OUT):
         if f.endswith((".png", ".dat")) and f not in made:
             os.unlink(os.path.join(OUT, f))

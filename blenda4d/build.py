@@ -38,6 +38,74 @@ def busy():
     return _active[0] > 0
 
 
+# --- the curtain: while a whole layout is being built, every region is painted plain, so a slow machine shows the
+# finished layout and never the areas being split and moved on the way. It lifts when the build is done, and on its own
+# after CURTAIN_MAX seconds whatever happens.
+CURTAIN_MAX = 20.0
+_curtain = [0.0]
+_curtain_handles = []
+_CURTAIN_SPACES = ("SpaceView3D", "SpaceProperties", "SpaceOutliner", "SpaceImageEditor", "SpaceNodeEditor",
+                   "SpaceDopeSheetEditor", "SpaceGraphEditor", "SpaceNLA", "SpaceSequenceEditor", "SpaceTextEditor",
+                   "SpaceSpreadsheet", "SpaceFileBrowser", "SpaceInfo", "SpaceConsole", "SpaceClipEditor")
+_CURTAIN_REGIONS = ("WINDOW", "HEADER", "TOOL_HEADER", "TOOLS", "UI", "CHANNELS", "FOOTER", "ASSET_SHELF",
+                    "ASSET_SHELF_HEADER", "NAVIGATION_BAR", "EXECUTE")
+
+
+def curtain(on):
+    import time
+    if on and _curtain_handles:                          # drawn last, over every column Blenda paints itself
+        curtain_off()
+        curtain_on()
+    _curtain[0] = time.monotonic() + CURTAIN_MAX if on else 0.0
+    for w in bpy.context.window_manager.windows:
+        for a in w.screen.areas:
+            a.tag_redraw()
+
+
+def _draw_curtain():
+    import time
+    if _curtain[0] == 0.0:
+        return
+    if time.monotonic() > _curtain[0]:
+        _curtain[0] = 0.0
+        return
+    region = bpy.context.region
+    if region is None:
+        return
+    import gpu
+    from gpu_extras.batch import batch_for_shader
+    col = tuple(bpy.context.preferences.themes[0].view_3d.space.back) if hasattr(
+        bpy.context.preferences.themes[0].view_3d.space, "back") else (0.19, 0.19, 0.19)
+    sh = gpu.shader.from_builtin("UNIFORM_COLOR")
+    w, h = region.width, region.height
+    batch = batch_for_shader(sh, "TRIS", {"pos": ((0, 0), (w, 0), (w, h), (0, h))}, indices=((0, 1, 2), (0, 2, 3)))
+    gpu.state.blend_set("NONE")
+    sh.uniform_float("color", (*col[:3], 1.0))
+    batch.draw(sh)
+
+
+def curtain_on():
+    for sp in _CURTAIN_SPACES:
+        cls = getattr(bpy.types, sp, None)
+        if cls is None:
+            continue
+        for rt in _CURTAIN_REGIONS:
+            try:
+                _curtain_handles.append((cls, cls.draw_handler_add(_draw_curtain, (), rt, "POST_PIXEL"), rt))
+            except (TypeError, ValueError):
+                pass
+
+
+def curtain_off():
+    for cls, h, rt in _curtain_handles:
+        try:
+            cls.draw_handler_remove(h, rt)
+        except (ValueError, ReferenceError):
+            pass
+    _curtain_handles.clear()
+    _curtain[0] = 0.0
+
+
 def run_steps(gen, done=None):
     """Run a generator one step per redraw; a step that fails while the window is not ready is retried."""
     from . import magnify
@@ -206,7 +274,15 @@ def add_assets(window):
 
 
 def add_materials(window):
-    """The Material Manager column, right of the viewport, with its bottom strip."""
+    """The Material Manager column between the viewport and the create column, with its bottom strip. Where the create
+    column is still the viewport's own strip, it first becomes a column of its own at the right edge."""
+
+    if not roles.areas(window.screen, "CREATE"):
+        create = yield from split(window, biggest_view(window.screen), "VERTICAL", px(CREATE_PX) + EDGE, "RIGHT")
+        yield from make_role(window, create, "CREATE")
+        for a in window.screen.areas:
+            if a.type == "VIEW_3D":
+                dress_view(a)                              # its own strip hides: the column shows the buttons now
     yield from _add_column(window, _width(window, "materials", MATERIALS_PX), "RIGHT", "MATERIALS", "MM_BAR")
 
 
@@ -251,6 +327,8 @@ def intact(screen):
         return False
     if any(len(roles.areas(screen, r)) != keys for r in ("TL_BAR", "TL_EDIT")) or (stacked and len(roles.areas(screen, "CREATE")) != 1):
         return False
+    if roles.areas(screen, "MATERIALS") and not roles.areas(screen, "CREATE"):
+        return False                                       # the Material Manager sits left of the create column's own area
     if not any(a.type == "VIEW_3D" for a in screen.areas) or len(roles.areas(screen, "TIMELINE")) != spec["timeline"]:
         return False
     if old_timelines(screen):
@@ -275,16 +353,17 @@ def stacked(screen):
 
 def add_stack(window, spec, materials=False, assets=False):
     """The tools and create columns down the sides and, between them under the viewport, the Timeline or the Node Editor.
-    The Material Manager stays right of the create column; the Asset Browser is beside the viewport, above the editors."""
+    The Material Manager goes between the viewport and the create column; the Asset Browser is beside the viewport,
+    above the editors."""
     from . import nodetabs, uvtab
     kind, sizes = spec["editors"], spec["sizes"]
     screen = window.screen
-    if materials:
-        yield from add_materials(window)
     tools = yield from split(window, biggest_view(screen), "VERTICAL", side_px(), "LEFT")
     yield from make_role(window, tools, "MODES")
     create = yield from split(window, biggest_view(screen), "VERTICAL", px(CREATE_PX) + EDGE, "RIGHT")
     yield from make_role(window, create, "CREATE")
+    if materials:                                          # between the viewport and the create column
+        yield from add_materials(window)
     view = biggest_view(screen)
     dress_view(view)
     if kind == uvtab.KIND:                                 # beside the viewport, not under it
@@ -353,6 +432,12 @@ def remove_column(window, name):
             with _ov(window, a):
                 bpy.ops.screen.area_close()
     yield
+    if name == "MATERIALS" and not stacked(window.screen) and len(quadview.views(window.screen)) <= 1:
+        for a in roles.areas(window.screen, "CREATE"):     # the create column goes back to being the viewport's strip
+            yield from _into_view(window, a)
+        for a in window.screen.areas:
+            if a.type == "VIEW_3D":
+                dress_view(a)
 
 
 def renew_steps(window):
@@ -565,9 +650,12 @@ def steps(window, materials=False, assets=False, spec=None):
     # 3. the viewport and timeline lose Blender's own chrome; the toolbar strip moves to the viewport's right edge
     for a in screen.areas:
         if a.type == "VIEW_3D":
+            hidden = not a.spaces.active.show_region_toolbar
             dress_view(a)
             tools = _region(a, "TOOLS")
             if tools is not None and tools.alignment != "RIGHT":
+                if hidden:
+                    yield                                  # the strip, kept hidden while building, is laid out again first
                 try:
                     with _ov(window, a, "TOOLS"):
                         bpy.ops.screen.region_flip()
@@ -585,6 +673,24 @@ def steps(window, materials=False, assets=False, spec=None):
                 yield
     for a in screen.areas:
         a.tag_redraw()
+
+
+def hush(screen):
+    """Blender's own viewport chrome off at once, before any build step runs, so a slow machine never shows it: the
+    navigation gizmo, the view name and statistics, and the toolbar strip until it has been moved to the right."""
+    for a in screen.areas:
+        if a.type != "VIEW_3D" or not len(a.spaces):
+            continue
+        v3d = a.spaces.active
+        try:
+            v3d.show_gizmo_navigate = False
+            v3d.overlay.show_text = False
+            v3d.overlay.show_stats = False
+            tools = _region(a, "TOOLS")
+            if tools is not None and tools.alignment != "RIGHT" and v3d.show_region_toolbar:
+                v3d.show_region_toolbar = False
+        except (AttributeError, ReferenceError):
+            pass
 
 
 def dress_view(area):
@@ -634,6 +740,7 @@ def _renew_timeline(window, done, spec):
 def rebuild(window, done=None, force=False, spec=None):
     """Build the window's layout; a layout that is already all there is only tidied (no area moves)."""
     from . import viewer
+    hush(window.screen)
     if viewer.docked(window):                              # saved with the Render Viewer in the viewport's place
         run_steps(viewer.leave_steps(window), lambda: rebuild(window, done, force, spec))
         return
@@ -641,6 +748,7 @@ def rebuild(window, done=None, force=False, spec=None):
         run_steps(_renew_timeline(window, done, spec))
         return
     if not force and intact(window.screen):
+        curtain(False)                                     # already all there: nothing to hide
         for a in window.screen.areas:
             if a.type == "VIEW_3D":
                 dress_view(a)
@@ -652,6 +760,13 @@ def rebuild(window, done=None, force=False, spec=None):
             done()
         return
     opts = dict(materials=bool(roles.areas(window.screen, "MATERIALS")), assets=bool(roles.areas(window.screen, "ASSETS")))
+    curtain(True)                                          # a whole build: show only its result
+    after = done
+
+    def done():
+        curtain(False)
+        if after:
+            after()
     if spec is not None:                                   # the startup layout, for a new workspace
         run_steps(steps(window, materials=spec["materials"], assets=spec["assets"], spec=spec), done)
     elif not force and roles.areas(window.screen, "MODES") and not roles.areas(window.screen, "TL_EDIT"):

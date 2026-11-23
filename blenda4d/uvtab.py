@@ -160,6 +160,16 @@ class BLENDA4D_PG_uv(bpy.types.PropertyGroup):
     projection: bpy.props.EnumProperty(name="Projection", description="The shape the UVs are projected from", default="CUBE", items=[
         ("CUBE", "Cubic", "From the six sides of a cube"), ("CYLINDER", "Cylindrical", "From a cylinder around the object"),
         ("SPHERE", "Spherical", "From a sphere around the object"), ("VIEW", "From View", "From the viewport, as you see it now")])
+    tiles: bpy.props.EnumProperty(name="UDIM Tile", description="Which UDIM tile the islands are packed into", default="CLOSEST_UDIM", items=[
+        ("CLOSEST_UDIM", "Nearest UDIM Tile", "The UDIM tile nearest the islands (Blender: Closest UDIM)"),
+        ("ACTIVE_UDIM", "UDIM Tile at the 2D Cursor", "The UDIM tile the UV editor's 2D cursor is on (Blender: Active UDIM)"),
+        ("ORIGINAL_AABB", "Where They Are", "Each group stays in the space it already takes up (Blender: Original Bounding Box)")])
+    tiles_x: bpy.props.IntProperty(name="UDIM Tiles Across", description="How many UDIM tiles the UV view shows across, and a new UDIM "
+                                   "texture gets", default=1, min=1, max=10, update=lambda self, c: _grid(c))
+    tiles_y: bpy.props.IntProperty(name="UDIM Tiles Down", description="How many rows of UDIM tiles the UV view shows, and a new UDIM "
+                                   "texture gets", default=1, min=1, max=10, update=lambda self, c: _grid(c))
+    tile_size: bpy.props.EnumProperty(name="Tile Size", description="Pixels per side of each UDIM tile of a new UDIM texture", default="2048",
+                                      items=[(v, v, "") for v in ("1024", "2048", "4096")])
     angle_step: bpy.props.FloatProperty(name="Step", description="How far Rotate turns", default=math.radians(90), min=0.0, max=math.pi, subtype="ANGLE")
 
 
@@ -298,7 +308,8 @@ C = {
     "PIN": ("Add Pins", "Pin", "PINNED", "Unwrap and Relax leave the selected UV points where they are", "UV", False, lambda c, s: _op("uv.pin", clear=False)),
     "UNPIN": ("Remove Pins", "Unpin", "UNPINNED", "Let the selected UV points move again", "UV", False, lambda c, s: _op("uv.pin", clear=True)),
     "PACK": ("Pack", "Pack Islands", "PACKAGE", "Arrange the islands to fill the tile", "UV", True,
-             lambda c, s: _op("uv.pack_islands", rotate=s.rotate, scale=s.scale, margin=s.margin, shape_method=s.shape)),
+             lambda c, s: _op("uv.pack_islands", rotate=s.rotate, scale=s.scale, margin=s.margin, shape_method=s.shape,
+                              udim_source=s.tiles)),
     "AVERAGE": ("Even Scale", "Average Islands Scale", "FULLSCREEN_EXIT", "Give all islands the same texture size", "UV", True, lambda c, s: _op("uv.average_islands_scale")),
     "MAX": ("Max UV", "", "FULLSCREEN_ENTER", "Enlarge the UVs until they touch the sides of the tile", "UV", True, _fit(True)),
     "FIT": ("Fit to Canvas", "", "CON_SIZELIKE", "Stretch the UVs to all four sides of the tile", "UV", True, _fit(False)),
@@ -306,10 +317,10 @@ C = {
     "RIGHT": ("Rotate Right", "", "LOOP_FORWARDS", "Turn the selected UVs to the right", "UV", True, _transform("rotate", lambda s: s.angle_step)),
     "FLIP_U": ("Flip U", "Mirror X", "EVENT_U", "Flip the selected UVs from left to right", "UV", True, _transform("resize", (-1.0, 1.0, 1.0))),
     "FLIP_V": ("Flip V", "Mirror Y", "EVENT_V", "Flip the selected UVs upside down", "UV", True, _transform("resize", (1.0, -1.0, 1.0))),
-    "TILE_L": ("Tile Left", "", "TRIA_LEFT", "Move the selected UVs to the tile at the left", "UV", True, _transform("translate", (-1.0, 0.0, 0.0))),
-    "TILE_R": ("Tile Right", "", "TRIA_RIGHT", "Move the selected UVs to the tile at the right", "UV", True, _transform("translate", (1.0, 0.0, 0.0))),
-    "TILE_U": ("Tile Up", "", "TRIA_UP", "Move the selected UVs to the tile above", "UV", True, _transform("translate", (0.0, 1.0, 0.0))),
-    "TILE_D": ("Tile Down", "", "TRIA_DOWN", "Move the selected UVs to the tile below", "UV", True, _transform("translate", (0.0, -1.0, 0.0))),
+    "TILE_L": ("Tile Left", "", "TRIA_LEFT", "Move the selected UVs to the UDIM tile at the left", "UV", True, _transform("translate", (-1.0, 0.0, 0.0))),
+    "TILE_R": ("Tile Right", "", "TRIA_RIGHT", "Move the selected UVs to the UDIM tile at the right", "UV", True, _transform("translate", (1.0, 0.0, 0.0))),
+    "TILE_U": ("Tile Up", "", "TRIA_UP", "Move the selected UVs to the UDIM tile above", "UV", True, _transform("translate", (0.0, 1.0, 0.0))),
+    "TILE_D": ("Tile Down", "", "TRIA_DOWN", "Move the selected UVs to the UDIM tile below", "UV", True, _transform("translate", (0.0, -1.0, 0.0))),
     "LINKED": ("Select Connected UV", "Select Linked", "SNAP_FACE", "Select the whole islands of what is selected", "UV", False, lambda c, s: _op("uv.select_linked")),
     "OVERLAP": ("Select Overlapping", "", "SELECT_INTERSECT", "Select UVs that lie on top of each other", "UV", False, lambda c, s: _op("uv.select_overlap")),
     "PINNED": ("Select Pinned", "", "PINNED", "Select the pinned UV points", "UV", False, _pinned),
@@ -319,6 +330,98 @@ ROW = [["SEAM", "CLEAR_SEAM"], ["UNWRAP", "RELAX", "AUTO", "PROJECT"], ["SPLIT",
 if bpy.app.version < (5, 3, 0):  # Blender 5.2 itself crashes on this one
     C.pop("OVERLAP")
     ROW[-1].remove("OVERLAP")
+
+
+# --- UDIM tiles: a texture made of numbered tiles (1001, 1002, ... ten per row), the UVs spread over them -----------------------
+def _grid(context):
+    """Show the chosen number of tiles as a grid in the UV view."""
+    area = editor(context.screen) if context.screen else None
+    if area is not None:
+        s = context.scene.blenda4d_uv
+        area.spaces.active.uv_editor.tile_grid_shape = (s.tiles_x, s.tiles_y)
+        try:                                          # frame every UDIM tile
+            with context.temp_override(window=context.window, area=area, region=_region(area)):
+                bpy.ops.image.view_all(fit_view=True)
+        except RuntimeError:
+            pass
+        area.tag_redraw()
+
+
+def tile_numbers(across, down):
+    return [1001 + u + 10 * v for v in range(down) for u in range(across)]
+
+
+def _shown_image(context):
+    area = editor(context.screen)
+    return area, (area.spaces.active.image if area is not None else None)
+
+
+def _use_on_material(ob, img):
+    """Put the UDIM texture in the object's material as its Color (a new material when it has none)."""
+    mat = ob.active_material
+    if mat is None:
+        mat = bpy.data.materials.new("UDIM Material")
+        ob.data.materials.append(mat)
+    mat.use_nodes = True
+    tree = mat.node_tree
+    shader = next((n for n in tree.nodes if n.type == "BSDF_PRINCIPLED"), None)
+    tex = next((n for n in tree.nodes if n.type == "TEX_IMAGE" and n.image is not None and n.image.source == "TILED"), None)
+    if tex is None:
+        tex = tree.nodes.new("ShaderNodeTexImage")
+        if shader is not None:
+            tex.location = shader.location.x - 320, shader.location.y
+            if not shader.inputs["Base Color"].is_linked:
+                tree.links.new(tex.outputs["Color"], shader.inputs["Base Color"])
+    tex.image = img
+    tree.nodes.active = tex
+
+
+def _add_tiles(context, area, img, numbers, size):
+    have = {t.number for t in img.tiles}
+    with context.temp_override(window=context.window, area=area, region=_region(area)):
+        for n in numbers:
+            if n not in have:
+                bpy.ops.image.tile_add(number=n, count=1, fill=True, generated_type="UV_GRID", width=size, height=size)
+    return len([n for n in numbers if n not in have])
+
+
+class BLENDA4D_OT_uv_tiles(bpy.types.Operator):
+    bl_idname = "blenda4d.uv_tiles"
+    bl_label = "UDIM Tiles"
+    bl_options = {"REGISTER", "UNDO"}
+    what: bpy.props.EnumProperty(items=[("NEW", "New UDIM Texture", ""), ("FILL", "Add Missing UDIM Tiles", "")], options={"SKIP_SAVE"})
+
+    @classmethod
+    def description(cls, context, props):
+        return {"NEW": "Make a UDIM texture with as many UDIM tiles as Across and Down, a test grid on each, and use it as "
+                       "the material's color (Blender: Tiled image)",
+                "FILL": "Give the UDIM texture shown a UDIM tile for every square of the grid that has none"}[props.what]
+
+    @classmethod
+    def poll(cls, context):
+        return editor(context.screen) is not None and context.view_layer.objects.active is not None \
+            and context.view_layer.objects.active.type == "MESH"
+
+    def execute(self, context):
+        s = context.scene.blenda4d_uv
+        size = int(s.tile_size)
+        area, img = _shown_image(context)
+        if self.what == "NEW":
+            ob = context.view_layer.objects.active
+            with context.temp_override(window=context.window, area=area, region=_region(area)):
+                bpy.ops.image.new(name=f"{ob.name} UDIM", width=size, height=size, generated_type="UV_GRID", tiled=True)
+            img = area.spaces.active.image
+            _add_tiles(context, area, img, tile_numbers(s.tiles_x, s.tiles_y), size)
+            _use_on_material(ob, img)
+            _state.pop("key", None)
+        else:
+            if img is None or img.source != "TILED":
+                self.report({"INFO"}, "The texture shown has no UDIM tiles: make a New UDIM Texture first")
+                return {"CANCELLED"}
+            n = _add_tiles(context, area, img, tile_numbers(s.tiles_x, s.tiles_y), size)
+            self.report({"INFO"}, f"{n} UDIM tile{'s' if n != 1 else ''} added")
+        _grid(context)
+        return {"FINISHED"}
 
 
 class BLENDA4D_OT_uv_do(bpy.types.Operator):
@@ -561,7 +664,20 @@ def page(col, context, ob):
     col.prop(s, "shape")
     col.prop(s, "rotate")
     col.prop(s, "scale")
+    col.prop(s, "tiles", text="Pack Into")
     line("PACK", "AVERAGE")
+    col.separator()
+    col.label(text="UDIM Tiles")
+    col.prop(s, "tiles_x", text="Across")
+    col.prop(s, "tiles_y", text="Down")
+    col.prop(s, "tile_size")
+    row = col.row(align=True)
+    row.operator("blenda4d.uv_tiles", text="New UDIM Texture", icon="IMAGE").what = "NEW"
+    row.operator("blenda4d.uv_tiles", text="Add Missing UDIM Tiles", icon="ADD").what = "FILL"
+    _area, img = _shown_image(context)
+    if img is not None and img.source == "TILED":
+        nums = sorted(t.number for t in img.tiles)
+        col.label(text=f"{img.name}: {len(nums)} UDIM tile{'s' if len(nums) != 1 else ''}, {nums[0]} to {nums[-1]}", icon="IMAGE")
     col.separator()
     col.label(text="Transform")
     col.prop(s, "angle_step")
@@ -618,7 +734,7 @@ def _loaded(*_args):
     _state.clear()
 
 
-classes = (BLENDA4D_PG_uv, BLENDA4D_OT_uv_do, BLENDA4D_MT_uv_more, BLENDA4D_PT_uv_bar, BLENDA4D_MT_uv_tools, BLENDA4D_MT_uv_select,
+classes = (BLENDA4D_PG_uv, BLENDA4D_OT_uv_do, BLENDA4D_OT_uv_tiles, BLENDA4D_MT_uv_more, BLENDA4D_PT_uv_bar, BLENDA4D_MT_uv_tools, BLENDA4D_MT_uv_select,
            BLENDA4D_MT_uv_file, BLENDA4D_MT_uv_view)
 
 

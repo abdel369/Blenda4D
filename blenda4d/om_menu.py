@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The Object Manager's right-click menu, laid out as in C4D: tags, selection, Make Editable and Current State to
+"""The Object Manager's right-click menu: tags, selection, Make Editable and Current State to
 Object, grouping, the object's tracks, materials and information.
 
 A right click on an object that is not selected selects it first. Every entry works on the selected objects. Tags are
@@ -22,6 +22,7 @@ TAGS = {
     "COLLIDER": ("Simulation", "Collider Body", "RIGID_BODY_CONSTRAINT", "Rigid body, passive"),
     "CLOTH": ("Simulation", "Cloth", "MOD_CLOTH", "Cloth modifier"),
     "COLLISION": ("Simulation", "Cloth Collider", "MOD_PHYSICS", "Collision modifier"),
+    "SCULPT": ("Sculpting", "Sculpt", "SCULPTMODE_HLT", "Multiresolution modifier"),   # put on by Subdivide while sculpting
 }
 CON = {"TARGET": "DAMPED_TRACK", "LOOK_CAMERA": "TRACK_TO", "ALIGN_SPLINE": "FOLLOW_PATH"}
 MENUS = ("Animation", "Material", "Modeling", "Other", "Simulation")
@@ -48,6 +49,8 @@ def has(ob, key):
         return any(m.type == "CLOTH" for m in ob.modifiers)
     if key == "COLLISION":
         return any(m.type == "COLLISION" for m in ob.modifiers)
+    if key == "SCULPT":
+        return any(m.type == "MULTIRES" for m in ob.modifiers)
     if key == "MATERIAL":
         return any(sl.material for sl in getattr(ob, "material_slots", ()))
     return False
@@ -59,7 +62,7 @@ def tags(ob):
 
 
 def _mesh_only(key):
-    return key in {"PHONG", "RIGID", "COLLIDER", "CLOTH", "COLLISION", "MATERIAL"}
+    return key in {"SCULPT", "PHONG", "RIGID", "COLLIDER", "CLOTH", "COLLISION", "MATERIAL"}
 
 
 def add(context, ob, key):
@@ -75,6 +78,9 @@ def add(context, ob, key):
             c.track_axis, c.up_axis = "TRACK_Z", "UP_Y"
         elif key == "TARGET":
             c.track_axis = "TRACK_NEGATIVE_Z"
+        elif key == "ALIGN_SPLINE":
+            from . import tag_pages
+            tag_pages.setup_align(c)
         return True
     with context.temp_override(object=ob, active_object=ob, selected_objects=[ob], selected_editable_objects=[ob]):
         if key == "PHONG":
@@ -90,6 +96,9 @@ def add(context, ob, key):
             ob.modifiers.new("Cloth", "CLOTH")
         elif key == "COLLISION":
             ob.modifiers.new("Collision", "COLLISION")
+        elif key == "SCULPT":                              # levels to sculpt on, the first one made
+            m = ob.modifiers.new("Multires", "MULTIRES")
+            bpy.ops.object.multires_subdivide(modifier=m.name, mode="CATMULL_CLARK")
         elif key == "MATERIAL":
             mat = bpy.data.materials.get(context.window_manager.b4d_material) or bpy.data.materials.new("Mat")
             ob.data.materials.append(mat)
@@ -101,6 +110,9 @@ def remove(context, ob, key):
         c = _con(ob, key)
         if c is not None:
             ob.constraints.remove(c)
+        if key == "ALIGN_SPLINE":
+            from . import tag_pages
+            tag_pages.keep_hold(ob)
     elif key == "PHONG":
         for m in [m for m in ob.modifiers if m.name.startswith("Smooth")]:
             ob.modifiers.remove(m)
@@ -112,6 +124,10 @@ def remove(context, ob, key):
     elif key in {"CLOTH", "COLLISION"}:
         for m in [m for m in ob.modifiers if m.type == key]:
             ob.modifiers.remove(m)
+    elif key == "SCULPT":                                  # the sculpted detail goes with it, as when a Sculpt tag is deleted
+        for m in [m for m in ob.modifiers if m.type == "MULTIRES"]:
+            ob.modifiers.remove(m)
+        ob.pop("_b4d_freeze", None)
 
 
 class BLENDA4D_OT_om_tag(bpy.types.Operator):

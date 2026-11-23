@@ -53,6 +53,9 @@ def _enter_workspace(window):
         if own is None:
             return
         own.name = WORKSPACE
+        for s in own.screens:                              # shown on the next redraw: no Blender chrome on it
+            build.hush(s)
+        build.curtain(True)                                # and plain until its layout is built
     own[PREV_KEY] = prev
     if start is not None:
         layouts.set_current(own, start["base"])
@@ -196,6 +199,7 @@ def _blender_header_button(self, context):
 
 
 def register():
+    build.curtain_on()
     bpy.utils.register_class(BLENDA4D_OT_switch)
     bpy.types.TOPBAR_HT_upper_bar.append(_blender_header_button)
 
@@ -205,3 +209,4 @@ def unregister():
         set_mode(False, forget=True)
     bpy.types.TOPBAR_HT_upper_bar.remove(_blender_header_button)
     bpy.utils.unregister_class(BLENDA4D_OT_switch)
+    build.curtain_off()

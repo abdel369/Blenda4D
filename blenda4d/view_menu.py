@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The viewport's right-click menu, by what is being worked on, as in C4D.
+"""The viewport's right-click menu, by what is being worked on.
 
 Whole objects: the same object commands as the Object Manager's menu, and Blender's object commands that have no other
 place (Shade Smooth, Auto Smooth, Set Origin, Apply, Join, Parent, Snap). Points, edges, polygons: the modeling

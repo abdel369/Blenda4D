@@ -429,7 +429,9 @@ def _topology(col, context, ob, brush):
     col.separator()
     row = col.row()
     row.enabled = multi is None
-    row.operator("sculpt.dynamic_topology_toggle", text="Dynamic Topology", icon="CHECKBOX_HLT" if dyn else "CHECKBOX_DEHLT")
+    row.operator("blenda4d.dynamic_detail", text="Dynamic Detail", icon="CHECKBOX_HLT" if dyn else "CHECKBOX_DEHLT")
+    if multi is not None:
+        col.label(text="Not with a Sculpt tag: delete the tag or Apply to Base first", icon="INFO")
     if dyn:
         col.prop(sculpt, "detail_type_method", text="Detailing")
         col.prop(sculpt, "detail_refine_method", text="Refine")
@@ -443,6 +445,8 @@ def _topology(col, context, ob, brush):
     row = col.row()
     row.enabled = multi is None and not dyn
     row.operator("object.voxel_remesh", text="Remesh")
+    if multi is not None or dyn:
+        col.label(text="Not with a Sculpt tag or Dynamic Detail on", icon="INFO")
 
 
 class BLENDA4D_OT_sculpt_level(bpy.types.Operator):
@@ -459,7 +463,8 @@ class BLENDA4D_OT_sculpt_level(bpy.types.Operator):
     @classmethod
     def poll(cls, context):
         ob = context.view_layer.objects.active
-        return ob is not None and ob.type == "MESH" and context.mode in {"OBJECT", MODE}
+        return (ob is not None and ob.type == "MESH" and context.mode in {"OBJECT", MODE}
+                and ob.get("_b4d_freeze") is None)            # a frozen sculpt keeps its levels until thawed
 
     def execute(self, context):
         ob = context.view_layer.objects.active
@@ -480,7 +485,23 @@ class BLENDA4D_OT_sculpt_level(bpy.types.Operator):
         return {"FINISHED"}
 
 
-classes = (BLENDA4D_OT_sculpt_level,)
+class BLENDA4D_OT_dynamic_detail(bpy.types.Operator):
+    bl_idname = "blenda4d.dynamic_detail"
+    bl_label = "Dynamic Detail"
+    bl_description = ("Add polygons only where the brush goes, so detail grows where you sculpt; it can't be used "
+                      "with a Sculpt tag's levels (Blender: Dynamic Topology)")
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        ob = context.view_layer.objects.active
+        return context.mode == MODE and ob is not None and not any(m.type == "MULTIRES" for m in ob.modifiers)
+
+    def execute(self, context):
+        return bpy.ops.sculpt.dynamic_topology_toggle()
+
+
+classes = (BLENDA4D_OT_sculpt_level, BLENDA4D_OT_dynamic_detail)
 
 
 def register():
