@@ -698,14 +698,13 @@ class BLENDA4D_PT_objects(roles.RolePanel, bpy.types.Panel):
         row = sp.row(align=True)                          # larger Size never squeezes the dots and checks together
         if depth:
             row.separator(factor=1.6 * depth)
-        if ob.children:
-            row.operator("blenda4d.om_fold", text="", icon="DISCLOSURE_TRI_RIGHT" if ob.b4d_om_closed else "DISCLOSURE_TRI_DOWN",
-                         emboss=False).name = ob.name
+        if ob.children:                                   # the fold box is drawn over this button (_draw_rows)
+            row.operator("blenda4d.om_fold", text="", icon="BLANK1", emboss=False).name = ob.name
         else:
             row.label(text="", icon="BLANK1")
         name = row.row(align=True)
         name.alignment = "LEFT"
-        name.label(text=ob.name, **type_icon_kw(ob))     # a label, so a press here can start a drag (see om_drag)
+        name.label(text="", **type_icon_kw(ob))          # the name is drawn in its colour by _draw_rows (C4D look)
         right = sp.row(align=True)
         right.alignment = "RIGHT"
         right.operator("blenda4d.om_dot", text="", emboss=False, **dots_kw(ob)).name = ob.name   # viewport over render
@@ -1391,16 +1390,8 @@ def _draw_rows():
             continue
         if top < 0:
             break
-        ob = rows[i][0] if i < len(rows) else None
-        if ob is not None and ob == active and ob.select_get():
-            k = 0.6
-        elif ob is not None and ob.select_get():
-            k = 0.35
-        else:
-            k = None
-        if k is not None:
-            rects.append((bottom, top, (c[0] * k, c[1] * k, c[2] * k, 1.0)))
-        elif i % 2:                          # alternating dark and mid grey, to the bottom of the list
+        if i % 2:                            # alternating dark and mid grey, to the bottom of the list (the selection
+                                             # shows in the names' colour, as in C4D)
             rects.append((bottom, top, STRIPE))
         i += 1
     shader = gpu.shader.from_builtin("UNIFORM_COLOR")
@@ -1412,6 +1403,7 @@ def _draw_rows():
             shader.uniform_float("color", col)
             batch.draw(shader)
         gpu.state.blend_set("NONE")
+    _draw_tree(context, region, rows, drop, shader)
     if drop:
         _draw_drop(context, region, rows, drop, shader)
 
@@ -1431,15 +1423,102 @@ def _zoom(region):
         return 1.0
 
 
+# Where the panel lays out a row's parts, in row heights from the region's left edge (measured on drawn rows)
+FOLD_CX, ICON_X, TEXT_X, INDENT = 0.9, 1.55, 2.75, 0.45
+SELECTED_NAME = (1.0, 0.769, 0.18, 1.0)             # C4D: the selected object's name, #FFC42E
+PARENT_NAME = (0.663, 0.4, 0.133, 1.0)              # C4D: the selected object's parents, #A96622
+TREE = (0.33, 0.33, 0.33, 1.0)                      # the hierarchy lines
+BOX = (0.58, 0.58, 0.58, 1.0)                       # the fold box
+
+
+def _unit(region):
+    return row_height() * _zoom(region)
+
+
 def _name_x(context, region, depth):
-    """Where a row's fold arrow starts, and where its name text starts, in region pixels (as the panel lays them out)."""
-    z = _zoom(region)
-    u = row_height() * z                                 # one icon's width at this Size
-    x0 = DROP_LEFT * context.preferences.system.ui_scale * z + depth * DROP_INDENT * u
-    return x0, x0 + 2 * u + DROP_GAP * u
+    """Where a row's tree line starts, and where its name text starts, in region pixels."""
+    u = _unit(region)
+    return (FOLD_CX - 0.25 + depth * INDENT) * u, (TEXT_X + depth * INDENT) * u
 
 
-DROP_LEFT, DROP_INDENT, DROP_GAP = 8.0, 0.4, 0.15        # measured on the drawn rows (see tools/tests)
+def _draw_tree(context, region, rows, drop, shader):
+    """The C4D look of the rows: hierarchy lines, fold boxes, and the names in white, yellow (selected) or orange
+    (a selected object's parents)."""
+    import blf
+    import gpu
+    from gpu_extras.batch import batch_for_shader
+    if not rows:
+        return
+    u = _unit(region)
+    s = context.preferences.system.ui_scale
+    sel = {o for o in context.selected_objects}
+    parents = set()
+    for o in sel:
+        p = o.parent
+        while p is not None:
+            parents.add(p)
+            p = p.parent
+    theme = context.preferences.themes[0].user_interface.wcol_regular.text
+    normal = (theme[0], theme[1], theme[2], 1.0)
+    kind, _sep, into = drop.partition(":") if drop else ("", "", "")
+    # which rows have a sibling below them (the line goes on down), level by level
+    n = len(rows)
+    nxt = [False] * n
+    for i in range(n):
+        d = rows[i][1]
+        for j in range(i + 1, n):
+            if rows[j][1] < d:
+                break
+            if rows[j][1] == d:
+                nxt[i] = True
+                break
+    lines, boxes, names = [], [], []
+    cont = {}                                            # level -> does the line at that level go on below
+    size = context.preferences.ui_styles[0].widget.points * s * _zoom(region)
+    for i, (ob, d) in enumerate(rows):
+        bottom, top = _row_y(region, i)
+        cont[d] = nxt[i]
+        if bottom > region.height or top < 0:
+            continue
+        mid = (top + bottom) / 2
+        cx = (FOLD_CX + d * INDENT) * u
+        for k in range(d):                               # the lines of the levels above that go on past this row
+            if cont.get(k):
+                kx = (FOLD_CX + k * INDENT) * u
+                lines += [(kx, bottom), (kx, top)]
+        lines += [(cx, top), (cx, mid), (cx, mid), ((ICON_X + d * INDENT) * u - 0.1 * u, mid)]
+        if nxt[i]:
+            lines += [(cx, mid), (cx, bottom)]
+        if ob.children:
+            boxes.append((cx, mid, ob.b4d_om_closed))
+        if kind == "INTO" and ob.name == into:
+            continue                                     # the drop target's name is drawn white on black (_draw_drop)
+        col = SELECTED_NAME if ob in sel else PARENT_NAME if ob in parents else normal
+        names.append(((TEXT_X + d * INDENT) * u, bottom + (top - bottom - size * 0.72) / 2, ob.name, col))
+    gpu.state.blend_set("ALPHA")
+    gpu.state.line_width_set(max(1.0, s))
+    shader.uniform_float("color", TREE)
+    if lines:
+        batch_for_shader(shader, "LINES", {"pos": lines}).draw(shader)
+    half = 0.21 * u
+    bg = context.preferences.themes[0].properties.space.back
+    for cx, cy, closed in boxes:
+        _rect(shader, cx - half, cy - half, cx + half, cy + half, (bg[0], bg[1], bg[2], 1.0))
+        box = [(cx - half, cy - half), (cx + half, cy - half), (cx + half, cy - half), (cx + half, cy + half),
+               (cx + half, cy + half), (cx - half, cy + half), (cx - half, cy + half), (cx - half, cy - half),
+               (cx - half * 0.55, cy), (cx + half * 0.55, cy)]
+        if closed:
+            box += [(cx, cy - half * 0.55), (cx, cy + half * 0.55)]
+        shader.uniform_float("color", BOX)
+        batch_for_shader(shader, "LINES", {"pos": box}).draw(shader)
+    gpu.state.line_width_set(1.0)
+    fid = 0
+    blf.size(fid, size)
+    for x, y, text, col in names:
+        blf.color(fid, *col)
+        blf.position(fid, x, y, 0)
+        blf.draw(fid, text)
+    gpu.state.blend_set("NONE")
 
 
 def _rect(shader, x0, y0, x1, y1, col):
