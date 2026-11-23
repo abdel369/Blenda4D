@@ -428,7 +428,11 @@ def build_cloner(nodes, links, o, kids, effect=None):
         # Reset Coordinates: each clone is the child as it is in its own space; off: the child keeps its offset from the Cloner
         own = nodes.new("GeometryNodeObjectInfo"); own.transform_space = "ORIGINAL"
         own.inputs["Object"].default_value = child
-        shape = gc.switch(nodes, links, "GEOMETRY", o["Reset Coordinates"], rel, own.outputs["Geometry"])
+        # Reset Coordinates drops only the child's place: its own rotation and scale stay on every clone
+        place = nodes.new("GeometryNodeObjectInfo"); place.transform_space = "RELATIVE"
+        place.inputs["Object"].default_value = child
+        turned = gc.move(nodes, links, own.outputs["Geometry"], rotation=place.outputs["Rotation"], scale=place.outputs["Scale"])
+        shape = gc.switch(nodes, links, "GEOMETRY", o["Reset Coordinates"], rel, turned)
         if not any(sl.material for sl in getattr(child, "material_slots", [])):
             # a child with no material wears Clone Color: each clone shows its own colour in Material and Render view
             sm = nodes.new("GeometryNodeSetMaterial"); links.new(shape, sm.inputs["Geometry"])

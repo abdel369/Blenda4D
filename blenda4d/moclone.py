@@ -136,12 +136,12 @@ def make_editable(context, gen):
             for coll in gen.users_collection:
                 coll.objects.link(ob)
             m = Matrix([list(r) for r in tf.data[i].value]) if tf is not None else Matrix.Identity(4)
-            rel = Matrix.Identity(4) if reset else gen.matrix_world.inverted() @ child.matrix_world
+            rel = gen.matrix_world.inverted() @ child.matrix_world     # the child in the Cloner's space
+            if reset:                                                  # Reset Coordinates: its turn and size, not its place
+                rel = Matrix.LocRotScale(None, rel.to_quaternion(), rel.to_scale())
             ob.parent = null
             ob.matrix_parent_inverse = Matrix.Identity(4)
-            ob.matrix_world = gen.matrix_world @ m @ (Matrix.Identity(4) if reset else rel)
-            if reset is False:
-                ob.data.transform(rel.inverted())                     # the shape came in the child's own space
+            ob.matrix_world = gen.matrix_world @ m @ rel
             if col is not None:
                 ob.color = tuple(col.data[i].color)
             made.append(ob)

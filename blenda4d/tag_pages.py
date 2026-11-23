@@ -280,7 +280,8 @@ def register():
                     "quick; renders keep the full detail")
     managers.AM_SUBJECTS[SUBJECT] = draw_subject
     managers.OM_TAG_PICK[:] = [om_tag_button]
-    managers.OM_DROP[:] = [drop]
+    if drop not in managers.OM_DROP:                  # other features (MoClone's lists) take drops too
+        managers.OM_DROP.append(drop)
     if _watch not in bpy.app.handlers.depsgraph_update_post:
         bpy.app.handlers.depsgraph_update_post.append(_watch)
 
@@ -288,7 +289,8 @@ def register():
 def unregister():
     if _watch in bpy.app.handlers.depsgraph_update_post:
         bpy.app.handlers.depsgraph_update_post.remove(_watch)
-    managers.OM_DROP.clear()
+    if drop in managers.OM_DROP:
+        managers.OM_DROP.remove(drop)
     managers.OM_TAG_PICK.clear()
     managers.AM_SUBJECTS.pop(SUBJECT, None)
     if hasattr(bpy.types.Object, "b4d_sculpt_freeze"):
