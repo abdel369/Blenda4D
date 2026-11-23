@@ -500,6 +500,15 @@ def _shape(ob, scale=1.0):
     return []
 
 
+def field_outlines(context):
+    """For the viewport's click: each visible field and the lines of its shape (handles.py picks by them)."""
+    out = []
+    for o in context.view_layer.objects:
+        if fx.is_field(o) and o.visible_get():
+            out.append((o, _shape(o)))
+    return out
+
+
 def _draw():
     ctx = bpy.context
     try:
@@ -558,6 +567,8 @@ def register():
         managers.OM_DROP.append(drop)
     if _handle is None:
         _handle = bpy.types.SpaceView3D.draw_handler_add(_draw, (), "WINDOW", "POST_VIEW")
+    from . import handles
+    handles.outlines(field_outlines)
     if _loaded not in bpy.app.handlers.load_post:
         bpy.app.handlers.load_post.append(_loaded)
     try:

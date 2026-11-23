@@ -104,73 +104,149 @@ def hit(context, x, y, second=False):
     return near[1][2] if second and len(near) > 1 else near[0][2]
 
 
-class BLENDA4D_OT_handle_drag(bpy.types.Operator):
-    """Drag a handle to change the object's setting"""
-    bl_idname = "blenda4d.handle_drag"
-    bl_label = "Drag Handle"
-    bl_options = {"INTERNAL", "UNDO"}
+PICK = 6                                          # how near (pixels) a click must be to a drawn outline to pick it
+OUTLINES = []                                     # fn(context) -> [(object, [(world a, world b), ...])]
+
+
+def outlines(fn):
+    if fn not in OUTLINES:
+        OUTLINES.append(fn)
+
+
+def _pick_drawn(context, mx, my):
+    """The object whose drawn outline passes nearest the click, within PICK pixels; None if none does."""
+    if context.mode != "OBJECT":
+        return None
+    reach = PICK * context.preferences.system.ui_scale
+    best, dist = None, reach
+    for fn in OUTLINES:
+        try:
+            shapes = fn(context)
+        except Exception:
+            continue
+        for ob, segs in shapes:
+            for a, b in segs:
+                pa, pb = _region_xy(context, a), _region_xy(context, b)
+                if pa is None or pb is None:
+                    continue
+                d = _seg_dist(mx, my, pa.x, pa.y, pb.x, pb.y)
+                if d < dist:
+                    best, dist = ob, d
+    return best
+
+
+def _seg_dist(px, py, ax, ay, bx, by):
+    dx, dy = bx - ax, by - ay
+    L = dx * dx + dy * dy
+    t = 0.0 if L == 0 else max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / L))
+    cx, cy = ax + t * dx, ay + t * dy
+    return math.hypot(px - cx, py - cy)
+
+
+def _place(context, ob, start, axis, mx, my):
+    """Where the mouse is, in the object's space: on the handle's line, or on the view plane through the start."""
+    region, rv3d = context.region, context.region_data
+    o = view3d_utils.region_2d_to_origin_3d(region, rv3d, (mx, my))
+    d = view3d_utils.region_2d_to_vector_3d(region, rv3d, (mx, my))
+    inv = ob.matrix_world.inverted()
+    lo, ld = inv @ o, (inv.to_3x3() @ d).normalized()
+    if axis is not None:
+        near = geometry.intersect_line_line(start, start + axis, lo, lo + ld)
+        return near[0] if near else start
+    n = (inv.to_3x3() @ (rv3d.view_rotation @ Vector((0, 0, -1)))).normalized()
+    p = geometry.intersect_line_plane(lo, lo + ld, start, n)
+    return p if p is not None else start
+
+
+class BLENDA4D_GT_dots(bpy.types.Gizmo):
+    """The dots and drawn outlines as one gizmo: Blender asks gizmos first, before any tool, so the dots drag and
+    the outlines pick whatever tool is active (the Move tool's own click would otherwise take them)."""
+    bl_idname = "BLENDA4D_GT_dots"
+
+    def draw(self, context):
+        pass                                             # handles._draw draws the dots
+
+    def test_select(self, context, location):
+        mx, my = location
+        if _target(context) is not None and hit(context, mx, my) is not None:
+            return 0
+        return 0 if _pick_drawn(context, mx, my) is not None else -1
 
     def invoke(self, context, event):
-        from . import switch
-        if not switch.is_on() or context.region is None or context.region.type != "WINDOW":
-            return {"PASS_THROUGH"}
+        mx, my = event.mouse_region_x, event.mouse_region_y
         ob = _target(context)
-        if ob is None:
-            return {"PASS_THROUGH"}
-        h = hit(context, event.mouse_region_x, event.mouse_region_y, second=event.shift)
+        h = hit(context, mx, my, second=event.shift) if ob is not None else None
+        self.ob = None
         if h is None:
-            return {"PASS_THROUGH"}
-        self.ob, self.hname = ob, h.name
-        self.start = h.at.copy()
-        self.axis = h.axis
-        self.undo = bpy.data.objects.get(ob.name) and _snapshot(ob)
-        _drag[0] = h.name
-        context.window.cursor_modal_set("SCROLL_XY")
-        context.window_manager.modal_handler_add(self)
-        return {"RUNNING_MODAL"}
+            picked = _pick_drawn(context, mx, my)
+            if picked is None:
+                return {"PASS_THROUGH"}
+            # applied once Blender has finished with this click: the active tool's own click handling would
+            # otherwise put the old selection back
+            name, extend, area = picked.name, event.shift, context.area
 
-    def _place(self, context, event):
-        """Where the mouse is, in the object's space: on the handle's line, or on the view plane through the start."""
-        region, rv3d = context.region, context.region_data
-        co = (event.mouse_region_x, event.mouse_region_y)
-        o = view3d_utils.region_2d_to_origin_3d(region, rv3d, co)
-        d = view3d_utils.region_2d_to_vector_3d(region, rv3d, co)
-        inv = self.ob.matrix_world.inverted()
-        lo, ld = inv @ o, (inv.to_3x3() @ d).normalized()
-        if self.axis is not None:
-            a, b = self.start, self.start + self.axis
-            near = geometry.intersect_line_line(a, b, lo, lo + ld)
-            return near[0] if near else self.start
-        n = (inv.to_3x3() @ (rv3d.view_rotation @ Vector((0, 0, -1)))).normalized()
-        p = geometry.intersect_line_plane(lo, lo + ld, self.start, n)
-        return p if p is not None else self.start
-
-    def modal(self, context, event):
-        if event.type in {"MOUSEMOVE", "INBETWEEN_MOUSEMOVE"}:
-            h = next((x for x in handles_of(self.ob) if x.name == self.hname), None)
-            if h is not None:
-                h.set(self._place(context, event), self.start)
-                self.ob.update_tag()
-                text = h.readout() if h.readout else None
-                context.workspace.status_text_set(f"{h.name}: {text}" if text else h.name)
-            context.area.tag_redraw()
-            return {"RUNNING_MODAL"}
-        if event.type == "LEFTMOUSE" and event.value == "RELEASE":
-            self._end(context)
+            def apply():
+                ob = bpy.data.objects.get(name)
+                if ob is None:
+                    return None
+                vl = bpy.context.view_layer
+                if not extend:
+                    for o in vl.objects.selected:
+                        o.select_set(False)
+                ob.select_set(True)
+                vl.objects.active = ob
+                try:
+                    area.tag_redraw()
+                    bpy.ops.ed.undo_push(message="Select")
+                except Exception:
+                    pass
+                return None
+            bpy.app.timers.register(apply, first_interval=0.0)
             return {"FINISHED"}
-        if event.type in {"ESC", "RIGHTMOUSE"}:
-            _restore(self.ob, self.undo)
-            self._end(context)
-            return {"CANCELLED"}
+        self.ob, self.hname, self.start, self.axis = ob, h.name, h.at.copy(), h.axis
+        self.undo = _snapshot(ob)
+        _drag[0] = h.name
         return {"RUNNING_MODAL"}
 
-    def _end(self, context):
-        _drag[0] = None
-        context.window.cursor_modal_restore()
-        context.workspace.status_text_set(None)
+    def modal(self, context, event, tweak):
+        if self.ob is None:
+            return {"FINISHED"}
+        h = next((x for x in handles_of(self.ob) if x.name == self.hname), None)
+        if h is not None:
+            h.set(_place(context, self.ob, self.start, self.axis, event.mouse_region_x, event.mouse_region_y), self.start)
+            self.ob.update_tag()
+            text = h.readout() if h.readout else None
+            context.workspace.status_text_set(f"{h.name}: {text}" if text else h.name)
         context.area.tag_redraw()
-        for a in context.screen.areas:                 # the Attribute Manager shows the new value
+        return {"RUNNING_MODAL"}
+
+    def exit(self, context, cancel):
+        if self.ob is None:
+            return
+        if cancel:
+            _restore(self.ob, self.undo)
+        _drag[0] = None
+        context.workspace.status_text_set(None)
+        for a in context.screen.areas:                   # the Attribute Manager shows the new value
             a.tag_redraw()
+        if not cancel:
+            bpy.ops.ed.undo_push(message=f"Drag {self.hname}")
+
+
+class BLENDA4D_GGT_dots(bpy.types.GizmoGroup):
+    bl_idname = "BLENDA4D_GGT_dots"
+    bl_label = "Blenda 4D handles"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "WINDOW"
+    bl_options = {"PERSISTENT", "SHOW_MODAL_ALL"}
+
+    @classmethod
+    def poll(cls, context):
+        from . import switch
+        return switch.is_on() and context.mode == "OBJECT"
+
+    def setup(self, context):
+        self.gizmos.new(BLENDA4D_GT_dots.bl_idname)
 
 
 # Escape puts every setting a handle can reach back as it was
@@ -195,13 +271,9 @@ def _restore(ob, snap):
 
 
 def register():
-    bpy.utils.register_class(BLENDA4D_OT_handle_drag)
+    for c in (BLENDA4D_GT_dots, BLENDA4D_GGT_dots):
+        bpy.utils.register_class(c)
     _draws.append(bpy.types.SpaceView3D.draw_handler_add(_draw, (), "WINDOW", "POST_PIXEL"))
-    kc = bpy.context.window_manager.keyconfigs.addon
-    if kc:
-        km = kc.keymaps.new(name="3D View", space_type="VIEW_3D", region_type="WINDOW")
-        for shift in (False, True):
-            _keys.append((km, km.keymap_items.new(BLENDA4D_OT_handle_drag.bl_idname, "LEFTMOUSE", "PRESS", shift=shift, head=True)))
 
 
 def unregister():
@@ -215,4 +287,5 @@ def unregister():
         bpy.types.SpaceView3D.draw_handler_remove(h, "WINDOW")
     _draws.clear()
     _shown.clear()
-    bpy.utils.unregister_class(BLENDA4D_OT_handle_drag)
+    for c in (BLENDA4D_GGT_dots, BLENDA4D_GT_dots):
+        bpy.utils.unregister_class(c)

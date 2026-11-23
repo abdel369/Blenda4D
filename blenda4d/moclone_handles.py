@@ -139,57 +139,39 @@ def cloner_handles(ob):
 
 # --- fields -----------------------------------------------------------------------------------------------------------
 
+_SIZES = ("b4d_fd_radius", "b4d_fd_height", "b4d_fd_tube", "b4d_fd_length", "b4d_fd_size")
+
+
 def field_handles(ob):
+    """One yellow dot scales the whole field evenly (its radius, height, size... together); a field is made uneven
+    with the Scale tool. Inner Offset has its own purple dot."""
     k = ob.get("b4d_type", "")
-    if not k.startswith("fd_"):
+    if not k.startswith("fd_") or k in ("fd_radial", "fd_random"):
         return None
-    X, Y, Z = Vector((1, 0, 0)), Vector((0, 1, 0)), Vector((0, 0, 1))      # Blender axes; shown Y is Blender Z
-
-    def prop(name, axis, scale=1.0, label=None, at=None, colour=handles.DOT):
-        here = at if at is not None else axis * getattr(ob, name) * CM * scale
-
-        def put(new, start):
-            setattr(ob, name, max(new.dot(axis), 0.0) / CM / scale)
-        return Handle(label or ob.bl_rna.properties[name].name, here, put, axis=axis, colour=colour,
-                      readout=lambda: _cm(getattr(ob, name)))
-    out = []
-    r, h = ob.b4d_fd_radius, ob.b4d_fd_height
-    if k == "fd_sphere":
-        out.append(prop("b4d_fd_radius", X))
-        reach = r
+    X, Y = Vector((1, 0, 0)), Vector((0, 1, 0))
+    if k == "fd_linear":
+        axis, reach = Y, ob.b4d_fd_length / 2.0
     elif k == "fd_box":
-        s = ob.b4d_fd_size
-        for i, (axis, label) in enumerate(((X, "Size X"), (Z, "Size Y"), (Y, "Size Z"))):
-            def put(new, start, i=i, axis=axis):
-                v = list(ob.b4d_fd_size); v[i] = max(new.dot(axis), 0.0) / CM * 2.0
-                ob.b4d_fd_size = v
-            out.append(Handle(label, axis * s[i] * CM / 2.0, put, axis=axis, readout=lambda i=i: _cm(ob.b4d_fd_size[i])))
-        reach = s[0] / 2.0
-    elif k in ("fd_cylinder", "fd_capsule"):
-        out += [prop("b4d_fd_radius", X), prop("b4d_fd_height", Z, 0.5)]
-        reach = r
-    elif k == "fd_cone":
-        base = Vector((0, 0, -h * CM / 2.0))
-
-        def put_r(new, start):
-            ob.b4d_fd_radius = max(new.x, 0.0) / CM
-        out += [Handle("Radius", base + X * r * CM, put_r, axis=X, readout=lambda: _cm(ob.b4d_fd_radius)), prop("b4d_fd_height", Z, 0.5)]
-        reach = r
-    elif k == "fd_torus":
-        out.append(prop("b4d_fd_radius", X))
-
-        def put_t(new, start):
-            ob.b4d_fd_tube = max(new.z, 0.0) / CM
-        out.append(Handle("Ring Radius", X * r * CM + Z * ob.b4d_fd_tube * CM, put_t, axis=Z, readout=lambda: _cm(ob.b4d_fd_tube)))
-        reach = r
-    elif k == "fd_linear":
-        out.append(prop("b4d_fd_length", Y, 0.5))
-        reach = None
+        axis, reach = X, ob.b4d_fd_size[0] / 2.0
     else:
-        return out
-    if reach is not None and k != "fd_torus":
-        # Inner Offset: full strength out to this share of the size, a purple handle along -X
-        def put_in(new, start, reach=reach):
+        axis, reach = X, ob.b4d_fd_radius
+    here = axis * reach * CM
+    if k == "fd_cone":                                    # the cone's widest part is its base
+        here = here + Vector((0, 0, -ob.b4d_fd_height * CM / 2.0))
+
+    def put(new, start):
+        now = max(reach, 1e-6)
+        d = max(new.dot(axis), 0.0) / CM
+        f = max(d / now, 0.0)
+        for name in _SIZES:
+            v = getattr(ob, name)
+            setattr(ob, name, [c * f for c in v] if hasattr(v, "__len__") else v * f)
+    label = "Length" if k == "fd_linear" else "Size" if k == "fd_box" else "Radius"
+    out = [Handle(label, here, put, axis=axis, readout=lambda: _cm(ob.b4d_fd_length if k == "fd_linear" else
+                                                                     ob.b4d_fd_size[0] if k == "fd_box" else ob.b4d_fd_radius))]
+    if k not in ("fd_linear", "fd_torus"):
+        # Inner Offset: full strength out to this share of the size, a purple dot along -X
+        def put_in(new, start):
             ob.b4d_fd_inner = min(max(-new.x / CM / max(reach, 1e-6) * 100.0, 0.0), 100.0)
         out.append(Handle("Inner Offset", -X * reach * CM * ob.b4d_fd_inner / 100.0, put_in, axis=-X, colour=INNER,
                           readout=lambda: f"{ob.b4d_fd_inner:.0f} %"))
