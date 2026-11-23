@@ -42,6 +42,8 @@ def has(ob, key):
                                          m.name.startswith("Smooth") for m in ob.modifiers)
     if key == "PROTECTION":
         return all(ob.lock_location) and all(ob.lock_rotation) and all(ob.lock_scale)
+    if key in {"RIGID", "COLLIDER"} and ob.get("b4d_type") == "cloner":   # MoClone: every clone is a body
+        return ob.get("b4d_dyn") == ("ACTIVE" if key == "RIGID" else "PASSIVE")
     if key in {"RIGID", "COLLIDER"}:
         rb = ob.rigid_body
         return rb is not None and (rb.type == "ACTIVE") == (key == "RIGID")
@@ -87,6 +89,9 @@ def add(context, ob, key):
             bpy.ops.object.shade_auto_smooth()
         elif key == "PROTECTION":
             ob.lock_location = ob.lock_rotation = ob.lock_scale = (True, True, True)
+        elif key in {"RIGID", "COLLIDER"} and ob.get("b4d_type") == "cloner":
+            from . import moclone_dyn
+            moclone_dyn.tag(context, ob, "ACTIVE" if key == "RIGID" else "PASSIVE")
         elif key in {"RIGID", "COLLIDER"}:
             if ob.rigid_body is None:
                 bpy.ops.rigidbody.object_add(type="ACTIVE" if key == "RIGID" else "PASSIVE")
@@ -118,6 +123,9 @@ def remove(context, ob, key):
             ob.modifiers.remove(m)
     elif key == "PROTECTION":
         ob.lock_location = ob.lock_rotation = ob.lock_scale = (False, False, False)
+    elif key in {"RIGID", "COLLIDER"} and ob.get("b4d_type") == "cloner":
+        from . import moclone_dyn
+        moclone_dyn.clear(ob)
     elif key in {"RIGID", "COLLIDER"}:
         with context.temp_override(object=ob, active_object=ob, selected_objects=[ob], selected_editable_objects=[ob]):
             bpy.ops.rigidbody.object_remove()

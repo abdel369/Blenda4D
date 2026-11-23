@@ -62,6 +62,7 @@ CLONER_INPUTS = [
     # Object
     ("Object", "OBJECT", None, 'object.object'), ("Distribution", "INT", 0, 'object.distribution'),
     ("Object Count", "INT", 20, 'object.count'), ("Align Clone", "BOOL", True, 'object.align'),
+    ("Simulated", "BOOL", False, 'dyn.simulated'),           # set by MoClone dynamics: bodies stand in for the clones
 ] + TRANSFORM
 
 CLONER_MENUS = {"Mode": MODES, "Clones": CLONES, "Linear Mode": PER, "Step Mode": STEP_MODES, "Plane": PLANES,
@@ -415,12 +416,18 @@ def clone_color_material():
     if m is not None:
         return m
     m = bpy.data.materials.new(CLONE_COLOR)
+    # clones carry the colour as an instance attribute; clone bodies (dynamics) and made-editable clones carry it as
+    # their object colour: the attribute's alpha picks which
     m.use_nodes = True
     nt = m.node_tree
     bsdf = next(n for n in nt.nodes if n.type == "BSDF_PRINCIPLED")
     at = nt.nodes.new("ShaderNodeAttribute"); at.attribute_type = "INSTANCER"; at.attribute_name = "b4d_color"
     at.location = (bsdf.location.x - 260, bsdf.location.y)
-    nt.links.new(at.outputs["Color"], bsdf.inputs["Base Color"])
+    oi = nt.nodes.new("ShaderNodeObjectInfo"); oi.location = (bsdf.location.x - 260, bsdf.location.y - 200)
+    mix = nt.nodes.new("ShaderNodeMix"); mix.data_type = "RGBA"; mix.location = (bsdf.location.x - 140, bsdf.location.y)
+    nt.links.new(at.outputs["Alpha"], mix.inputs["Factor"])
+    nt.links.new(oi.outputs["Color"], mix.inputs[6]); nt.links.new(at.outputs["Color"], mix.inputs[7])
+    nt.links.new(mix.outputs[2], bsdf.inputs["Base Color"])
     return m
 
 
@@ -457,7 +464,8 @@ def build_cloner(nodes, links, o, kids, effect=None):
     links.new(_pick(nodes, links, o, len(shapes), geo), inst.inputs["Instance Index"])
     links.new(_attr(nodes, "b4d_rot_q", "QUATERNION"), inst.inputs["Rotation"])
     links.new(_attr(nodes, "b4d_scale", "FLOAT_VECTOR"), inst.inputs["Scale"])
-    return inst.outputs["Instances"]          # instances, as C4D's: Make Editable turns them into real objects
+    # while a Rigid Body tag simulates the clones, their bodies show instead (moclone_dyn.py)
+    return gc.switch(nodes, links, "GEOMETRY", o["Simulated"], inst.outputs["Instances"], nodes.new("GeometryNodeJoinGeometry").outputs[0])
 
 
 def build_matrix(nodes, links, o, kids, effect=None):

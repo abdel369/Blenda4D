@@ -97,6 +97,10 @@ def _protection_page(col, ob):
 
 
 def _rigid_page(col, ob):
+    if ob.get("b4d_type") == "cloner":                     # MoClone: the clones' bodies
+        from . import moclone_dyn
+        moclone_dyn.page(col, ob)
+        return
     rb = ob.rigid_body
     if rb is None:
         return

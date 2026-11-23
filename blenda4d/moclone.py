@@ -66,6 +66,8 @@ def _only_mode(rows, ob):
     """Rows of the other modes are left out, not just dimmed: the page shows what the chosen mode uses."""
     out = []
     for r in rows:
+        if r is not None and r[0] == "Simulated":
+            continue
         if r is not None and r[0] != "#" and len(r) > 2 and r[2] is not None:
             try:
                 if not r[2](lambda name: g.gval(ob, name)):
@@ -164,6 +166,8 @@ def make_editable(context, gen):
 
 def register():
     moclone_fx_ui.register()
+    from . import moclone_dyn
+    moclone_dyn.register()
     for k, page in (("cloner", page_cloner), ("matrix", page_matrix)):
         g.ICONS[k] = ICONS[k]
         g.TIPS[k] = TIPS[k]
@@ -177,4 +181,6 @@ def register():
 
 
 def unregister():
+    from . import moclone_dyn
+    moclone_dyn.unregister()
     moclone_fx_ui.unregister()

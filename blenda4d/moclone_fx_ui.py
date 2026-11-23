@@ -356,6 +356,17 @@ def drop(context, objs, event):
     ob = context.view_layer.objects.active
     tab = getattr(context.window_manager, "b4d_am_tab", "")
     took = False
+    subject = getattr(context.window_manager, "b4d_am_subject", "")
+    if subject.startswith("OTAG:") and subject.endswith(":RIGID"):     # a Cloner's Rigid Body page: fields that start it
+        gen = bpy.data.objects.get(subject[5:].rpartition(":")[0])
+        if gen is not None and gen.get("b4d_type") == "cloner":
+            for o in objs:
+                if fx.is_field(o):
+                    add_field(gen, o); took = True
+            if took:
+                gen.pop("b4d_dyn_sig", None)
+                over.tag_redraw()
+            return took
     if ob is not None and ob.get("b4d_type") in MOGENS and tab == "EFFECTORS":
         for o in objs:
             if fx.is_effector(o):
