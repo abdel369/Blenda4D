@@ -93,14 +93,15 @@ def _draw():
     gpu.state.blend_set("NONE")
 
 
-def hit(context, x, y):
+def hit(context, x, y, second=False):
+    """The dot under the mouse; with second, the next one when two sit on the same spot (a Cone's Top Radius on its
+    Height: Shift picks it)."""
     s = context.preferences.system.ui_scale
-    best, dist = None, None
-    for hx, hy, h in _shown.get(context.area.as_pointer(), []):
-        d = max(abs(hx - x), abs(hy - y))
-        if d <= HIT * s and (dist is None or d < dist):
-            best, dist = h, d
-    return best
+    near = sorted((max(abs(hx - x), abs(hy - y)), i, h) for i, (hx, hy, h) in enumerate(_shown.get(context.area.as_pointer(), []))
+                  if max(abs(hx - x), abs(hy - y)) <= HIT * s)
+    if not near:
+        return None
+    return near[1][2] if second and len(near) > 1 else near[0][2]
 
 
 class BLENDA4D_OT_handle_drag(bpy.types.Operator):
@@ -116,7 +117,7 @@ class BLENDA4D_OT_handle_drag(bpy.types.Operator):
         ob = _target(context)
         if ob is None:
             return {"PASS_THROUGH"}
-        h = hit(context, event.mouse_region_x, event.mouse_region_y)
+        h = hit(context, event.mouse_region_x, event.mouse_region_y, second=event.shift)
         if h is None:
             return {"PASS_THROUGH"}
         self.ob, self.hname = ob, h.name
@@ -199,7 +200,8 @@ def register():
     kc = bpy.context.window_manager.keyconfigs.addon
     if kc:
         km = kc.keymaps.new(name="3D View", space_type="VIEW_3D", region_type="WINDOW")
-        _keys.append((km, km.keymap_items.new(BLENDA4D_OT_handle_drag.bl_idname, "LEFTMOUSE", "PRESS", head=True)))
+        for shift in (False, True):
+            _keys.append((km, km.keymap_items.new(BLENDA4D_OT_handle_drag.bl_idname, "LEFTMOUSE", "PRESS", shift=shift, head=True)))
 
 
 def unregister():
