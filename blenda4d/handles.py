@@ -55,6 +55,12 @@ def _target(context):
     return ob
 
 
+def _px(context):
+    """Interface pixels to region pixels (a Retina screen has two region pixels to each)."""
+    sy = context.preferences.system
+    return sy.ui_scale * sy.pixel_size
+
+
 def _region_xy(context, world):
     return view3d_utils.location_3d_to_region_2d(context.region, context.region_data, world)
 
@@ -96,7 +102,7 @@ def _draw():
 def hit(context, x, y, second=False):
     """The dot under the mouse; with second, the next one when two sit on the same spot (a Cone's Top Radius on its
     Height: Shift picks it)."""
-    s = context.preferences.system.ui_scale
+    s = _px(context)
     near = sorted((max(abs(hx - x), abs(hy - y)), i, h) for i, (hx, hy, h) in enumerate(_shown.get(context.area.as_pointer(), []))
                   if max(abs(hx - x), abs(hy - y)) <= HIT * s)
     if not near:
@@ -104,7 +110,7 @@ def hit(context, x, y, second=False):
     return near[1][2] if second and len(near) > 1 else near[0][2]
 
 
-PICK = 6                                          # how near (pixels) a click must be to a drawn outline to pick it
+PICK = 8                                          # how near (interface pixels) a click must be to a drawn outline to pick it
 OUTLINES = []                                     # fn(context) -> [(object, [(world a, world b), ...])]
 
 
@@ -113,25 +119,28 @@ def outlines(fn):
         OUTLINES.append(fn)
 
 
+def _shapes(context):
+    for fn in OUTLINES:
+        try:
+            yield from fn(context)
+        except Exception:
+            continue
+
+
 def _pick_drawn(context, mx, my):
     """The object whose drawn outline passes nearest the click, within PICK pixels; None if none does."""
     if context.mode != "OBJECT":
         return None
-    reach = PICK * context.preferences.system.ui_scale
+    reach = PICK * _px(context)
     best, dist = None, reach
-    for fn in OUTLINES:
-        try:
-            shapes = fn(context)
-        except Exception:
-            continue
-        for ob, segs in shapes:
-            for a, b in segs:
-                pa, pb = _region_xy(context, a), _region_xy(context, b)
-                if pa is None or pb is None:
-                    continue
-                d = _seg_dist(mx, my, pa.x, pa.y, pb.x, pb.y)
-                if d < dist:
-                    best, dist = ob, d
+    for ob, segs in _shapes(context):
+        for a, b in segs:
+            pa, pb = _region_xy(context, a), _region_xy(context, b)
+            if pa is None or pb is None:
+                continue
+            d = _seg_dist(mx, my, pa.x, pa.y, pb.x, pb.y)
+            if d < dist:
+                best, dist = ob, d
     return best
 
 
@@ -181,28 +190,11 @@ class BLENDA4D_GT_dots(bpy.types.Gizmo):
             picked = _pick_drawn(context, mx, my)
             if picked is None:
                 return {"PASS_THROUGH"}
-            # applied once Blender has finished with this click: the active tool's own click handling would
-            # otherwise put the old selection back
-            name, extend, area = picked.name, event.shift, context.area
-
-            def apply():
-                ob = bpy.data.objects.get(name)
-                if ob is None:
-                    return None
-                vl = bpy.context.view_layer
-                if not extend:
-                    for o in vl.objects.selected:
-                        o.select_set(False)
-                ob.select_set(True)
-                vl.objects.active = ob
-                try:
-                    area.tag_redraw()
-                    bpy.ops.ed.undo_push(message="Select")
-                except Exception:
-                    pass
-                return None
-            bpy.app.timers.register(apply, first_interval=0.0)
-            return {"FINISHED"}
+            # the gizmo holds the click until the button comes up, so the active tool never sees its press or
+            # release (its release on empty space would deselect everything); the pick is made on release
+            self.pick = (picked.name, event.shift)
+            return {"RUNNING_MODAL"}
+        self.pick = None
         self.ob, self.hname, self.start, self.axis = ob, h.name, h.at.copy(), h.axis
         self.undo = _snapshot(ob)
         _drag[0] = h.name
@@ -210,7 +202,7 @@ class BLENDA4D_GT_dots(bpy.types.Gizmo):
 
     def modal(self, context, event, tweak):
         if self.ob is None:
-            return {"FINISHED"}
+            return {"RUNNING_MODAL"} if self.pick else {"FINISHED"}
         h = next((x for x in handles_of(self.ob) if x.name == self.hname), None)
         if h is not None:
             h.set(_place(context, self.ob, self.start, self.axis, event.mouse_region_x, event.mouse_region_y), self.start)
@@ -222,6 +214,12 @@ class BLENDA4D_GT_dots(bpy.types.Gizmo):
 
     def exit(self, context, cancel):
         if self.ob is None:
+            if self.pick and not cancel:
+                name, extend = self.pick
+                self.pick = None
+                _select([bpy.data.objects.get(name)], "ADD" if extend else "SET", context.view_layer, make_active=True)
+                context.area.tag_redraw()
+                bpy.ops.ed.undo_push(message="Select")
             return
         if cancel:
             _restore(self.ob, self.undo)
@@ -249,6 +247,116 @@ class BLENDA4D_GGT_dots(bpy.types.GizmoGroup):
         self.gizmos.new(BLENDA4D_GT_dots.bl_idname)
 
 
+# --- the Rectangle selection takes a field when its frame crosses the field's drawn shape --------------------------
+
+def _select(objs, mode, vl, make_active=False):
+    objs = [o for o in objs if o is not None]
+    if mode == "SET":
+        for o in vl.objects.selected:
+            if o not in objs:
+                o.select_set(False)
+    for o in objs:
+        if mode == "SUB":
+            o.select_set(False)
+        elif mode == "XOR":
+            o.select_set(not o.select_get())
+        else:
+            o.select_set(True)
+    if make_active and objs and mode != "SUB":
+        vl.objects.active = objs[0]
+
+
+def _box_hits(context, region, rv3d, x0, y0, x1, y1):
+    from mathutils.geometry import intersect_line_line_2d
+    corners = [Vector((x0, y0)), Vector((x1, y0)), Vector((x1, y1)), Vector((x0, y1))]
+    edges = list(zip(corners, corners[1:] + corners[:1]))
+    out = []
+    for ob, segs in _shapes(context):
+        for a, b in segs:
+            pa = view3d_utils.location_3d_to_region_2d(region, rv3d, a)
+            pb = view3d_utils.location_3d_to_region_2d(region, rv3d, b)
+            if pa is None or pb is None:
+                continue
+            if any(x0 <= p.x <= x1 and y0 <= p.y <= y1 for p in (pa, pb)) or \
+                    any(intersect_line_line_2d(pa, pb, c, d) for c, d in edges):
+                out.append(ob)
+                break
+    return out
+
+
+class BLENDA4D_OT_box_watch(bpy.types.Operator):
+    """Rectangle Selection that also takes drawn shapes: Blender's own Rectangle Selection draws and applies the frame,
+    then any field whose drawn shape the frame crosses is added (Blender alone only looks at the field's centre)"""
+    bl_idname = "blenda4d.box_watch"
+    bl_label = "Rectangle Selection"
+    bl_options = {"INTERNAL"}
+
+    def invoke(self, context, event):
+        mode = "AND" if event.shift and event.ctrl else "ADD" if event.shift else "SUB" if event.ctrl else "SET"
+        try:
+            r = bpy.ops.view3d.select_box("INVOKE_DEFAULT", mode=mode, wait_for_input=False)
+        except RuntimeError:
+            return {"PASS_THROUGH"}
+        if "RUNNING_MODAL" not in r or context.mode != "OBJECT" or not OUTLINES:
+            return {"FINISHED"}
+        self.mode, self.start = mode, (event.mouse_region_x, event.mouse_region_y)
+        self.area, self.region = context.area, context.region
+        context.window_manager.modal_handler_add(self)    # after the frame's own handler, so it hears the release first
+        return {"RUNNING_MODAL"}
+
+    def modal(self, context, event):
+        if event.type in {"ESC", "RIGHTMOUSE"}:
+            return {"CANCELLED", "PASS_THROUGH"}
+        if event.type == "LEFTMOUSE" and event.value == "RELEASE":
+            rect = (self.start[0], self.start[1], event.mouse_x - self.region.x, event.mouse_y - self.region.y)
+            mode, area, region = self.mode, self.area, self.region
+
+            def apply():                                  # once Blender has applied its own frame
+                _box_apply(area, region, rect, mode)
+                return None
+            bpy.app.timers.register(apply, first_interval=0.0)
+            self.done = True
+            return {"PASS_THROUGH"}
+        if getattr(self, "done", False):
+            return {"FINISHED", "PASS_THROUGH"}
+        return {"PASS_THROUGH"}
+
+
+def _box_apply(area, region, rect, mode):
+    context = bpy.context
+    try:
+        xa, ya, xb, yb = (int(round(v)) for v in rect)
+        x0, x1 = sorted((xa, xb))
+        y0, y1 = sorted((ya, yb))
+        # Blender's own Rectangle Selection, on exactly this frame (the same again if it already ran: no harm)
+        with context.temp_override(window=context.window_manager.windows[0] if context.window is None else context.window,
+                                   area=area, region=region):
+            bpy.ops.view3d.select_box(xmin=x0, xmax=x1, ymin=y0, ymax=y1, mode=mode, wait_for_input=False)
+        hits = _box_hits(context, region, region.data, x0, y0, x1, y1)
+    except (ReferenceError, AttributeError, RuntimeError):
+        return
+    if hits and mode != "AND":
+        _select(hits, mode if mode == "SUB" else "ADD", context.view_layer)
+    try:
+        area.tag_redraw()
+        bpy.ops.ed.undo_push(message="Select")
+    except (ReferenceError, RuntimeError):
+        pass
+
+
+_BOX_KEYMAPS = ("3D View Tool: Select Box", "3D View Tool: Select Box (fallback)")
+
+
+def _add_box_keys():
+    kc = bpy.context.window_manager.keyconfigs.addon
+    if kc is None:
+        return
+    for name in _BOX_KEYMAPS:
+        km = kc.keymaps.new(name=name, space_type="VIEW_3D", region_type="WINDOW", tool=True)
+        kmi = km.keymap_items.new(BLENDA4D_OT_box_watch.bl_idname, "LEFTMOUSE", "CLICK_DRAG", any=True)
+        _keys.append((km, kmi))
+
+
 # Escape puts every setting a handle can reach back as it was
 _SNAP = []                                       # fn(ob) -> state, fn(ob, state)
 
@@ -271,9 +379,10 @@ def _restore(ob, snap):
 
 
 def register():
-    for c in (BLENDA4D_GT_dots, BLENDA4D_GGT_dots):
+    for c in (BLENDA4D_GT_dots, BLENDA4D_GGT_dots, BLENDA4D_OT_box_watch):
         bpy.utils.register_class(c)
     _draws.append(bpy.types.SpaceView3D.draw_handler_add(_draw, (), "WINDOW", "POST_PIXEL"))
+    _add_box_keys()
 
 
 def unregister():
@@ -287,5 +396,5 @@ def unregister():
         bpy.types.SpaceView3D.draw_handler_remove(h, "WINDOW")
     _draws.clear()
     _shown.clear()
-    for c in (BLENDA4D_GGT_dots, BLENDA4D_GT_dots):
+    for c in (BLENDA4D_OT_box_watch, BLENDA4D_GGT_dots, BLENDA4D_GT_dots):
         bpy.utils.unregister_class(c)
