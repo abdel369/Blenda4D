@@ -50,7 +50,11 @@ OM_MENUS = [menus.simple_menu("File", [I("Merge Objects...", "wm.append", "APPEN
                                         I("Select All", "object.select_all", action="SELECT"), I("Deselect All", "object.select_all", action="DESELECT")], "om"),
             menus.simple_menu("View", [I("Expand All", "blenda4d.om_expand", open=True), I("Collapse All", "blenda4d.om_expand", open=False)], "om"),
             menus.simple_menu("Object", [I("Group Objects", "blenda4d.group", "OUTLINER_OB_EMPTY"),
+                                          I("Ungroup Objects", "blenda4d.ungroup", "X"),
+                                          I("Delete Without Children", "blenda4d.delete_without_children", "TRASH"),
+                                          I("Select Children", "blenda4d.select_children", "OUTLINER"), menus.SEP,
                                           I("Make Editable", "blenda4d.make_editable", "MESH_DATA"),
+                                          I("Current State to Object", "blenda4d.current_state", "FREEZE"),
                                           I("Duplicate", "object.duplicate_move", "DUPLICATE")], "om"),
             menus.simple_menu("Tags", [I("Material", "blenda4d.mat_tag", "MATERIAL"), I("Smoothing", "object.shade_auto_smooth", "SHADING_SMOOTH")], "om"),
             menus.simple_menu("Bookmarks", [I("Add Bookmark")], "om")]
@@ -379,6 +383,8 @@ def _tags(ob):
             out.append(("MATERIAL", slot.material, i))
     if ob.type == "MESH" and any(m.type == "SMOOTH_BY_ANGLE" or m.name.startswith("Smooth") for m in ob.modifiers):
         out.append(("SHADING_SMOOTH", None, -1))
+    from . import om_menu
+    out += [(icon, None, -1) for icon, _key in om_menu.tags(ob)]
     return out
 
 

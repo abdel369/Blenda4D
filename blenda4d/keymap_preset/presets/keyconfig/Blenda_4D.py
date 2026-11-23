@@ -62,6 +62,9 @@ KEYS = [
     ("3D View", "object.editmode_toggle", {"type": "RET", "value": "PRESS"}, None),
     # Alt+G: group the selected objects under a null; F5: four views
     ("Object Mode", "blenda4d.group", {"type": "G", "value": "PRESS", "alt": True}, None),
+    ("Object Mode", "blenda4d.ungroup", {"type": "G", "value": "PRESS", "shift": True}, None),
+    ("Property Editor", "blenda4d.group", {"type": "G", "value": "PRESS", "alt": True}, None),
+    ("Property Editor", "blenda4d.ungroup", {"type": "G", "value": "PRESS", "shift": True}, None),
     ("3D View", "blenda4d.quad_view", {"type": "F5", "value": "PRESS"}, None),
     # F9: record a key for the selected objects (I is Inset in Edit Mode)
     ("Object Mode", "anim.keyframe_insert", {"type": "F9", "value": "PRESS"}, None),

@@ -123,7 +123,7 @@ MAIN = {
     "Tools": [item("Move", "wm.tool_set_by_id", name="builtin.move"), item("Scale", "wm.tool_set_by_id", name="builtin.scale"),
               item("Rotate", "wm.tool_set_by_id", name="builtin.rotate"), SEP, item("Measure", "wm.tool_set_by_id", name="builtin.measure")],
     "Spline": [item("Pen", "wm.tool_set_by_id", name="builtin.pen"), item("Sketch", "wm.tool_set_by_id", name="builtin.draw")],
-    "Mesh": [item("Make Editable", "blenda4d.make_editable", "MESH_DATA"), SEP,
+    "Mesh": [item("Make Editable", "blenda4d.make_editable", "MESH_DATA"), item("Current State to Object", "blenda4d.current_state", "FREEZE"), SEP,
              item("Extrude", "wm.tool_set_by_id", "ops.mesh.extrude_region_move", name="builtin.extrude_region"),
              item("Inset", "wm.tool_set_by_id", "ops.mesh.inset", name="builtin.inset_faces"),
              item("Bevel", "wm.tool_set_by_id", "ops.mesh.bevel", name="builtin.bevel"),
