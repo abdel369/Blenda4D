@@ -632,7 +632,12 @@ def make_group(name, kind, kids, owner):
         kid_geo.append((child, info.outputs["Geometry"]))
     _kids.__exit__(None, None, None)
     with stage(tree, label):
-        out = BUILDERS[kind](nodes, links, o, kid_geo)
+        if kind in ("cloner", "matrix"):              # MoClone: the Cloner's effectors act between its points and its clones
+            from . import moclone_fx
+            gen_ob = bpy.data.objects.get(owner)
+            out = BUILDERS[kind](nodes, links, o, kid_geo, effect=moclone_fx.effect_fn(gen_ob) if gen_ob is not None else None)
+        else:
+            out = BUILDERS[kind](nodes, links, o, kid_geo)
     if "Shell Selection" in o:
         with stage(tree, "Selections"):
             out = _part_selections(nodes, links, o, out)

@@ -9,6 +9,7 @@ import bpy
 
 from . import generators as g
 from . import kinds
+from . import moclone_fx_ui
 
 ICONS = {"cloner": "MOD_ARRAY", "matrix": "LIGHTPROBE_VOLUME"}
 TIPS = {"cloner": "Places copies of the objects under it in a row, ring, grid, honeycomb or on another object",
@@ -91,17 +92,84 @@ def page_transform(col, ob):
                       ("Clone Color", "Color"), ("Clone Weight", "Weight %")])
 
 
+def make_editable(context, gen):
+    """Make Editable on a Cloner: a Null in its place with each clone as its own object (named after the child it
+    copies, numbered), each at the clone's place and with the clone's colour as its object colour. True when done."""
+    from mathutils import Matrix
+    from . import collapse
+    dg = context.evaluated_depsgraph_get()
+    geo = gen.evaluated_get(dg).evaluated_geometry()
+    pc = geo.instances_pointcloud()
+    kids = g.kids_of(gen)
+    if pc is None or not kids:
+        return False
+    tf = pc.attributes.get("instance_transform")
+    ref = pc.attributes.get(".reference_index")
+    col = pc.attributes.get("b4d_color")
+    reset = bool(g.gval(gen, "Reset Coordinates"))
+    sources = {}
+    for c in kids:                                              # each child's shape as it shows, once
+        ev = c.evaluated_get(dg)
+        try:
+            sources[c.name] = bpy.data.meshes.new_from_object(ev, preserve_all_data_layers=True, depsgraph=dg)
+        except RuntimeError:
+            sources[c.name] = None
+    collapse._quiet()
+    try:
+        null = bpy.data.objects.new(gen.name, None)
+        for coll in gen.users_collection:
+            coll.objects.link(null)
+        null.parent = gen.parent
+        null.matrix_parent_inverse = Matrix.Identity(4)
+        null.matrix_world = gen.matrix_world.copy()
+        made = []
+        for i in range(len(pc.points)):
+            k = ref.data[i].value if ref is not None else 0
+            child = kids[min(max(k, 0), len(kids) - 1)]
+            src = sources.get(child.name)
+            if src is None:
+                continue
+            ob = bpy.data.objects.new(f"{child.name} {i}", src.copy())
+            for sl in child.material_slots:
+                if sl.material is not None:
+                    ob.data.materials.append(sl.material)
+            for coll in gen.users_collection:
+                coll.objects.link(ob)
+            m = Matrix([list(r) for r in tf.data[i].value]) if tf is not None else Matrix.Identity(4)
+            rel = Matrix.Identity(4) if reset else gen.matrix_world.inverted() @ child.matrix_world
+            ob.parent = null
+            ob.matrix_parent_inverse = Matrix.Identity(4)
+            ob.matrix_world = gen.matrix_world @ m @ (Matrix.Identity(4) if reset else rel)
+            if reset is False:
+                ob.data.transform(rel.inverted())                     # the shape came in the child's own space
+            if col is not None:
+                ob.color = tuple(col.data[i].color)
+            made.append(ob)
+        for src in sources.values():
+            if src is not None and src.users == 0:
+                bpy.data.meshes.remove(src)
+        name = gen.name
+        collapse._remove_tree(gen)
+        null.name = name
+    finally:
+        collapse._loud()
+    collapse._select(context, [null])
+    return True
+
+
 def register():
+    moclone_fx_ui.register()
     for k, page in (("cloner", page_cloner), ("matrix", page_matrix)):
         g.ICONS[k] = ICONS[k]
         g.TIPS[k] = TIPS[k]
         g.PAGES[k] = page
         kinds.add(k, g.LABELS[k], ICONS[k], create=(lambda k: lambda context: g.create(context, k))(k),
-                  tabs=[("OBJECT", "Object"), ("TRANSFORM", "Transform")], pages={"OBJECT": page, "TRANSFORM": page_transform},
-                  titles={"OBJECT": g.LABELS[k], "TRANSFORM": "Transform"},
+                  tabs=[("OBJECT", "Object"), ("TRANSFORM", "Transform"), ("EFFECTORS", "Effectors")],
+                  pages={"OBJECT": page, "TRANSFORM": page_transform, "EFFECTORS": moclone_fx_ui.page_cloner_effectors},
+                  titles={"OBJECT": g.LABELS[k], "TRANSFORM": "Transform", "EFFECTORS": "Effectors"},
                   describe=TIPS[k] + (" (selected objects go under it)" if k == "cloner" else ""))
         kinds.create_button("moclone", g.LABELS[k], k)
 
 
 def unregister():
-    pass
+    moclone_fx_ui.unregister()

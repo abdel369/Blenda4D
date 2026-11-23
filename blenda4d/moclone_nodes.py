@@ -12,6 +12,8 @@ Clone state on each point (Blender space):
   b4d_color        colour (the material reads it with an Attribute node named "b4d_color", Instancer)
   b4d_weight       weight, 0..1
   b4d_u            the clone's place along the arrangement, 0 at the first clone, 1 at the last
+  b4d_uv           the clone's place across the arrangement (U along, V across a grid or honeycomb), 0..1
+  b4d_index        the clone's number
 
 Shown values are Y up, cm, degrees, percent (coords.py): shown (x, y, z) = Blender (x, z, y)."""
 import math
@@ -164,7 +166,8 @@ def _linear(nodes, links, o, i):
                                                  _math(nodes, "ADD", 1.0, _math(nodes, "MULTIPLY", _math(nodes, "SUBTRACT", sv[c], 1.0, links), t, links), links))
                                        for c in ("X", "Y", "Z")])
     keep = _math(nodes, "GREATER_THAN", i, _math(nodes, "SUBTRACT", o["Offset"], 0.5, links), links)
-    return n, acc.outputs["Trailing"], rot, scale, keep
+    uv = gc.combine(nodes, links, _ramp(nodes, links, i, n), None, None)
+    return n, acc.outputs["Trailing"], rot, scale, keep, uv
 
 
 def _radial(nodes, links, o, i):
@@ -189,7 +192,7 @@ def _radial(nodes, links, o, i):
     rot = gc.index_switch(nodes, links, "VECTOR", o["Plane"],
                           [gc.combine(nodes, links, z=turn), gc.combine(nodes, links, x=_math(nodes, "MULTIPLY", turn, -1.0, links)),
                            gc.combine(nodes, links, y=_math(nodes, "MULTIPLY", turn, -1.0, links))])
-    return n, pos, rot, (1.0, 1.0, 1.0), 1.0
+    return n, pos, rot, (1.0, 1.0, 1.0), 1.0, gc.combine(nodes, links, _ramp(nodes, links, i, n), None, None)
 
 
 def _grid(nodes, links, o, i):
@@ -234,7 +237,8 @@ def _grid(nodes, links, o, i):
     keep = _math(nodes, "MULTIPLY", shell, _math(nodes, "LESS_THAN", d, 1.0005, links), links)
     inside = _inside(nodes, links, o["Form Object"], pos)
     keep = gc.index_switch(nodes, links, "FLOAT", o["Form"], [keep, keep, keep, inside])
-    return n, pos, (0.0, 0.0, 0.0), (1.0, 1.0, 1.0), keep
+    uv = gc.combine(nodes, links, _ramp(nodes, links, ix, cx), _ramp(nodes, links, iy, cy), None)
+    return n, pos, (0.0, 0.0, 0.0), (1.0, 1.0, 1.0), keep, uv
 
 
 def _inside(nodes, links, obj_sock, point):
@@ -293,7 +297,8 @@ def _honeycomb(nodes, links, o, i):
     links.new(gc.combine(nodes, links, x, y, 1.0), ray.inputs["Source Position"])
     ray.inputs["Ray Direction"].default_value = (0.0, 0.0, -1.0); ray.inputs["Ray Length"].default_value = 2.0
     keep = gc.index_switch(nodes, links, "FLOAT", o["Honeycomb Form"], [1.0, circle, ray.outputs["Is Hit"]])
-    return n, pos, (0.0, 0.0, 0.0), (1.0, 1.0, 1.0), keep
+    uv = gc.combine(nodes, links, _ramp(nodes, links, ia, along), _ramp(nodes, links, ib, across), None)
+    return n, pos, (0.0, 0.0, 0.0), (1.0, 1.0, 1.0), keep, uv
 
 
 def _object_points(nodes, links, o):
@@ -358,10 +363,13 @@ def clone_points(nodes, links, o):
     rot = _euler(nodes, links, gc.index_switch(nodes, links, "VECTOR", mode, [l[2] for l in layouts]))
     geo = _store(nodes, links, geo, "b4d_rot_q", "QUATERNION", rot)
     geo = _store(nodes, links, geo, "b4d_scale", "FLOAT_VECTOR", gc.index_switch(nodes, links, "VECTOR", mode, [l[3] for l in layouts]))
+    geo = _store(nodes, links, geo, "b4d_uv", "FLOAT_VECTOR", gc.index_switch(nodes, links, "VECTOR", mode, [l[5] for l in layouts]))
     drop = nodes.new("GeometryNodeDeleteGeometry"); drop.domain = "POINT"; links.new(geo, drop.inputs["Geometry"])
     links.new(_math(nodes, "LESS_THAN", gc.index_switch(nodes, links, "FLOAT", mode, [l[4] for l in layouts]), 0.5, links), drop.inputs["Selection"])
     arranged = drop.outputs["Geometry"]
     obj = _store(nodes, links, _object_points(nodes, links, o), "b4d_scale", "FLOAT_VECTOR", gc.combine(nodes, links, 1.0, 1.0, 1.0))
+    oi = nodes.new("GeometryNodeInputIndex").outputs[0]
+    obj = _store(nodes, links, obj, "b4d_uv", "FLOAT_VECTOR", gc.combine(nodes, links, _ramp(nodes, links, oi, _count_of(nodes, links, obj)), None, None))
     geo = gc.switch(nodes, links, "GEOMETRY", _math(nodes, "LESS_THAN", o["Mode"], 0.5, links), arranged, obj)
     # the Transform tab acts on every clone, in the clone's own space
     sp = nodes.new("GeometryNodeSetPosition"); links.new(geo, sp.inputs["Geometry"])
@@ -390,17 +398,43 @@ def _pick(nodes, links, o, n_children, geo):
     return gc.index_switch(nodes, links, "INT", o["Clones"], [it, rnd])
 
 
+CLONE_COLOR = "Clone Color"
+
+
+def clone_color_material():
+    """A material that shows each clone's colour (the Cloner's Color and the effectors' colours). Other materials can
+    show it too: an Attribute node, Type Instancer, Name b4d_color."""
+    m = bpy.data.materials.get(CLONE_COLOR)
+    if m is not None:
+        return m
+    m = bpy.data.materials.new(CLONE_COLOR)
+    m.use_nodes = True
+    nt = m.node_tree
+    bsdf = next(n for n in nt.nodes if n.type == "BSDF_PRINCIPLED")
+    at = nt.nodes.new("ShaderNodeAttribute"); at.attribute_type = "INSTANCER"; at.attribute_name = "b4d_color"
+    at.location = (bsdf.location.x - 260, bsdf.location.y)
+    nt.links.new(at.outputs["Color"], bsdf.inputs["Base Color"])
+    return m
+
+
 def build_cloner(nodes, links, o, kids, effect=None):
     """kids: [(child object, geometry in the Cloner's space)]. effect(geo) -> geo applies the effectors."""
     geo = clone_points(nodes, links, o)
     if effect is not None:
-        geo = effect(geo)
+        geo = effect(nodes, links, geo)
     shapes = []
+    bare = clone_color_material()
     for child, rel in kids:
         # Reset Coordinates: each clone is the child as it is in its own space; off: the child keeps its offset from the Cloner
         own = nodes.new("GeometryNodeObjectInfo"); own.transform_space = "ORIGINAL"
         own.inputs["Object"].default_value = child
-        shapes.append(gc.switch(nodes, links, "GEOMETRY", o["Reset Coordinates"], rel, own.outputs["Geometry"]))
+        shape = gc.switch(nodes, links, "GEOMETRY", o["Reset Coordinates"], rel, own.outputs["Geometry"])
+        if not any(sl.material for sl in getattr(child, "material_slots", [])):
+            # a child with no material wears Clone Color: each clone shows its own colour in Material and Render view
+            sm = nodes.new("GeometryNodeSetMaterial"); links.new(shape, sm.inputs["Geometry"])
+            sm.inputs["Material"].default_value = bare
+            shape = sm.outputs["Geometry"]
+        shapes.append(shape)
     if not shapes:
         return nodes.new("GeometryNodeJoinGeometry").outputs[0]
     g2i = nodes.new("GeometryNodeGeometryToInstance")
@@ -421,7 +455,7 @@ def build_matrix(nodes, links, o, kids, effect=None):
     o.setdefault("Clones", 0)
     geo = clone_points(nodes, links, o)
     if effect is not None:
-        geo = effect(geo)
+        geo = effect(nodes, links, geo)
     cube = nodes.new("GeometryNodeMeshCube")
     s = _cm(nodes, links, o["Matrix Size"])
     links.new(gc.combine(nodes, links, s, s, s), cube.inputs["Size"])

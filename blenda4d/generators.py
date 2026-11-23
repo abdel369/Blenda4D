@@ -214,6 +214,9 @@ def rebuild(gen):
             except Exception:
                 pass
     gen["b4d_kids"] = [o.name for o in kids]
+    if k in ("cloner", "matrix"):
+        from . import moclone_fx
+        gen["b4d_fx_sig"] = moclone_fx.signature(gen)
     gen.update_tag()
 
 
@@ -221,6 +224,10 @@ def _needs_rebuild(gen):
     mod = gen_mod(gen)
     if mod is None or mod.node_group is None or mod.node_group.get("b4d_owner") != gen.name:
         return True
+    if gen.get("b4d_type") in ("cloner", "matrix"):
+        from . import moclone_fx
+        if list(gen.get("b4d_fx_sig", [])) != moclone_fx.signature(gen):
+            return True
     return list(gen.get("b4d_kids", [])) != [o.name for o in inputs_of(gen)]
 
 
