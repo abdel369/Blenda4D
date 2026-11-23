@@ -166,6 +166,40 @@ def _start():
     return None
 
 
+def _early_try():
+    """As soon as Blender has made its window: put it back (tries for a moment while the window comes up)."""
+    _state["tries"] = _state.get("tries", 0) + 1
+    if _state["applied"] or _off():
+        return None
+    frame = _read()
+    if not frame:
+        _state["applied"] = True
+        return None
+    try:
+        if get_frame() is None and _state["tries"] < 50:   # no window yet
+            return 0.01
+        set_frame(frame)
+        _state["frame"] = frame
+    except Exception as ex:
+        print("Blenda 4D: window not put back:", ex)
+    _state["applied"] = True
+    return None
+
+
+def early():
+    """Called first thing when the add-on loads, before Blenda mode builds its layout."""
+    if _off():
+        return
+    try:
+        frame = _read()
+        if frame:
+            _early_try()                                  # maybe the window already exists
+        if not _state["applied"] and not bpy.app.timers.is_registered(_early_try):
+            bpy.app.timers.register(_early_try, first_interval=0.0)
+    except Exception as ex:
+        print("Blenda 4D: window not put back:", ex)
+
+
 def register():
     if _off():
         return
