@@ -243,20 +243,30 @@ def place(objs, parent, before=None, after=None, scene=None):
 
 def visible_rows(context):
     """The Object Manager's rows in drawing order: (object, depth). Folded objects hide their children; the search
-    keeps an object when it or anything under it matches."""
+    keeps an object when it or anything under it matches. One pass over the scene builds who is under whom (asking
+    Blender for each object's children scans the whole scene every time, which made big scenes slow to draw)."""
     needle = context.window_manager.b4d_om_search.lower()
+    kids = {}
+    for ob in context.scene.objects:
+        if not ob.get("b4d_internal"):
+            kids.setdefault(ob.parent, []).append(ob)
+    for v in kids.values():
+        v.sort(key=om_key)
     out = []
 
+    def matches(ob):
+        if needle in ob.name.lower():
+            return True
+        return any(matches(c) for c in kids.get(ob, ()))
+
     def walk(ob, depth):
-        if ob.get("b4d_internal"):                        # Blenda's own helpers (MoClone's clone bodies)
-            return
-        if needle and needle not in ob.name.lower() and not any(needle in c.name.lower() for c in ob.children_recursive):
+        if needle and not matches(ob):
             return
         out.append((ob, depth))
-        if ob.children and not ob.b4d_om_closed:
-            for c in sorted(ob.children, key=om_key):
+        if not ob.b4d_om_closed:
+            for c in kids.get(ob, ()):
                 walk(c, depth + 1)
-    for ob in sorted((o for o in context.scene.objects if o.parent is None), key=om_key):
+    for ob in kids.get(None, ()):
         walk(ob, 0)
     return out
 
