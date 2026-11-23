@@ -180,6 +180,9 @@ def _freeze_set(self, on):
         del self["_b4d_freeze"]
 
 
+EXTRA_PAGES = {}                     # tag key: fn(col, ob) for tags another module makes (field_tags.py)
+
+
 def draw_subject(layout, context, ob):
     """The tag's page; False when the subject is gone (the object's own page shows instead)."""
     s = context.window_manager.b4d_am_subject
@@ -198,6 +201,8 @@ def draw_subject(layout, context, ob):
     if key in om_menu.CON:
         con = om_menu._con(tob, key)
         {"ALIGN_SPLINE": _align_page, "TARGET": _target_page, "LOOK_CAMERA": _camera_page}[key](col, tob, con)
+    elif key in EXTRA_PAGES:
+        EXTRA_PAGES[key](col, tob)
     else:
         {"SCULPT": _sculpt_page, "PROTECTION": _protection_page, "RIGID": _rigid_page, "COLLIDER": _rigid_page, "CLOTH": _cloth_page,
          "COLLISION": _collider_page}.get(key, lambda c, o: None)(col, tob)

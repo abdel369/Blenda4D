@@ -67,6 +67,8 @@ def _props():
     O.b4d_fx_rot = P.FloatVectorProperty(name="R", size=3, default=(0.0, 0.0, 0.0), update=_live, description="How far to turn them (degrees)")
     O.b4d_fx_color_mode = P.EnumProperty(name="Color Mode", items=fx.COLOR_MODES, default="OFF", update=_live, description="How the effector colours the clones")
     O.b4d_fx_color = P.FloatVectorProperty(name="Color", size=3, subtype="COLOR", min=0.0, max=1.0, default=(1.0, 1.0, 1.0), update=_live)
+    O.b4d_fx_use_sel = P.BoolProperty(name="Selection", default=False, update=_restructure,
+                                      description="Work only on the clones in the Cloner's MoClone Selection tag")
     O.b4d_fx_visibility = P.BoolProperty(name="Visibility", default=False, update=_live, description="Hide the clones where the effector works under half strength")
     O.b4d_fx_random_mode = P.EnumProperty(name="Random Mode", items=fx.RANDOM_MODES, default="RANDOM", update=_live)
     O.b4d_fx_seed = P.IntProperty(name="Seed", default=12345, min=0, update=_live, description="Another seed gives other random values")
@@ -258,6 +260,7 @@ def page_effector(col, ob):
     k = ob.get("b4d_type")
     c = col.column()
     c.prop(ob, "b4d_fx_strength")
+    c.prop(ob, "b4d_fx_use_sel", text="Selection")
     if k != "fx_delay":
         c.prop(ob, "b4d_fx_min"); c.prop(ob, "b4d_fx_max")
     if k == "fx_random":

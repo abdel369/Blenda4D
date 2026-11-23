@@ -69,6 +69,8 @@ def fields_of(eff):
 def signature(gen):
     """What shapes the Cloner's nodes: its effectors and their fields, in order."""
     out = [f"bare:{c.name}" for c in gen.children if not any(sl.material for sl in getattr(c, "material_slots", []))]
+    from . import field_tags
+    out += field_tags.clone_tag_signature(gen) + [f"sel:{getattr(e.obj, 'b4d_fx_use_sel', False)}" for _i, e in effectors_of(gen)]
     for i, e in effectors_of(gen):
         tgt, img = getattr(e.obj, "b4d_fx_target", None), getattr(e.obj, "b4d_fx_image", None)
         out.append(f"{i}:{e.obj.name}:{e.obj['b4d_type']}:{tgt.name if tgt else ''}:{img.name if img else ''}")
@@ -440,12 +442,19 @@ def effect_fn(gen):
     """geo -> geo through the Cloner's effectors in list order; hidden clones go at the end."""
     def effect(nodes, links, geo):
         items = effectors_of(gen)
+        from . import field_tags
+        geo = field_tags.clone_tags(nodes, links, gen, geo)            # MoClone Weightmap and Selection
         if not items:
             return geo
         geo = _store(nodes, links, geo, "b4d_hidden", "FLOAT", nodes.new("ShaderNodeValue").outputs[0])
         for i, entry in items:
             e = entry.obj
             w = _weight(nodes, links, gen, i, e)
+            from . import field_tags
+            if field_tags.has(gen, "MG_WEIGHT"):                       # each clone's weight scales the effector
+                w = _math(nodes, "MULTIPLY", w, _attr(nodes, "b4d_weight", "FLOAT"), links)
+            if field_tags.has(gen, "MG_SEL") and e.b4d_fx_use_sel:     # Selection: only the selected clones
+                w = _math(nodes, "MULTIPLY", w, _attr(nodes, "b4d_sel", "FLOAT"), links)
             geo = APPLY[e["b4d_type"]](nodes, links, geo, gen, i, e, w)
         drop = nodes.new("GeometryNodeDeleteGeometry"); drop.domain = "POINT"
         links.new(geo, drop.inputs["Geometry"]); links.new(_math(nodes, "GREATER_THAN", _attr(nodes, "b4d_hidden", "FLOAT"), 0.5, links), drop.inputs["Selection"])

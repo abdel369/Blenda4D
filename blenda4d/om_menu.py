@@ -25,7 +25,8 @@ TAGS = {
     "SCULPT": ("Sculpting", "Sculpt", "SCULPTMODE_HLT", "Multiresolution modifier"),   # put on by Subdivide while sculpting
 }
 CON = {"TARGET": "DAMPED_TRACK", "LOOK_CAMERA": "TRACK_TO", "ALIGN_SPLINE": "FOLLOW_PATH"}
-MENUS = ("Animation", "Material", "Modeling", "Other", "Simulation")
+MENUS = ("Animation", "Material", "Modeling", "MoClone", "Other", "Simulation")
+HOOKS = {}                            # tag key: (has, add, remove) for tags another module makes (field_tags.py)
 B4D = "b4d_tag"                       # constraints Blenda put on as a tag carry this in their name
 
 
@@ -35,6 +36,8 @@ def _con(ob, key):
 
 def has(ob, key):
     """Does the object carry this tag?"""
+    if key in HOOKS:
+        return HOOKS[key][0](ob, key)
     if key in CON:
         return _con(ob, key) is not None
     if key == "PHONG":
@@ -68,6 +71,8 @@ def _mesh_only(key):
 
 
 def add(context, ob, key):
+    if key in HOOKS:
+        return HOOKS[key][1](context, ob, key)
     if _mesh_only(key) and ob.type != "MESH":
         return False
     if has(ob, key):
@@ -111,6 +116,8 @@ def add(context, ob, key):
 
 
 def remove(context, ob, key):
+    if key in HOOKS:
+        return HOOKS[key][2](context, ob, key)
     if key in CON:
         c = _con(ob, key)
         if c is not None:

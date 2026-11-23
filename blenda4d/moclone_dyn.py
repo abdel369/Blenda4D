@@ -15,6 +15,7 @@ SHAPES = [("CONVEX_HULL", "Convex Hull", "A tight wrap around each clone: fast a
           ("BOX", "Box", "Each clone collides as a box"), ("SPHERE", "Sphere", "Each clone collides as a ball"),
           ("MESH", "Mesh", "Each clone collides with its exact surface: slow, for hollow shapes")]
 _busy = [False]
+_selected = {}                       # Cloner name: per clone, is it in the MoClone Selection (unselected clones hold still)
 
 
 def on(gen):
@@ -62,11 +63,14 @@ def _clones(gen):
     dg = bpy.context.evaluated_depsgraph_get()
     dg.update()
     out = []
+    gen_sel = _selected.setdefault(gen.name, [])
+    gen_sel.clear()
     geo = gen.evaluated_get(dg).evaluated_geometry()
     pc = geo.instances_pointcloud() if geo is not None else None
     kids = g.kids_of(gen)
     if pc is not None and kids:
         tf, ref, col = pc.attributes.get("instance_transform"), pc.attributes.get(".reference_index"), pc.attributes.get("b4d_color")
+        sel = pc.attributes.get("b4d_sel")
         reset = bool(g.gval(gen, "Reset Coordinates"))
         for i in range(len(pc.points)):
             child = kids[min(max(ref.data[i].value if ref else 0, 0), len(kids) - 1)]
@@ -75,6 +79,7 @@ def _clones(gen):
             if reset:
                 rel = Matrix.LocRotScale(None, rel.to_quaternion(), rel.to_scale())
             out.append((child, gen.matrix_world @ m @ rel, tuple(col.data[i].color) if col is not None else (1, 1, 1, 1)))
+            gen_sel.append(sel.data[i].value > 0.5 if sel is not None else True)
     _simulated(gen, on(gen))
     return out
 
@@ -386,6 +391,11 @@ def rebuild(gen):
         starts = _start_frames(gen, scene, mats) if gen.b4d_dyn_start == "FIELD" else [None] * len(mats)
         for ob, fr in zip(bodies(gen), starts):
             _activation(gen, ob, fr)
+        for ob, picked in zip(bodies(gen), _selected.get(gen.name, [])):
+            if not picked:                                 # outside the MoClone Selection: held, still a collider
+                if ob.animation_data is not None:
+                    ob.animation_data_clear()
+                ob.rigid_body.kinematic = True
         if gen.get("b4d_dyn") == "ACTIVE" and gen.b4d_dyn_start == "LOOSEN":
             _loosen(gen, scene, mats)
         else:
@@ -432,6 +442,11 @@ def _signature(gen):
             obs += [f.obj for f in e.obj.b4d_field_list if f.obj is not None]
             vals.append(str([round(getattr(e.obj, p), 4) if isinstance(getattr(e.obj, p), float) else str(tuple(getattr(e.obj, p))) if hasattr(getattr(e.obj, p), "__len__") else str(getattr(e.obj, p))
                              for p in ("b4d_fx_strength", "b4d_fx_pos", "b4d_fx_scale", "b4d_fx_rot", "b4d_fx_pos_on", "b4d_fx_seed")]))
+    from . import field_tags
+    vals += field_tags.signature(gen)
+    for _i, t in field_tags.entries(gen):
+        obs += [f.obj for f in t.fields if f.obj is not None]
+        vals.append(str(round(t.threshold, 3)))
     vals.append(gen.b4d_dyn_start + str(round(gen.b4d_dyn_follow, 3)) + str(round(gen.b4d_dyn_mass, 4)))
     for e in gen.b4d_field_list:
         f = e.obj
