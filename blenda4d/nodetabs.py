@@ -53,6 +53,8 @@ def intact(screen, kind):
     if len([a for a in screen.areas if a.type == "NODE_EDITOR"]) != bool(want) or len(roles.areas(screen, LIST)) != bool(want):
         return False
     side = beside(screen)
+    if kind == "UV":                                       # its editor is the UV tab's (uvtab.py)
+        return True
     return [a.type for a in side] == ([want[2]] if want and want[2] else [])
 
 
@@ -579,6 +581,9 @@ def node_header(self, context):
 
 
 def _image_header(self, context):
+    from . import uvtab
+    if uvtab.docked(context):
+        return uvtab.header(self, context)
     if not docked(context):
         return _own["IMAGE_HT_header"](self, context)
     lay, sp = self.layout, context.space_data

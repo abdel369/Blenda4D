@@ -113,13 +113,19 @@ def _raster(name, px):
 def _draw_icon(name, x, y, size, alpha=1.0):
     if name == "magnifier":
         return _draw_magnifier(x, y, size, alpha)
-    if name.startswith("model:") and "." not in name:     # a command: a picture icon, as in the create column
+    if name.startswith("brush:"):
+        from . import sculpttools
+        grow = size * 0.16                                 # a brush's picture has its own margin
+        x, y, size = x - grow, y - grow, size + 2 * grow
+        tex = sculpttools.texture(name[6:], max(8, int(round(size))))
+    elif name.startswith("model:") and "." not in name:     # a command: a picture icon, as in the create column
         from . import modeltools
         path = modeltools.command_icon(name[6:])
         if path:
             strip._icon(path, x, y, size, alpha)
         return None
-    tex = _raster(name, max(8, int(round(size))))
+    else:
+        tex = _raster(name, max(8, int(round(size))))
     if tex is None:
         return
     sh = gpu.shader.from_builtin("IMAGE_COLOR")
@@ -162,8 +168,10 @@ def _draw_magnifier(x, y, size, alpha=1.0):
 
 # --- the column ------------------------------------------------------------------------------------------------
 def _items(window=None):
-    from . import modeltools
+    from . import modeltools, sculpttools
     window = window or bpy.context.window
+    if sculpttools.active(window):
+        return sculpttools.items(bpy.context, bars.active_tool(bpy.context))
     if modeltools.active(window):
         return modeltools.items(bpy.context, bars.active_tool(bpy.context))
     out = [{"tool": None, "icon": "magnifier", "label": "Zoom to Border"}]
@@ -300,7 +308,7 @@ def _draw():
         for b in run[1:]:
             strip._rect(b[0], b[3] - 0.5, b[2], b[3] + 0.5, strip.DIVIDER)
     for x0, y0, x1, y1, it in boxes:
-        if it["tool"] and it["tool"] == active:
+        if (it["tool"] and it["tool"] == active) or it.get("on"):
             strip._round_rect(x0, y0, x1, y1, strip.RADIUS * s, strip.PRESSED)
         elif it["label"] == _state["hover"]:
             strip._round_rect(x0, y0, x1, y1, strip.RADIUS * s, strip.HOVER)
@@ -505,6 +513,8 @@ class BLENDA4D_OT_toolcol(bpy.types.Operator):
                 if it["tool"]:
                     _tip.clear()
                     bpy.ops.wm.tool_set_by_id(name=it["tool"])
+                    from . import uvtab
+                    uvtab.mirror_tool(self._window, it["tool"])
                     _redraw(self._window)
                     return {"RUNNING_MODAL"}
                 self._end()

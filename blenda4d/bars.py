@@ -48,7 +48,7 @@ class BLENDA4D_OT_set_mode(bpy.types.Operator):
         if ob is None or ob.type not in ("MESH", "CURVE"):
             self.report({"INFO"}, "Select a mesh or spline first")
             return {"CANCELLED"}
-        if context.mode == "OBJECT":
+        if ob.mode != "EDIT":                              # from whole objects, or from sculpting
             bpy.ops.object.mode_set(mode="EDIT")
         if ob.type == "MESH":
             bpy.ops.mesh.select_mode(type={"POINTS": "VERT", "EDGES": "EDGE", "POLYGONS": "FACE"}[self.mode])

@@ -96,6 +96,9 @@ def _parts(context):
 
 def why_not(context, entry):
     """Why this cannot be used now, or "" when it can."""
+    if entry[0] in {"brush", "sculpt"}:
+        from . import sculpttools
+        return sculpttools.why_not(context, entry)
     if entry[1] in EVERYWHERE:
         return ""
     if context.mode == "EDIT_MESH":
@@ -152,6 +155,9 @@ def use(context, entry):
                 self.layout.operator("blenda4d.make_editable", text="Make Editable", icon="MESH_DATA")
         context.window_manager.popup_menu(draw, title="", icon="INFO")
         return False
+    if entry[0] in {"brush", "sculpt"}:
+        from . import sculpttools
+        return sculpttools.use(context, entry)
     if context.mode == "OBJECT" and entry[1] not in EVERYWHERE:
         bpy.ops.blenda4d.set_mode(mode="POLYGONS")
         if bpy.context.mode != "EDIT_MESH":
@@ -189,15 +195,16 @@ class BLENDA4D_OT_model_tool(bpy.types.Operator):
 
     @classmethod
     def description(cls, context, props):
-        e = next((m for m in all_entries() if m[1] == props.which), None)
+        e = _find(props.group, props.which)
         return _label(e) if e else cls.bl_label
 
     def execute(self, context):
-        e = next((m for m in all_entries() if m[1] == self.which), None)
+        e = _find(self.group, self.which)
         if e is None:
             return {"CANCELLED"}
         if self.group:
-            _shown[self.group] = self.which
+            from . import sculpttools
+            (sculpttools._shown if e[0] in {"brush", "sculpt"} else _shown)[self.group] = self.which
         from . import topbar, toolcol
         area, region, _sp = topbar.main_view(context)
         if area is None:
@@ -208,6 +215,13 @@ class BLENDA4D_OT_model_tool(bpy.types.Operator):
             bpy.ops.ed.undo_push(message=e[3])
         toolcol._redraw(context.window)
         return {"FINISHED"} if done else {"CANCELLED"}
+
+
+def _find(group, which):
+    from . import sculpttools
+    if any(m[1] == which for m in (_open[0] if _open else ())):
+        return next(m for m in _open[0] if m[1] == which)
+    return next((m for m in (*all_entries(), *sculpttools.all_entries()) if m[1] == which), None)
 
 
 def all_entries():
@@ -224,7 +238,7 @@ class BLENDA4D_MT_model_tools(bpy.types.Menu):
         for m in _open[0] if _open else ():
             row = self.layout.row()
             row.enabled = not why_not(context, m)
-            o = row.operator("blenda4d.model_tool", text=("   " if m[0] == _T else "") + m[3], **icon_kw(m))
+            o = row.operator("blenda4d.model_tool", text=("   " if m[0] in {_T, "sculpt"} else "") + m[3], **icon_kw(m))
             o.group, o.which = _open[0][0][1], m[1]
 
 
@@ -260,6 +274,9 @@ def command_icon(name):
 
 def icon_kw(entry):
     """The entry's icon for a menu."""
+    if entry[0] in {"brush", "sculpt"}:
+        from . import sculpttools
+        return sculpttools.icon_kw(entry)
     if entry[0] == _C:
         iv = icons.icon(entry[2].upper(), "model")
         return {"icon_value": iv} if iv else {"icon": entry[2].upper()}

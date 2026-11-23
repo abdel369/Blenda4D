@@ -28,10 +28,11 @@ ROLE_FLAGS = {
     "OM_BAR": "show_properties_output",
     "OM_HEAD": "show_properties_view_layer",
     "AB_BAR": "show_properties_bone",
-    # all the single tab flags are taken: these three have two
+    # all the single tab flags are taken: these have two
     "PV_TOP": ("show_properties_output", "show_properties_scene"),
     "PV_SIDE": ("show_properties_output", "show_properties_bone"),
     "PV_BOTTOM": ("show_properties_scene", "show_properties_bone"),
+    "UV_BAR": ("show_properties_output", "show_properties_view_layer"),
 }
 _by_flags = {}
 

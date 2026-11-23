@@ -711,6 +711,9 @@ def _page_tabs(ob):
     tabs = list(TABS_COMMON)
     if ob.type == "MESH":
         tabs.append(("PHONG", "Phong", ""))
+        from . import uvtab
+        if uvtab.editor(getattr(bpy.context, "screen", None)) is not None:
+            tabs.append(("UV", "UV", ""))
     if ob.type == "CAMERA" and CAMERA_PAGES:
         tabs += CAMERA_TABS
     if ob.type == "LIGHT":
@@ -932,6 +935,11 @@ def page_phong(col, ob):
     col.operator("object.shade_auto_smooth", text="Smooth by Angle")
 
 
+def page_uv(col, ob):
+    from . import uvtab
+    uvtab.page(col, bpy.context, ob)
+
+
 def page_light_details(col, ob):
     d = ob.data
     col.prop(d, "diffuse_factor", text="Diffuse")
@@ -948,7 +956,7 @@ def page_light_shadow(col, ob):
     col.prop(d, "shadow_soft_size", text="Shadow Radius")
 
 
-PAGES = {"BASIC": page_basic, "COORD": page_coord, "OBJECT": page_object, "PHONG": page_phong,
+PAGES = {"BASIC": page_basic, "COORD": page_coord, "OBJECT": page_object, "PHONG": page_phong, "UV": page_uv,
          "DETAILS": page_light_details, "SHADOW": page_light_shadow}
 
 
@@ -977,6 +985,9 @@ class BLENDA4D_PT_attributes(roles.RolePanel, bpy.types.Panel):
             layout.label(text="Nothing selected")
             return
         if fn is not None and fn(layout, context, ob):
+            return
+        from . import sculpttools
+        if sculpttools.draw_page(layout, context, ob):     # sculpting: the brush
             return
         head = layout.row(align=True)
         kind = prim_kind(ob)

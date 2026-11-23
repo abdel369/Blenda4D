@@ -18,12 +18,14 @@ DEFAULT = "Layout"
 TABS = {
     "Layout": ("WORKSPACE", "General work: the viewport, the managers and the timeline", True, "", False),
     "Modeling": ("EDITMODE_HLT", "Building shapes: the timeline steps aside for a taller viewport", False, "", False),
+    "Sculpting": ("SCULPTMODE_HLT", "Shaping like clay: the brushes in the tools column, their settings in Attributes", False, "", False),
+    "UV Editing": ("UV", "Laying out texture coordinates: the UV Editor beside the viewport, with its tools below it", False, "UV", False),
     "Shading": ("SHADING_RENDERED", "Materials: the Node Editor opens under the viewport, and the Material Manager", False, "SHADER", True),
     "Animation": ("ANIM", "Movement: the Timeline opens under the viewport, with the Dope Sheet or the F-Curves", True, "KEYS", False),
     "Compositing": ("NODE_COMPOSITING", "Finishing: the result beside the viewport, the compositor's nodes below", False, "COMPOSITE", False),
     "Geometry Nodes": ("GEOMETRY_NODES", "Procedural objects: the spreadsheet beside the viewport, the nodes below", True, "GEOMETRY", False),
 }
-UNDER = ("", "KEYS", "SHADER", "COMPOSITE", "GEOMETRY")    # what can be open under the viewport
+UNDER = ("", "KEYS", "SHADER", "COMPOSITE", "GEOMETRY", "UV")    # what can be open under the viewport (UV: beside it)
 OLD_NAMES = {"Standard": DEFAULT}                          # the built-in layout's name before the tabs
 
 
@@ -175,8 +177,9 @@ def snapshot(window):
         high = sum(a.height for a in views if abs(a.x - views[0].x) < 8)
         mine = sum(a.height for a in dock) + build.EDGE
         sizes["editors"] = round((mine + 1) / max(1, mine + high + build.EDGE), 3)
-    from . import nodetabs
+    from . import nodetabs, uvtab
     nodetabs.sizes_of(screen, sizes)
+    uvtab.sizes_of(screen, sizes)
     return {"base": spec(current(ws))["base"], "materials": bool(roles.areas(screen, "MATERIALS")),
             "assets": bool(roles.areas(screen, "ASSETS")), "editors": spec_of(screen)["editors"], "sizes": sizes}
 

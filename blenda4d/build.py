@@ -25,6 +25,7 @@ STRIP_ZOOM = 0               # the create column is drawn at its own size (strip
 MANAGERS_PX = 330
 MATERIALS_PX = 230
 MM_BAR_PX = 30
+UV_BAR_PX = 40                # the UV Editor's row of tools
 OM_HEAD_PX = 88               # the Object Manager's title, menus and tool row (unzoomed; the Size slider zooms only the rows)
 ASSETS_PX = 420
 ATTRIBUTES = 0.56             # the Attribute Manager's share of the managers column
@@ -225,7 +226,7 @@ def view_top(window, area):
 
 def intact(screen):
     """The layout is all there (each strip once, a viewport, its timeline and editors): nothing to rebuild."""
-    from . import layouts, nodetabs
+    from . import layouts, nodetabs, uvtab
     spec = layouts.spec_of(screen)
     if any(len(roles.areas(screen, r)) != 1 for r in CORE):
         return False
@@ -236,7 +237,7 @@ def intact(screen):
         return False
     if len(roles.areas(screen, "VIEW_TABS")) > four:
         return False
-    if not nodetabs.intact(screen, spec["editors"]):
+    if not nodetabs.intact(screen, spec["editors"]) or not uvtab.intact(screen, spec["editors"]):
         return False
     if any(len(roles.areas(screen, r)) != keys for r in ("TL_BAR", "TL_EDIT")) or (stacked and len(roles.areas(screen, "CREATE")) != 1):
         return False
@@ -258,14 +259,14 @@ def add_timeline(window):
 
 def stacked(screen):
     """Is there an editor under the viewport, between the two columns?"""
-    from . import nodetabs
-    return bool(roles.areas(screen, "TL_EDIT")) or nodetabs.editor(screen) is not None
+    from . import nodetabs, uvtab
+    return bool(roles.areas(screen, "TL_EDIT")) or nodetabs.editor(screen) is not None or uvtab.editor(screen) is not None
 
 
 def add_stack(window, spec, materials=False, assets=False):
     """The tools and create columns down the sides and, between them under the viewport, the Timeline or the Node Editor.
     The Material Manager stays right of the create column; the Asset Browser is beside the viewport, above the editors."""
-    from . import nodetabs
+    from . import nodetabs, uvtab
     kind, sizes = spec["editors"], spec["sizes"]
     screen = window.screen
     if materials:
@@ -276,6 +277,11 @@ def add_stack(window, spec, materials=False, assets=False):
     yield from make_role(window, create, "CREATE")
     view = biggest_view(screen)
     dress_view(view)
+    if kind == uvtab.KIND:                                 # beside the viewport, not under it
+        yield from uvtab.add_steps(window, view, sizes)
+        if assets:
+            yield from add_assets(window)
+        return
     nodes = kind in nodetabs.KINDS
     key = "nodes" if nodes else "editors"
     share = min(0.8, max(0.15, sizes.get(key, nodetabs.NODES if nodes else EDITORS)))
@@ -301,10 +307,11 @@ def _into_view(window, area):
 
 def remove_stack(window):
     """The editors and the two columns go back into the viewport, each one a join along a whole edge."""
-    from . import nodetabs, quadview
+    from . import nodetabs, quadview, uvtab
     screen = window.screen
     if roles.areas(screen, "ASSETS"):
         yield from remove_column(window, "ASSETS")
+    yield from uvtab.remove_steps(window)
     yield from nodetabs.remove_steps(window)
     for bar in roles.areas(screen, "TL_BAR"):
         if roles.areas(screen, "TL_EDIT"):
@@ -324,6 +331,13 @@ def remove_stack(window):
 
 
 def remove_column(window, name):
+    from . import quadview, uvtab
+    if uvtab.editor(window.screen) is not None:            # every column is as high as the viewport here: into that one, by name
+        for a in roles.areas(window.screen, COLUMNS[name][1]):
+            yield from quadview._join(window, a, roles.areas(window.screen, name)[0])
+        for a in roles.areas(window.screen, name):
+            yield from _into_view(window, a)
+        return
     for role in (COLUMNS[name][1], name):                  # the strip into its column, the column into the viewport,
         for a in roles.areas(window.screen, role):         # in one step: no frame shows the column without its strip
             with _ov(window, a):
@@ -446,6 +460,8 @@ def switch_steps(window, name):
                 yield from COLUMNS[n][0](window)
     if not whole or not intact(screen) or len(quadview.views(screen)) > 1:
         yield from steps(window, materials=new["materials"], assets=new["assets"])
+    from . import tabmode
+    tabmode.switched(window, old["base"], new["base"])
     for a in screen.areas:
         a.tag_redraw()
 
@@ -566,7 +582,8 @@ def dress_view(area):
     # four views, or editors under the viewport: the create column is one separate column beside them, not a strip
     apart = sum(a.type == "VIEW_3D" for a in area.id_data.areas) > 1 or bool(roles.areas(area.id_data, "CREATE"))
     for attr, want in (("show_region_ui", False), ("show_region_toolbar", not apart), ("show_region_header", True),
-                       ("show_region_tool_header", not roles.areas(area.id_data, "VIEW_TABS")), ("show_region_hud", False)):
+                       ("show_region_tool_header", not roles.areas(area.id_data, "VIEW_TABS")), ("show_region_hud", False),
+                       ("show_region_asset_shelf", False)):
         if getattr(v3d, attr) != want:
             setattr(v3d, attr, want)
     v3d.show_gizmo_navigate = False

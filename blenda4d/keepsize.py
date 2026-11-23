@@ -20,7 +20,7 @@ from . import build, roles
 #          strip: (its height, the edge that moves): the one towards the panel that may grow
 STRIPS = (("DOC_TABS", build.DOC_TABS_PX, "BOTTOM"), ("PALETTE", build.PALETTE_PX, "BOTTOM"), ("VIEW_TABS", build.VIEW_TABS_PX, "BOTTOM"),
           ("PV_TOP", None, "BOTTOM"), ("TIMELINE", build.TIMELINE_PX, "TOP"), ("PV_BOTTOM", None, "TOP"), ("TL_BAR", None, "BOTTOM"),
-          ("OM_HEAD", build.OM_HEAD_PX, "BOTTOM"), ("OM_BAR", build.MM_BAR_PX, "TOP"), ("MM_BAR", build.MM_BAR_PX, "TOP"), ("AB_BAR", build.MM_BAR_PX, "TOP"))
+          ("OM_HEAD", build.OM_HEAD_PX, "BOTTOM"), ("OM_BAR", build.MM_BAR_PX, "TOP"), ("MM_BAR", build.MM_BAR_PX, "TOP"), ("AB_BAR", build.MM_BAR_PX, "TOP"), ("UV_BAR", build.UV_BAR_PX, "TOP"))
 #          column: (its width when fixed, the edge that moves), from the window's edges inwards
 COLUMNS = (("OBJECTS", 0, "LEFT"), ("MATERIALS", 0, "LEFT"), ("CREATE", build.CREATE_PX, "LEFT"), ("MODES", None, "RIGHT"),
            ("ASSETS", 0, "RIGHT"), ("ND_LIST", 0, "RIGHT"), ("PV_SIDE", 0, "LEFT"))
