@@ -419,7 +419,7 @@ def remove_stack(window):
             dress_view(a)
 
 
-def remove_column(window, name):
+def remove_column(window, name, fold=False):
     from . import quadview, uvtab
     if uvtab.editor(window.screen) is not None:            # every column is as high as the viewport here: into that one, by name
         for a in roles.areas(window.screen, COLUMNS[name][1]):
@@ -432,7 +432,7 @@ def remove_column(window, name):
             with _ov(window, a):
                 bpy.ops.screen.area_close()
     yield
-    if name == "MATERIALS" and not stacked(window.screen) and len(quadview.views(window.screen)) <= 1:
+    if fold and name == "MATERIALS" and not stacked(window.screen) and len(quadview.views(window.screen)) <= 1:
         for a in roles.areas(window.screen, "CREATE"):     # the create column goes back to being the viewport's strip
             yield from _into_view(window, a)
         for a in window.screen.areas:
@@ -580,8 +580,8 @@ def column_steps(window, name, on):
         yield from add_stack(window, spec, want["MATERIALS"], want["ASSETS"])
     elif on:
         yield from add(window)
-    else:
-        yield from remove_column(window, name)
+    else:                                                  # with four views their create column stays as it is
+        yield from remove_column(window, name, fold=not four)
     if not intact(screen):                                 # the change did not land as planned: build it all
         yield from steps(window, materials=bool(roles.areas(screen, "MATERIALS")) if name != "MATERIALS" else on,
                          assets=bool(roles.areas(screen, "ASSETS")) if name != "ASSETS" else on)
