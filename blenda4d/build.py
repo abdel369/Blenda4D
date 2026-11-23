@@ -584,8 +584,11 @@ def dress_view(area):
     for attr, want in (("show_region_ui", False), ("show_region_toolbar", not apart), ("show_region_header", True),
                        ("show_region_tool_header", not roles.areas(area.id_data, "VIEW_TABS")), ("show_region_hud", False),
                        ("show_region_asset_shelf", False)):
-        if getattr(v3d, attr) != want:
-            setattr(v3d, attr, want)
+        try:
+            if getattr(v3d, attr) != want:
+                setattr(v3d, attr, want)
+        except AttributeError:                             # the brush shelf cannot be switched where there is none
+            pass
     v3d.show_gizmo_navigate = False
     v3d.lock_camera = True          # looking through a camera, orbit / pan / zoom move the camera itself
     v3d.overlay.show_text = False

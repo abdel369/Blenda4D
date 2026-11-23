@@ -291,7 +291,10 @@ def _hide_shelf():
         if w.workspace.name == switch.WORKSPACE:
             for a in w.screen.areas:
                 if a.type == "VIEW_3D" and a.spaces.active.show_region_asset_shelf:
-                    a.spaces.active.show_region_asset_shelf = False
+                    try:
+                        a.spaces.active.show_region_asset_shelf = False
+                    except AttributeError:
+                        pass
     return None
 
 
