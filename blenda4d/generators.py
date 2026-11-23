@@ -411,7 +411,9 @@ def _rows(col, ob, rows):
         holder = col.column(align=True)
         if len(r) > 2 and r[2] is not None:
             holder.active = bool(r[2](value))
-        if hasattr(v, "__len__") and not isinstance(v, str):
+        if hasattr(v, "__len__") and not isinstance(v, str) and len(v) == 4:      # a colour: one swatch
+            holder.prop(owner, attr, text=r[1])
+        elif hasattr(v, "__len__") and not isinstance(v, str):
             for i, axis in enumerate("XYZ"):
                 holder.prop(owner, attr, index=i, text=f"{r[1]} . {axis}")
         else:

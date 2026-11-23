@@ -76,7 +76,7 @@ KINDS = {
 }
 
 SOCKET = {"FLOAT": "NodeSocketFloat", "INT": "NodeSocketInt", "VECTOR": "NodeSocketVector", "BOOL": "NodeSocketBool",
-          "OBJECT": "NodeSocketObject"}
+          "OBJECT": "NodeSocketObject", "COLOR": "NodeSocketColor"}
 SKIN = ".b4d_skin"
 HARD = ".b4d_hard"
 SPLINE_KINDS = ("connect",)              # generators whose output can be a spline: a spline generator takes them too
@@ -573,6 +573,13 @@ def build_metaball(nodes, links, o, kids):
 
 BUILDERS = {"metaball": build_metaball, "extrude": build_extrude, "lathe": build_lathe, "sweep": build_sweep, "loft": build_loft, "symmetry": build_symmetry,
             "array": build_array, "instance": build_instance, "connect": build_connect, "boolean": build_boolean}
+
+# MoClone's Cloner and Matrix are node generators too (moclone_nodes.py)
+from . import moclone_nodes as _mc  # noqa: E402
+KINDS["cloner"] = ("Cloner", _mc.CLONER_INPUTS, _mc.CLONER_MENUS, True)
+KINDS["matrix"] = ("Matrix", _mc.MATRIX_INPUTS, _mc.MATRIX_MENUS, True)
+BUILDERS["cloner"] = _mc.build_cloner
+BUILDERS["matrix"] = _mc.build_matrix
 
 
 # --- group construction ---------------------------------------------------------------------------
