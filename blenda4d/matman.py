@@ -19,10 +19,72 @@ def current(context):
     return bpy.data.materials.get(context.window_manager.b4d_material)
 
 
-def materials(context):
-    wm = context.window_manager
+ORDER = "b4d_mm_order"     # a material's place in the Material Manager once it has been dragged (C4D: any order)
+SEL = "b4d_mm_sel"         # selected in the Material Manager (the active one is wm.b4d_material)
+
+
+def all_materials():
     out = [m for m in bpy.data.materials if not m.is_grease_pencil and not m.name.startswith(".")]
     out.reverse()                                     # newest first
+    ranked = sorted((m for m in out if ORDER in m), key=lambda m: m[ORDER])
+    return [m for m in out if ORDER not in m] + ranked    # new materials first, then the order the user dragged
+
+
+def is_selected(context, mat):
+    return mat.name == context.window_manager.b4d_material or bool(mat.get(SEL))
+
+
+def selected(context):
+    return [m for m in materials(context) if is_selected(context, m)]
+
+
+def select_only(context, mats, active=None):
+    names = {m.name for m in mats}
+    for m in bpy.data.materials:
+        if m.get(SEL) and m.name not in names:
+            del m[SEL]
+    for m in mats:
+        m[SEL] = True
+    if active is not None:
+        context.window_manager.b4d_material = active.name
+    elif context.window_manager.b4d_material not in names:
+        context.window_manager.b4d_material = mats[0].name if mats else ""
+
+
+def click_select(context, mat, event):
+    """Click: only this material. Cmd/Ctrl: add or take away this one. Shift: every material from the active one to
+    this one (C4D's Material Manager)."""
+    wm = context.window_manager
+    if event.oskey or event.ctrl:
+        sel = selected(context)
+        if mat in sel:
+            sel.remove(mat)
+            select_only(context, sel, sel[-1] if sel and wm.b4d_material == mat.name else None)
+            if not sel:
+                wm.b4d_material = ""
+            return
+        select_only(context, sel + [mat], mat)
+        return
+    if event.shift and current(context) is not None:
+        mats = materials(context)
+        a, b = mats.index(current(context)), mats.index(mat) if mat in mats else 0
+        lo, hi = sorted((a, b))
+        select_only(context, mats[lo:hi + 1], current(context))
+        return
+    select_only(context, [mat], mat)
+
+
+def reorder(moving, before=None):
+    """Put the moving materials just before another material (None: at the end), keeping everything else in order."""
+    rest = [m for m in all_materials() if m not in moving]
+    at = rest.index(before) if before in rest else len(rest)
+    for i, m in enumerate(rest[:at] + list(moving) + rest[at:]):
+        m[ORDER] = i
+
+
+def materials(context):
+    wm = context.window_manager
+    out = all_materials()
     if wm.b4d_mm_search and wm.b4d_mm_filter:
         needle = wm.b4d_mm_filter.lower()
         out = [m for m in out if needle in m.name.lower()]
@@ -95,7 +157,7 @@ class BLENDA4D_OT_mm_pick(bpy.types.Operator):
 class BLENDA4D_OT_mm_delete(bpy.types.Operator):
     bl_idname = "blenda4d.mm_delete"
     bl_label = "Delete Material"
-    bl_description = "Delete the selected material"
+    bl_description = "Delete the selected materials"
     bl_options = {"REGISTER", "UNDO"}
 
     @classmethod
@@ -103,15 +165,17 @@ class BLENDA4D_OT_mm_delete(bpy.types.Operator):
         return current(context) is not None
 
     def invoke(self, context, event):
-        mat = current(context)
-        if mat.users - int(mat.use_fake_user) > 0:
+        used = [m for m in selected(context) if m.users - int(m.use_fake_user) > 0]
+        if used:
+            names = ", ".join(f"\"{m.name}\"" for m in used[:3]) + (" and more" if len(used) > 3 else "")
             return context.window_manager.invoke_confirm(self, event, title="Delete Material",
-                                                         message=f"\"{mat.name}\" is used by objects. Delete it anyway?",
+                                                         message=f"{names} {'is' if len(used) == 1 else 'are'} used by objects. Delete anyway?",
                                                          confirm_text="Delete")
         return self.execute(context)
 
     def execute(self, context):
-        remove_material(current(context))
+        for m in selected(context):                       # every selected material
+            remove_material(m)
         context.window_manager.b4d_material = ""
         _tag_redraw()
         return {"FINISHED"}
@@ -307,18 +371,20 @@ def draw_materials(layout, context):
                 cell = row.column(align=True)
                 cell.ui_units_x = cw / 20
                 mat = mats[i + j]
-                cell.template_icon(icon_value=tile_icon(mat, mat.name == cur, px, layout), scale=px / 20)
-                cell.operator("blenda4d.mat_pick", text=mat.name, emboss=mat.name == cur, depress=mat.name == cur).name = mat.name
+                on = is_selected(context, mat)
+                cell.template_icon(icon_value=tile_icon(mat, on, px, layout), scale=px / 20)
+                cell.operator("blenda4d.mat_pick", text=mat.name, emboss=on, depress=on).name = mat.name
         return
     col = layout.column(align=False)
     s = max(1.0, min(wm.b4d_mm_px, 80) / 20)            # the size slider grows the list rows too
     for mat in mats:
         row = col.row(align=False)
         row.alignment = "LEFT"
-        row.template_icon(icon_value=tile_icon(mat, mat.name == cur, wm.b4d_mm_px, layout), scale=s)
+        on = is_selected(context, mat)
+        row.template_icon(icon_value=tile_icon(mat, on, wm.b4d_mm_px, layout), scale=s)
         name = row.column(align=True)
         name.separator(factor=max(0.0, (s - 1) * 1.25))     # level with the middle of the preview
-        name.operator("blenda4d.mat_pick", text=mat.name, emboss=mat.name == cur, depress=mat.name == cur).name = mat.name
+        name.operator("blenda4d.mat_pick", text=mat.name, emboss=on, depress=on).name = mat.name
         if wm.b4d_mm_view == "LAYERS":
             texs = _textures(mat)
             box = col.column(align=True)
@@ -441,7 +507,8 @@ class BLENDA4D_OT_mm_double(bpy.types.Operator):
 class BLENDA4D_OT_mm_click(bpy.types.Operator):
     bl_idname = "blenda4d.mm_click"
     bl_label = "Material Manager Click"
-    bl_description = "Click a material to select it; click empty space to select none"
+    bl_description = ("Click a material to select it, Cmd/Ctrl-click to add or take one away, Shift-click for every "
+                      "material from the active one; click empty space to select none")
     bl_options = {"INTERNAL"}
 
     @classmethod
@@ -455,19 +522,14 @@ class BLENDA4D_OT_mm_click(bpy.types.Operator):
         wm = context.window_manager
         from . import matpage
         if mat is None:                             # empty space: no material selected, the object shows again
+            select_only(context, [])
             wm.b4d_material = ""
             if wm.b4d_am_subject.startswith(matpage.SUBJECT + ":"):
                 wm.b4d_am_subject = ""
         else:
-            wm.b4d_material = mat.name
-            matpage.show(context, mat)
-            if event.shift:                         # as Shift-clicking its name: onto the selected objects
-                for ob in context.selected_objects:
-                    if hasattr(ob.data, "materials"):
-                        if ob.data.materials:
-                            ob.data.materials[0] = mat
-                        else:
-                            ob.data.materials.append(mat)
+            click_select(context, mat, event)
+            if current(context) is not None:
+                matpage.show(context, current(context))
         for a in context.screen.areas:
             a.tag_redraw()
         return {"FINISHED"}
@@ -552,10 +614,164 @@ def _redraw_until_done():
     return 0.25 if _wait[0] > 0 else None
 
 
+def tile_rect(context, region, i):
+    """(x0, y0, x1, y1) in region pixels of tile i's preview and name in the icon view."""
+    wm = context.window_manager
+    ui = context.preferences.system.ui_scale
+    unit = 20 * ui
+    px = wm.b4d_mm_px
+    cols, cw = grid_columns(context, px)
+    pitch = px * ui + (NAME_UNITS + ROW_GAP) * unit
+    row, col = divmod(i, cols)
+    vx0 = LEFT * ui + col * cw * ui
+    vtop = -(GRID_TOP * unit + row * pitch)
+    x0, y1 = region.view2d.view_to_region(vx0, vtop, clip=False)
+    x1, y0 = region.view2d.view_to_region(vx0 + px * ui, vtop - px * ui - NAME_UNITS * unit, clip=False)
+    return x0, y0, x1, y1
+
+
+_drag = {}                 # what the Material Manager draws while dragging: "box" or "line" (region pixels)
+_draw = []
+
+
+class BLENDA4D_OT_mm_drag(bpy.types.Operator):
+    bl_idname = "blenda4d.mm_drag"
+    bl_label = "Drag in the Material Manager"
+    bl_description = ("Drag a selected material to move it (every selected one goes along); Cmd/Ctrl-drag drops "
+                      "copies. Drag from empty space or an unselected material to select with a box (Shift or Cmd/Ctrl adds)")
+    bl_options = {"UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        return roles.role(context.area) == "MATERIALS" and context.window_manager.b4d_mm_view == "ICONS"
+
+    def invoke(self, context, event):
+        self.region = context.region
+        x, y = event.mouse_prev_press_x - self.region.x, event.mouse_prev_press_y - self.region.y
+        mat, part = tile_at(context, x, y)
+        if part == "above":
+            return {"PASS_THROUGH"}
+        self.mats = materials(context)
+        self.copy = event.ctrl or event.oskey
+        if mat is None or not is_selected(context, mat):   # C4D: from empty space or an unselected material, a box
+            self.mode = "BOX"
+            self.add = event.shift or event.ctrl or event.oskey
+            self.before = selected(context) if self.add else []
+            _drag.clear()
+            _drag["box"] = [x, y, x, y]
+        else:                                               # a selected material: move them all (Cmd/Ctrl copies)
+            self.mode = "MOVE"
+            self.moving = selected(context)
+            _drag.clear()
+            context.window.cursor_modal_set("HAND")
+        context.window_manager.modal_handler_add(self)
+        return {"RUNNING_MODAL"}
+
+    def _index(self, context, x, y):
+        """Where a drop at region x, y goes in the shown list: before the tile under it (left half) or after it."""
+        best = None
+        for i in range(len(self.mats)):
+            x0, y0, x1, y1 = tile_rect(context, self.region, i)
+            if y0 <= y <= y1 and x0 - 8 <= x <= x1 + 8:
+                return (i if x < (x0 + x1) / 2 else i + 1), (x0 - 3 if x < (x0 + x1) / 2 else x1 + 3, y0, y1)
+            if y0 <= y <= y1 and x > x1:
+                best = (i + 1, (x1 + 3, y0, y1))
+        if best:
+            return best
+        if self.mats:
+            x0, y0, x1, y1 = tile_rect(context, self.region, len(self.mats) - 1)
+            if y < y0:
+                return len(self.mats), (x1 + 3, y0, y1)
+        return None, None
+
+    def _box(self, context):
+        x0, x1 = sorted((_drag["box"][0], _drag["box"][2]))
+        y0, y1 = sorted((_drag["box"][1], _drag["box"][3]))
+        hit = []
+        for i, m in enumerate(self.mats):
+            a0, b0, a1, b1 = tile_rect(context, self.region, i)
+            if a1 >= x0 and a0 <= x1 and b1 >= y0 and b0 <= y1:
+                hit.append(m)
+        sel = self.before + [m for m in hit if m not in self.before]
+        select_only(context, sel, hit[0] if hit and not self.add else None)
+        if not sel:
+            context.window_manager.b4d_material = ""
+
+    def modal(self, context, event):
+        x, y = event.mouse_x - self.region.x, event.mouse_y - self.region.y
+        if event.type in {"MOUSEMOVE", "INBETWEEN_MOUSEMOVE"}:
+            if self.mode == "BOX":
+                _drag["box"][2:] = [x, y]
+                self._box(context)
+            else:
+                _i, line = self._index(context, x, y)
+                _drag.clear()
+                if line:
+                    _drag["line"] = line
+            _tag_redraw()
+            return {"RUNNING_MODAL"}
+        if event.type == "LEFTMOUSE" and event.value == "RELEASE":
+            if self.mode == "MOVE":
+                context.window.cursor_modal_restore()
+                i, _line = self._index(context, x, y)
+                if i is not None:
+                    shown = self.mats
+                    after = [m for m in shown[i:] if m not in self.moving]
+                    anchor = after[0] if after else None   # the drop goes just before this one (None: last)
+                    if anchor is None and shown:
+                        full = all_materials()
+                        later = full[full.index(shown[-1]) + 1:] if shown[-1] in full else []
+                        anchor = next((m for m in later if m not in self.moving), None)
+                    moving = self.moving
+                    if self.copy or event.ctrl or event.oskey:       # Cmd/Ctrl: copies, dropped here
+                        moving = [m.copy() for m in self.moving]
+                        for m in moving:
+                            m.pop(ORDER, None)
+                    reorder(moving, anchor)
+                    select_only(context, moving, moving[0])
+                    from . import matpage
+                    matpage.show(context, moving[0])
+            _drag.clear()
+            _tag_redraw()
+            return {"FINISHED"}
+        if event.type in {"ESC", "RIGHTMOUSE"}:
+            if self.mode == "BOX":
+                select_only(context, self.before)
+            else:
+                context.window.cursor_modal_restore()
+            _drag.clear()
+            _tag_redraw()
+            return {"CANCELLED"}
+        return {"RUNNING_MODAL"}
+
+
+def _draw_drag():
+    context = bpy.context
+    if not _drag or roles.role(context.area) != "MATERIALS":
+        return
+    import gpu
+    from gpu_extras.batch import batch_for_shader
+    sh = gpu.shader.from_builtin("UNIFORM_COLOR")
+    gpu.state.blend_set("ALPHA")
+    if "box" in _drag:
+        x0, x1 = sorted((_drag["box"][0], _drag["box"][2]))
+        y0, y1 = sorted((_drag["box"][1], _drag["box"][3]))
+        sh.uniform_float("color", (1.0, 1.0, 1.0, 0.08))
+        batch_for_shader(sh, "TRIS", {"pos": [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]}, indices=[(0, 1, 2), (0, 2, 3)]).draw(sh)
+        sh.uniform_float("color", (1.0, 1.0, 1.0, 0.6))
+        batch_for_shader(sh, "LINE_LOOP", {"pos": [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]}).draw(sh)
+    if "line" in _drag:
+        x, y0, y1 = _drag["line"]
+        w = max(1.0, context.preferences.system.ui_scale)
+        sh.uniform_float("color", (0.92, 0.92, 0.92, 1.0))
+        batch_for_shader(sh, "TRIS", {"pos": [(x - w, y0), (x + w, y0), (x + w, y1), (x - w, y1)]}, indices=[(0, 1, 2), (0, 2, 3)]).draw(sh)
+    gpu.state.blend_set("NONE")
+
+
 _keys = []
 
 
-classes = (BLENDA4D_OT_mm_click, BLENDA4D_OT_mm_double, BLENDA4D_OT_mm_apply, BLENDA4D_OT_mm_pick, BLENDA4D_OT_mm_delete, BLENDA4D_OT_mm_delete_unused,
+classes = (BLENDA4D_OT_mm_click, BLENDA4D_OT_mm_drag, BLENDA4D_OT_mm_double, BLENDA4D_OT_mm_apply, BLENDA4D_OT_mm_pick, BLENDA4D_OT_mm_delete, BLENDA4D_OT_mm_delete_unused,
            BLENDA4D_OT_mm_delete_duplicates, BLENDA4D_PT_mm_bar)
 
 
@@ -576,11 +792,15 @@ def register():
     if kc is not None:
         km = kc.keymaps.new(name="Property Editor", space_type="PROPERTIES")
         _keys.append((km.name, km.keymap_items.new("blenda4d.mm_double", "LEFTMOUSE", "DOUBLE_CLICK").idname))
-        for shift in (False, True):
-            _keys.append((km.name, km.keymap_items.new("blenda4d.mm_click", "LEFTMOUSE", "CLICK", shift=shift).idname))
+        for mods in ({}, {"shift": True}, {"ctrl": True}, {"oskey": True}):
+            _keys.append((km.name, km.keymap_items.new("blenda4d.mm_click", "LEFTMOUSE", "CLICK", **mods).idname))
+            _keys.append((km.name, km.keymap_items.new("blenda4d.mm_drag", "LEFTMOUSE", "CLICK_DRAG", **mods).idname))
+        _draw.append(bpy.types.SpaceProperties.draw_handler_add(_draw_drag, (), "WINDOW", "POST_PIXEL"))
 
 
 def unregister():
+    while _draw:
+        bpy.types.SpaceProperties.draw_handler_remove(_draw.pop(), "WINDOW")
     for t in (_watch, _rerender, _redraw_until_done):
         if bpy.app.timers.is_registered(t):
             bpy.app.timers.unregister(t)

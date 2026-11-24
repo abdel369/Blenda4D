@@ -1348,23 +1348,22 @@ class BLENDA4D_OT_new_material(bpy.types.Operator):
 class BLENDA4D_OT_mat_pick(bpy.types.Operator):
     bl_idname = "blenda4d.mat_pick"
     bl_label = "Material"
-    bl_description = "Select this material; Shift-click puts it on the selected objects"
+    bl_description = "Select this material; Cmd/Ctrl-click adds or takes one away, Shift-click selects a range"
     name: bpy.props.StringProperty()
 
     def invoke(self, context, event):
         mat = bpy.data.materials.get(self.name)
         if mat is None:
             return {"CANCELLED"}
-        context.window_manager.b4d_material = mat.name
-        from . import matpage
-        matpage.show(context, mat)                         # the Attribute Manager shows the material
-        if event.shift:
-            for ob in context.selected_objects:
-                if hasattr(ob.data, "materials"):
-                    if ob.data.materials:
-                        ob.data.materials[0] = mat
-                    else:
-                        ob.data.materials.append(mat)
+        from . import matman, matpage
+        if roles.role(context.area) == "MATERIALS":
+            matman.click_select(context, mat, event)       # Cmd/Ctrl adds or takes away, Shift selects a range
+        else:
+            context.window_manager.b4d_material = mat.name
+        cur = matman.current(context)
+        if cur is not None:
+            matpage.show(context, cur)                     # the Attribute Manager shows the material
+        matman._tag_redraw()
         return {"FINISHED"}
 
 
