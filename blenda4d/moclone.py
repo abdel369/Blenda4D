@@ -221,6 +221,9 @@ def page_motext(col, ob):
     c.prop(ob, "b4d_motext_align")
     g._rows(col, ob, [("Depth", "Depth"), ("Subdivision", "Subdivision"), ("Height", "Height"),
                       ("Horizontal Spacing", "Horizontal Spacing"), ("Vertical Spacing", "Vertical Spacing")])
+    col.separator()
+    col.label(text="Spline")
+    g._rows(col, ob, [("Interpolation", "Interpolation"), ("Points", "Points"), ("Max Length", "Max Length")])
 
 
 def _level_page(lst, transform=False):

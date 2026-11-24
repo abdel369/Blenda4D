@@ -180,9 +180,72 @@ def _extrude_text(nodes, links, o, geo):
     return gc.merge(nodes, links, gc.join(nodes, links, [ex.outputs["Mesh"], gc.flip(nodes, links, geo)]))
 
 
+# --- spline interpolation (C4D's Spline settings on text: how many points the letters' outlines get) ----------
+INTERP = [("Interpolation", "INT", 3, 'spline.interpolation'), ("Points", "INT", 8, 'spline.points'),
+          ("Max Length", "FLOAT", 5.0, 'spline.max_length')]
+INTERP_TYPES = [("None", 0), ("Natural", 1), ("Uniform", 2), ("Adaptive", 3), ("Subdivided", 4)]
+INTERP_MENUS = {"Interpolation": INTERP_TYPES}
+
+
+def interpolate(nodes, links, curve, mode, points, max_len):
+    """The outlines with C4D's interpolations. None: the corner points only. Natural / Adaptive: Blender's own
+    evaluation (more points where the outline bends). Uniform: Points even steps between every two control points,
+    spread evenly along the outline (what a Bend deformer needs). Subdivided: no step longer than Max Length (cm)."""
+    poly = nodes.new("GeometryNodeCurveSplineType"); poly.spline_type = "POLY"
+    links.new(curve, poly.inputs["Curve"])
+    ev = _resample_eval(nodes, links, curve)
+    sl = nodes.new("GeometryNodeSplineLength")
+    cnt = _math(nodes, "MULTIPLY", sl.outputs["Point Count"], _math(nodes, "ADD", points, 1.0, links), links)
+    uni = nodes.new("GeometryNodeResampleCurve"); uni.inputs["Mode"].default_value = "Count"
+    links.new(curve, uni.inputs["Curve"]); links.new(cnt, uni.inputs["Count"])
+    sub = nodes.new("GeometryNodeResampleCurve"); sub.inputs["Mode"].default_value = "Length"
+    links.new(_resample_eval(nodes, links, curve), sub.inputs["Curve"])
+    links.new(_math(nodes, "MAXIMUM", _math(nodes, "MULTIPLY", max_len, 0.01, links), 1e-4, links), sub.inputs["Length"])
+    return gc.index_switch(nodes, links, "GEOMETRY", mode,
+                           [poly.outputs["Curve"], ev, uni.outputs["Curve"], ev, sub.outputs["Curve"]])
+
+
+def text_curves(nodes, links, ob, geo):
+    """A text object as its letters' outlines (String to Curves, the object's own font, size, spacing and place),
+    so Extrude can give them caps, bevels and depth steps like any spline."""
+    d = ob.data
+    s2c = nodes.new("GeometryNodeStringToCurves")
+    s2c.inputs["String"].default_value = d.body
+    if d.font is not None:
+        s2c.inputs["Font"].default_value = d.font
+    s2c.inputs["Size"].default_value = d.size
+    s2c.inputs["Character Spacing"].default_value = d.space_character
+    s2c.inputs["Word Spacing"].default_value = d.space_word
+    s2c.inputs["Line Spacing"].default_value = d.space_line
+    try:
+        s2c.inputs["Align X"].default_value = {"LEFT": "Left", "CENTER": "Center", "RIGHT": "Right",
+                                               "JUSTIFY": "Justify", "FLUSH": "Flush"}.get(d.align_x, "Left")
+    except (KeyError, TypeError):
+        pass
+    real = nodes.new("GeometryNodeRealizeInstances"); links.new(s2c.outputs["Curve Instances"], real.inputs["Geometry"])
+    curve = real.outputs["Geometry"]
+    if d.offset_x or d.offset_y:
+        curve = gc.move(nodes, links, curve, translation=(d.offset_x, d.offset_y, 0.0))
+    info = geo.node if geo is not None and hasattr(geo, "node") and geo.node.bl_idname == "GeometryNodeObjectInfo" else None
+    if info is not None and "Transform" in info.outputs:
+        tg = nodes.new("GeometryNodeTransform")
+        try:
+            tg.inputs["Mode"].default_value = "Matrix"
+            links.new(curve, tg.inputs["Geometry"]); links.new(info.outputs["Transform"], tg.inputs["Transform"])
+            curve = tg.outputs["Geometry"]
+        except (KeyError, TypeError):
+            nodes.remove(tg)
+    modes = {"NONE": 0, "NATURAL": 1, "UNIFORM": 2, "ADAPTIVE": 3, "SUBDIVIDED": 4}
+    mode = nodes.new("FunctionNodeInputInt"); mode.integer = modes.get(getattr(ob, "b4d_spline_interp", "ADAPTIVE"), 3)
+    pts = nodes.new("FunctionNodeInputInt"); pts.integer = int(getattr(ob, "b4d_spline_points", 8))
+    ml = nodes.new("ShaderNodeValue"); ml.outputs[0].default_value = float(getattr(ob, "b4d_spline_max_length", 5.0))
+    return interpolate(nodes, links, curve, mode.outputs[0], pts.outputs[0], ml.outputs[0])
+
+
 def build_extrude(nodes, links, o, kids):
-    if kids and kids[0][0].type == "FONT":
-        return _extrude_text(nodes, links, o, kids[0][1])
+    first = next(((ob, g) for ob, g in kids if ob.type in ("CURVE", "FONT") or ob.get("b4d_type") in SPLINE_KINDS), None)
+    if first is not None and first[0].type == "FONT":    # its letters' outlines: caps, bevels and depth steps as any spline
+        return _extrude_curve(nodes, links, o, text_curves(nodes, links, first[0], first[1]))
     curves = _splines(kids)
     if not curves:
         return _empty(nodes)
@@ -585,7 +648,8 @@ KINDS.update(_mg.KINDS)
 BUILDERS.update(_mg.BUILDERS)
 # MoText has Extrude's caps and bevels (its caps start as n-gons, as its letters were)
 _lab, _ins, _menus, _cons = KINDS["motext"]
-KINDS["motext"] = (_lab, _ins + [("Tessellation", "INT", 2, c[3]) if c[0] == "Tessellation" else c for c in CAPS], {**_menus, **CAP_MENUS}, _cons)
+KINDS["motext"] = (_lab, _ins + INTERP + [("Tessellation", "INT", 2, c[3]) if c[0] == "Tessellation" else c for c in CAPS],
+                   {**_menus, **CAP_MENUS, **INTERP_MENUS}, _cons)
 
 
 # --- group construction ---------------------------------------------------------------------------

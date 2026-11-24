@@ -57,6 +57,16 @@ def _row(col, owner, attr, label, **kw):
     return r
 
 
+def _spline_changed(self, context):
+    """The text's outlines changed: the Extrude (or other generator) it sits in builds again."""
+    from . import generators
+    p = self.parent
+    while p is not None:
+        if generators.gen_mod(p) is not None:
+            generators.rebuild(p)
+        p = p.parent
+
+
 def page_object(col, ob):
     d = ob.data
     _row(col, d, "body", "Text")
@@ -75,7 +85,10 @@ def page_object(col, ob):
     _row(col, ob, "b4d_text_plane", "Plane", expand=True)
     col.separator()
     col.label(text="Spline")
-    _row(col, d, "resolution_u", "Points")
+    _row(col, ob, "b4d_spline_interp", "Interpolation")
+    _row(col, ob, "b4d_spline_points", "Points").active = ob.b4d_spline_interp == "UNIFORM"
+    _row(col, ob, "b4d_spline_max_length", "Max Length").active = ob.b4d_spline_interp == "SUBDIVIDED"
+    _row(col, d, "resolution_u", "Adaptive Steps").active = ob.b4d_spline_interp in ("ADAPTIVE", "NATURAL")
 
 
 # --- settings shown the way the page names them ----------------------------------------------------------------------
@@ -115,6 +128,17 @@ def register():
     T.b4d_align = bpy.props.EnumProperty(description='Line up the lines of text on the left, in the middle or on the right', name="Align", items=ALIGN, get=_align_get, set=_align_set)
     T.b4d_height = bpy.props.FloatProperty(name="Height", subtype="DISTANCE", unit="LENGTH", get=_height_get,
                                            set=_height_set, description="Height of the letters (Blender: Size)")
+    O = bpy.types.Object
+    O.b4d_spline_interp = bpy.props.EnumProperty(name="Interpolation", update=_spline_changed, default="ADAPTIVE",
+        description="How many points the letters' outlines get inside an Extrude (C4D Spline Interpolation)",
+        items=[("NONE", "None", "The corner points only", 0), ("NATURAL", "Natural", "Blender's own steps", 1),
+               ("UNIFORM", "Uniform", "Points spread evenly along each outline: smooth under a Bend deformer", 2),
+               ("ADAPTIVE", "Adaptive", "More points where the outline bends", 3),
+               ("SUBDIVIDED", "Subdivided", "No step longer than Max Length", 4)])
+    O.b4d_spline_points = bpy.props.IntProperty(name="Points", default=8, min=0, soft_max=64, update=_spline_changed,
+        description="Uniform: the even steps between every two points of the letters' outlines")
+    O.b4d_spline_max_length = bpy.props.FloatProperty(name="Max Length", default=5.0, min=0.01, soft_max=100.0,
+        update=_spline_changed, description="Subdivided: the longest step along the outlines, in cm")
     bpy.types.Object.b4d_text_plane = bpy.props.EnumProperty(description='The plane the letters lie in: XY faces the front, ZY the side, XZ lies on the floor', 
         name="Plane", items=[(k, k, f"Letters in the {k} plane") for k in PLANES], get=_plane_get, set=_plane_set)
     managers.FONT_PAGE[:] = [page_object]
@@ -131,7 +155,8 @@ def unregister():
             g[1][0] = ("Text", "OUTLINER_OB_FONT", "object.text_add", {})
     managers.FONT_PAGE.clear()
     for owner, n in ((bpy.types.TextCurve, "b4d_align"), (bpy.types.TextCurve, "b4d_height"),
-                     (bpy.types.Object, "b4d_text_plane")):
+                     (bpy.types.Object, "b4d_text_plane"), (bpy.types.Object, "b4d_spline_interp"),
+                     (bpy.types.Object, "b4d_spline_points"), (bpy.types.Object, "b4d_spline_max_length")):
         if hasattr(owner, n):
             delattr(owner, n)
     bpy.utils.unregister_class(BLENDA4D_OT_add_text)

@@ -415,6 +415,9 @@ def build_motext(nodes, links, o, kids, gen=None):
         inst = mp._store(nodes, links, inst, name, "INT", gc.index_switch(nodes, links, "INT", ii, ranks), domain="INSTANCE")
     real = nodes.new("GeometryNodeRealizeInstances"); links.new(inst, real.inputs["Geometry"])
     curves = real.outputs["Geometry"]
+    if "Interpolation" in o:                              # C4D's Spline settings: Uniform spreads the points evenly
+        from .generators_nodes import interpolate
+        curves = interpolate(nodes, links, curves, o["Interpolation"], o["Points"], o["Max Length"])
     mesh = _text_solid(nodes, links, o, curves)
     # every point takes its letter, word and line from the nearest outline point (Sample Nearest reads point clouds
     # and meshes, not curves); still flat here, so a bevel or the depth never brings a point nearer another letter
