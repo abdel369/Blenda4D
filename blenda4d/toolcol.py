@@ -422,6 +422,7 @@ class BLENDA4D_OT_toolcol(bpy.types.Operator):
         if _state["running"] or _under(context.window, event.mouse_x, event.mouse_y)[0] is None:
             return {"PASS_THROUGH"}
         self._window = context.window
+        self._corner = None
         _state["running"] = True
         context.window_manager.modal_handler_add(self)
         self._hover(event)
@@ -489,6 +490,12 @@ class BLENDA4D_OT_toolcol(bpy.types.Operator):
             from . import modeltools
             modeltools.open_menu(members)
             return {"FINISHED"}
+        if event.type == "LEFTMOUSE" and event.value == "RELEASE" and getattr(self, "_corner", None) is not None:
+            members, self._corner = self._corner, None    # the corner mark, clicked: the list opens and stays open
+            self._end()
+            from . import modeltools
+            modeltools.open_menu(members)
+            return {"FINISHED"}
         if event.type == "LEFTMOUSE" and event.value == "RELEASE" and self._down:
             it = self._down[0]
             self._release(context)
@@ -502,10 +509,8 @@ class BLENDA4D_OT_toolcol(bpy.types.Operator):
                 s = _scale()
                 x, y = event.mouse_x - col[1].x, event.mouse_y - col[1].y
                 if len(it["members"]) > 1 and x >= box[2] - strip.CORNER * s and y <= box[1] + strip.CORNER * s:
-                    self._end()
-                    from . import modeltools
-                    modeltools.open_menu(it["members"])
-                    return {"FINISHED"}
+                    self._corner = it["members"]          # opened when the button is let go: the release picks nothing
+                    return {"RUNNING_MODAL"}
                 self._down = (it, time.time())            # used when the button is let go: nothing opens under a held press
                 self._timer = None if len(it["members"]) < 2 else context.window_manager.event_timer_add(0.03, window=self._window)
                 return {"RUNNING_MODAL"}

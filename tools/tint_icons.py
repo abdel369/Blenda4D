@@ -194,7 +194,11 @@ OWN = {"world__environment": (
     '<path d="M1.6 10.6 A6.4 2.2 0 0 0 14.4 10.6" stroke-width="1.15"/>'
     '<path d="M1.6 10.6 A6.4 2.2 0 0 1 14.4 10.6" stroke-width="0.6" stroke-opacity="0.55"/>'
     '<path d="M8 4 C4.9 5.4 4.2 9 4.6 12.4 M8 4 C11.1 5.4 11.8 9 11.4 12.4" stroke-width="0.75" stroke-opacity="0.85"/>'
-    '</g></svg>')}
+    '</g></svg>'),
+       # Text: a capital T (Blender's text icon is a lower-case a)
+       "outliner_ob_font__text": (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path fill="{c}" d="M2 1.6 H14 V5.2 H12.9 '
+    'Q12.7 3.4 11 3.3 H9 V12.6 Q9 13.4 10.4 13.5 V14.4 H5.6 V13.5 Q7 13.4 7 12.6 V3.3 H5 Q3.3 3.4 3.1 5.2 H2 Z"/></svg>')}
 LETTERS = {   # simple stroked capitals on a 16 x 16 grid, a coloured bar under each
     "x": "M4 1.5 L12 11.5 M12 1.5 L4 11.5", "y": "M4 1.5 L8 7 L12 1.5 M8 7 L8 11.5", "z": "M4 1.5 L12 1.5 L4 11.5 L12 11.5"}
 

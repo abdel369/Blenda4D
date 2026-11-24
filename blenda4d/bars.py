@@ -615,7 +615,7 @@ CREATE_GROUPS = (
                 _p("Landscape", "RNDCURVE", "landscape"), _p("Oil Tank", "MESH_CAPSULE", "oiltank"), _p("Pyramid", "MESH_CONE", "pyramid"),
                 _p("Platonic", "MESH_ICOSPHERE", "platonic"), _p("Tube", "MESH_CYLINDER", "tube"), _p("Torus", "MESH_TORUS", "torus"),
                 _p("Bezier Patch", "SURFACE_NSURFACE", "bezier"), _p("Relief", "IMAGE_DATA", "relief")]),
-    ("text", [("Text", "OUTLINER_OB_FONT", "object.text_add", {})]),
+    ("text", [("Text", "OUTLINER_OB_FONT", "object.text_add", {}), ("MoText", "OUTLINER_OB_FONT", "blenda4d.add_kind", {"kind": "motext"})]),
     None,
     ("generators", [(n, i, None, {}) for n, i in (("Subdivision Surface", "MOD_SUBSURF"), ("Extrude", "MOD_SOLIDIFY"),
                     ("Lathe", "MOD_SCREW"), ("Loft", "MOD_SKIN"), ("Sweep", "MOD_CURVE"), ("Boolean", "MOD_BOOLEAN"),
@@ -683,7 +683,7 @@ class BLENDA4D_OT_create(bpy.types.Operator):
 
 
 GROUP_TIPS = {"null": "Empty objects that hold and move other objects", "splines": "Lines and curves to draw with",
-              "shapes": "Ready-made spline shapes", "text": "Text objects", "generators": "Objects that build geometry from their children",
+              "shapes": "Ready-made spline shapes", "text": "Text objects: a text spline, or MoText", "generators": "Objects that build geometry from their children",
               "volume": "Volume objects", "moclone": "Clone objects in arrays, grids and patterns",
               "deformers": "Objects that bend, twist and shape their parent", "effectors": "Objects that move clones",
               "fields": "Areas that limit where an effect works", "environment": "Floor, sky and background",

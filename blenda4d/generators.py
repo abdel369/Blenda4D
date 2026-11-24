@@ -567,7 +567,7 @@ def page_caps(col, ob):
                  (p + " Subdivision", "Segments", size),
                  (p + " Tension", "Roundness %", (lambda p: lambda v: (v(p + " Size") or 0) > 0 and v(p + " Shape") == "Round")(p)),
                  (p + " Extrusion", "Raise Cap"), (p + " Offset", "Raise By", (lambda p: lambda v: v(p + " Extrusion"))(p))]
-    if ob.get("b4d_type") == "extrude":
+    if ob.get("b4d_type") in ("extrude", "motext"):
         rows += [None, ("Bevel Outside", "Bevel Outward")]
     _rows(col, ob, rows)
 

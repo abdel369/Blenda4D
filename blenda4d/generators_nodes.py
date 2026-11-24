@@ -583,6 +583,9 @@ BUILDERS["matrix"] = _mc.build_matrix
 from . import moclone_gens as _mg  # noqa: E402
 KINDS.update(_mg.KINDS)
 BUILDERS.update(_mg.BUILDERS)
+# MoText has Extrude's caps and bevels (its caps start as n-gons, as its letters were)
+_lab, _ins, _menus, _cons = KINDS["motext"]
+KINDS["motext"] = (_lab, _ins + [("Tessellation", "INT", 2, c[3]) if c[0] == "Tessellation" else c for c in CAPS], {**_menus, **CAP_MENUS}, _cons)
 
 
 # --- group construction ---------------------------------------------------------------------------

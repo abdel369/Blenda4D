@@ -303,8 +303,7 @@ class BLENDA4D_OT_strip_click(bpy.types.Operator):
         s = context.preferences.system.ui_scale
         x0, y0, x1, y1 = self.box[:4]
         many = len(it["members"]) > 1
-        if many and event.mouse_region_x >= x1 - CORNER * s and event.mouse_region_y <= y0 + CORNER * s:
-            return self._menu(context, it)
+        self.corner = many and event.mouse_region_x >= x1 - CORNER * s and event.mouse_region_y <= y0 + CORNER * s
         _state["pressed"] = self.index
         _redraw(context)
         if not many:
@@ -316,12 +315,13 @@ class BLENDA4D_OT_strip_click(bpy.types.Operator):
 
     def modal(self, context, event):
         it = self.box[4]
-        if event.type == "TIMER" and time.time() - self.t0 > HOLD_SECONDS:
+        if event.type == "TIMER" and time.time() - self.t0 > HOLD_SECONDS and not self.corner:
             self._end(context)
             return self._menu(context, it)
         if event.type == "LEFTMOUSE" and event.value == "RELEASE":
             self._end(context)
-            return self._run(context, it)
+            # the corner mark, clicked: the list opens on the release, so the release picks nothing and it stays open
+            return self._menu(context, it) if self.corner else self._run(context, it)
         if event.type in {"RIGHTMOUSE", "ESC"} or time.time() - self.t0 > 2.0:
             self._end(context)
             return {"CANCELLED"}

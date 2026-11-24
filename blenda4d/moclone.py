@@ -411,14 +411,15 @@ def register():
         elif k == "voronoi":
             tabs = [tabs[0], ("SOURCES", "Sources"), ("SORTING", "Sorting"), tabs[1], tabs[2]]
         elif k == "motext":
-            tabs = [tabs[0], ("ALL", "All"), ("LINES", "Lines"), ("WORDS", "Words"), ("LETTERS", "Letters")]
+            tabs = [tabs[0], ("CAPS", "Caps"), ("SELECT", "Selections"), ("ALL", "All"), ("LINES", "Lines"), ("WORDS", "Words"), ("LETTERS", "Letters")]
         kinds.add(k, g.LABELS[k], ICONS[k], create=_create_voronoi if k == "voronoi" else (lambda k: lambda context: g.create(context, k))(k),
                   tabs=tabs,
                   pages={"OBJECT": page, "TRANSFORM": page_transform, "EFFECTORS": moclone_fx_ui.page_cloner_effectors,
                          "SOURCES": page_vor_sources, "SORTING": page_vor_sorting, "ALL": _level_page("b4d_fx_list_all", True),
-                         "LINES": _level_page("b4d_fx_list_lines"), "WORDS": _level_page("b4d_fx_list_words"), "LETTERS": _level_page("b4d_fx_list")},
+                         "LINES": _level_page("b4d_fx_list_lines"), "WORDS": _level_page("b4d_fx_list_words"), "LETTERS": _level_page("b4d_fx_list"),
+                         "CAPS": g.page_caps, "SELECT": g.page_selections},
                   titles={"OBJECT": g.LABELS[k], "TRANSFORM": "Transform", "EFFECTORS": "Effectors", "SOURCES": "Sources", "SORTING": "Sorting",
-                          "ALL": "All", "LINES": "Lines", "WORDS": "Words", "LETTERS": "Letters"},
+                          "ALL": "All", "LINES": "Lines", "WORDS": "Words", "LETTERS": "Letters", "CAPS": "Caps", "SELECT": "Selections"},
                   describe=TIPS[k] + {"cloner": " (selected objects go under it)", "fracture": " (selected objects go under it)",
                                       "moinstance": " (the selected object is its reference)", "tracer": " (the selected objects are traced)",
                                       "voronoi": " (selected objects go under it)"}.get(k, ""))

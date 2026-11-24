@@ -378,8 +378,22 @@ def _text_ranks(text):
     return letters, words, lines
 
 
+def _text_solid(nodes, links, o, curves):
+    """The letters as one solid with Extrude's caps and bevels: built flat, the front (Start) at 0 and the Depth
+    running down -Z in Subdivision steps, the back (End) below."""
+    from . import generators_nodes as gn
+    e = dict(o)
+    d = nodes.new("FunctionNodeInputInt"); d.integer = 4                       # Movement Vector
+    e["Direction"] = d.outputs[0]
+    e["Movement"] = gc.combine(nodes, links, 0.0, _math(nodes, "MULTIPLY", o["Depth"], -1.0, links), 0.0)   # shown -Y = Blender -Z
+    e["Offset"] = o["Depth"]
+    r = nodes.new("FunctionNodeInputBool"); r.boolean = False
+    e["Reverse Normals"] = r.outputs[0]
+    return gn._extrude_curve(nodes, links, e, gn._resample_eval(nodes, links, curves))
+
+
 def build_motext(nodes, links, o, kids, gen=None):
-    """Text, extruded to Depth in Subdivision steps; the whole text, each line, each word and each letter are clones
+    """Text, extruded to Depth in Subdivision steps with caps and bevels; the whole text, each line, each word and each letter are clones
     of their own effector lists (All, Lines, Words, Letters), applied in that order."""
     text = (gen.b4d_motext_text if gen is not None else "MoText").replace("\\n", "\n")[:MAX_CHARS]
     if not text.strip():
@@ -401,37 +415,20 @@ def build_motext(nodes, links, o, kids, gen=None):
         inst = mp._store(nodes, links, inst, name, "INT", gc.index_switch(nodes, links, "INT", ii, ranks), domain="INSTANCE")
     real = nodes.new("GeometryNodeRealizeInstances"); links.new(inst, real.inputs["Geometry"])
     curves = real.outputs["Geometry"]
-    fill = nodes.new("GeometryNodeFillCurve"); links.new(curves, fill.inputs["Curve"]); links.new(mp._attr(nodes, "b4d_letter", "INT"), fill.inputs["Group ID"])
-    fill.inputs["Mode"].default_value = "N-gons"
-    face = fill.outputs["Mesh"]
-    # the fill's points take their letter, word and line from the nearest curve point (Sample Nearest reads point
-    # clouds and meshes, not curves)
+    mesh = _text_solid(nodes, links, o, curves)
+    # every point takes its letter, word and line from the nearest outline point (Sample Nearest reads point clouds
+    # and meshes, not curves); still flat here, so a bevel or the depth never brings a point nearer another letter
     cpts = nodes.new("GeometryNodeCurveToPoints"); cpts.mode = "EVALUATED"; links.new(curves, cpts.inputs["Curve"])
     src = cpts.outputs["Points"]
     near = nodes.new("GeometryNodeSampleNearest"); near.domain = "POINT"; links.new(src, near.inputs["Geometry"])
+    flat = nodes.new("ShaderNodeVectorMath"); flat.operation = "MULTIPLY"; flat.inputs[1].default_value = (1.0, 1.0, 0.0)
+    links.new(gc.position(nodes), flat.inputs[0]); links.new(flat.outputs[0], near.inputs["Sample Position"])
     for name in ("b4d_letter", "b4d_word", "b4d_line"):
         s = nodes.new("GeometryNodeSampleIndex"); s.data_type = "INT"; s.domain = "POINT"
         links.new(src, s.inputs["Geometry"]); links.new(mp._attr(nodes, name, "INT"), s.inputs["Value"]); links.new(near.outputs["Index"], s.inputs["Index"])
-        face = mp._store(nodes, links, face, name, "INT", s.outputs[0])
-    # Depth in Subdivision steps (built flat, faces out, then stood up below)
-    rin = nodes.new("GeometryNodeRepeatInput"); rout = nodes.new("GeometryNodeRepeatOutput"); rin.pair_with_output(rout)
-    sub = _math(nodes, "MAXIMUM", o["Subdivision"], 1.0, links)
-    links.new(sub, rin.inputs["Iterations"])
-    start = mp._store(nodes, links, face, "b4d_top", "BOOLEAN", True, domain="FACE")
-    links.new(start, rin.inputs["Geometry"])
-    ex = nodes.new("GeometryNodeExtrudeMesh"); ex.mode = "FACES"; ex.inputs["Individual"].default_value = False
-    links.new(rin.outputs["Geometry"], ex.inputs["Mesh"]); links.new(mp._attr(nodes, "b4d_top", "BOOLEAN"), ex.inputs["Selection"])
-    depth = _math(nodes, "MULTIPLY", o["Depth"], 0.01, links)
-    links.new(gc.combine(nodes, links, 0.0, 0.0, _math(nodes, "DIVIDE", depth, sub, links)), ex.inputs["Offset"])
-    top = nodes.new("GeometryNodeStoreNamedAttribute"); top.data_type = "BOOLEAN"; top.domain = "FACE"
-    links.new(ex.outputs["Mesh"], top.inputs["Geometry"]); top.inputs["Name"].default_value = "b4d_top"; links.new(ex.outputs["Top"], top.inputs["Value"])
-    links.new(top.outputs["Geometry"], rout.inputs["Geometry"])
-    # the front sits at 0 and the depth runs back; stood up, the text faces shown -Z and its depth runs along +Z
-    solid = gc.merge(nodes, links, gc.join(nodes, links, [gc.flip(nodes, links, face), rout.outputs["Geometry"]]))
-    solid = gc.move(nodes, links, solid, translation=gc.combine(nodes, links, 0.0, 0.0, _math(nodes, "MULTIPLY", depth, -1.0, links)))
-    solid = gc.move(nodes, links, solid, rotation=(1.5707963267948966, 0.0, 0.0))
-    rm = nodes.new("GeometryNodeRemoveAttribute"); links.new(solid, rm.inputs["Geometry"]); rm.inputs["Name"].default_value = "b4d_top"
-    mesh = rm.outputs["Geometry"]
+        mesh = mp._store(nodes, links, mesh, name, "INT", s.outputs[0])
+    # the front lies at 0 and the depth runs back; stood up, the text faces shown -Z and its depth runs along +Z
+    mesh = gc.move(nodes, links, mesh, rotation=(1.5707963267948966, 0.0, 0.0))
     if gen is not None and not gen.material_slots:
         mesh = mp.bare_material(nodes, links, mesh)
     from . import moclone_fx
