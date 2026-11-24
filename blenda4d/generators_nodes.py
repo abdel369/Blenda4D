@@ -158,7 +158,22 @@ def _plane(nodes, links, curve):
         smp.append(c.outputs["Position"])
     cr = gc.vmath(nodes, links, "CROSS_PRODUCT", gc.vmath(nodes, links, "SUBTRACT", smp[1], smp[0]), gc.vmath(nodes, links, "SUBTRACT", smp[2], smp[0]))
     ln = nodes.new("ShaderNodeVectorMath"); ln.operation = "LENGTH"; links.new(cr, ln.inputs[0])
-    return smp[0], gc.vmath(nodes, links, "NORMALIZE", cr), _math(nodes, "LESS_THAN", ln.outputs["Value"], 1e-9, links)
+    # Newell: the sum of p x next(p) over every outline is twice its area along the normal, wherever the points lie.
+    # Three samples alone could fall almost in a row (a line of lettering) and tilt the plane: the caps' grid then
+    # missed the letters. The three-point normal stays for an open line, which has no area.
+    nxt = nodes.new("GeometryNodeOffsetPointInCurve"); nxt.inputs["Offset"].default_value = 1
+    at = nodes.new("GeometryNodeFieldAtIndex"); at.domain = "POINT"; at.data_type = "FLOAT_VECTOR"
+    links.new(gc.position(nodes), at.inputs["Value"]); links.new(nxt.outputs["Point Index"], at.inputs["Index"])
+    st = nodes.new("GeometryNodeAttributeStatistic"); st.data_type = "FLOAT_VECTOR"; st.domain = "POINT"
+    links.new(curve, st.inputs["Geometry"])
+    links.new(gc.vmath(nodes, links, "CROSS_PRODUCT", gc.position(nodes), at.outputs[0]), st.inputs["Attribute"])
+    area = nodes.new("ShaderNodeVectorMath"); area.operation = "LENGTH"; links.new(st.outputs["Sum"], area.inputs[0])
+    has_area = _math(nodes, "GREATER_THAN", area.outputs["Value"], 1e-9, links)
+    normal = gc.switch(nodes, links, "VECTOR", has_area, gc.vmath(nodes, links, "NORMALIZE", cr),
+                       gc.vmath(nodes, links, "NORMALIZE", st.outputs["Sum"]))
+    flat_line = _math(nodes, "MULTIPLY", _math(nodes, "LESS_THAN", ln.outputs["Value"], 1e-9, links),
+                      _math(nodes, "LESS_THAN", area.outputs["Value"], 1e-9, links), links)
+    return smp[0], normal, flat_line
 
 
 def _sign(nodes, links, v):
@@ -235,8 +250,15 @@ def text_curves(nodes, links, ob, geo):
             curve = tg.outputs["Geometry"]
         except (KeyError, TypeError):
             nodes.remove(tg)
-    modes = {"NONE": 0, "NATURAL": 1, "UNIFORM": 2, "ADAPTIVE": 3, "SUBDIVIDED": 4}
-    mode = nodes.new("FunctionNodeInputInt"); mode.integer = modes.get(getattr(ob, "b4d_spline_interp", "ADAPTIVE"), 3)
+    return spline_points(nodes, links, ob, curve)
+
+
+INTERP_MODES = {"NONE": 0, "NATURAL": 1, "UNIFORM": 2, "ADAPTIVE": 3, "SUBDIVIDED": 4}
+
+
+def spline_points(nodes, links, ob, curve):
+    """The curve with the points its object's Interpolation asks for (Text Spline, any spline: C4D's Interpolation)."""
+    mode = nodes.new("FunctionNodeInputInt"); mode.integer = INTERP_MODES.get(getattr(ob, "b4d_spline_interp", "ADAPTIVE"), 3)
     pts = nodes.new("FunctionNodeInputInt"); pts.integer = int(getattr(ob, "b4d_spline_points", 8))
     ml = nodes.new("ShaderNodeValue"); ml.outputs[0].default_value = float(getattr(ob, "b4d_spline_max_length", 5.0))
     return interpolate(nodes, links, curve, mode.outputs[0], pts.outputs[0], ml.outputs[0])
@@ -249,8 +271,10 @@ def build_extrude(nodes, links, o, kids):
     curves = _splines(kids)
     if not curves:
         return _empty(nodes)
-    # the first child alone (holes inside one spline); with Hierarchical every child joins in
-    curve = _resample_eval(nodes, links, _switch_geo(nodes, links, o["Hierarchical"], curves[0], _join(nodes, links, curves)))
+    # the first child alone (holes inside one spline); with Hierarchical every child joins in. The points along it
+    # follow the first spline's Interpolation (Uniform: evenly spaced, for a Bend deformer)
+    joined = _switch_geo(nodes, links, o["Hierarchical"], curves[0], _join(nodes, links, curves))
+    curve = spline_points(nodes, links, first[0], joined) if first is not None else _resample_eval(nodes, links, joined)
     return _extrude_curve(nodes, links, o, curve)
 
 

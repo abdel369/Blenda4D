@@ -786,6 +786,19 @@ def page_spline(col, ob):
     n = sum(len(sp.bezier_points) if sp.type == "BEZIER" else len(sp.points) for sp in cu.splines)
     col.label(text=f"Splines: {len(cu.splines)}    Points: {n}")
     _spline_rows(col, ob, False)
+    interpolation_rows(col, ob)
+
+
+def interpolation_rows(col, ob):
+    """C4D's Interpolation for the points along the spline where a generator (Extrude, Lathe, Sweep...) reads it:
+    Uniform spreads them evenly, so a Bend deformer bends the result smoothly."""
+    if not hasattr(ob, "b4d_spline_interp"):
+        return
+    col.separator()
+    col.label(text="Interpolation")
+    col.prop(ob, "b4d_spline_interp", text="Interpolation")
+    r = col.row(); r.active = ob.b4d_spline_interp == "UNIFORM"; r.prop(ob, "b4d_spline_points", text="Points")
+    r = col.row(); r.active = ob.b4d_spline_interp == "SUBDIVIDED"; r.prop(ob, "b4d_spline_max_length", text="Max Length")
 
 
 # ------------------------------------------------------------------ for other modules

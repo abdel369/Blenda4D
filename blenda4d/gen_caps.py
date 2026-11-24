@@ -129,8 +129,11 @@ def fill(nodes, links, curve, mode):
 
 def grid_fill(nodes, links, curve, spacing, jitter=0.0, quad=None, margin=0.0):
     """Regular grid inside the contour, stitched to it with a triangle band (holes respected)."""
-    ngon = fill(nodes, links, curve, "N-gons")
-    bb = nodes.new("GeometryNodeBoundBox"); links.new(curve, bb.inputs["Geometry"])
+    ngon = fill(nodes, links, curve, "Triangles")      # what the rays test inside against: an N-gon fill of a dense
+                                                       # outline with holes can come out broken (letters got no grid)
+    bb = nodes.new("GeometryNodeBoundBox"); links.new(ngon, bb.inputs["Geometry"])    # the filled shape, not the curve:
+                                                       # a curve's box counts its Bezier handles, which in an SVG can lie
+                                                       # metres away (the grid grew to 258 m and missed the letters)
     size = vmath(nodes, links, "SUBTRACT", bb.outputs["Max"], bb.outputs["Min"])
     centre = vmath(nodes, links, "SCALE", vmath(nodes, links, "ADD", bb.outputs["Min"], bb.outputs["Max"]), scale=0.5)
     sx, sy, _sz = separate(nodes, links, size)
@@ -181,7 +184,7 @@ def flat_fill(nodes, links, o, curve, margin=0.0):
     links.new(curve, op.inputs["Geometry"]); links.new(_math(nodes, "LESS_THAN", cyc, 0.5, links), op.inputs["Selection"])
     closed = op.outputs["Geometry"]
     tris = fill(nodes, links, closed, "Triangles")
-    bb = nodes.new("GeometryNodeBoundBox"); links.new(closed, bb.inputs["Geometry"])
+    bb = nodes.new("GeometryNodeBoundBox"); links.new(tris, bb.inputs["Geometry"])     # not the curve (its handles)
     sx, sy, _z = separate(nodes, links, vmath(nodes, links, "SUBTRACT", bb.outputs["Max"], bb.outputs["Min"]))
     longest = _math(nodes, "MAXIMUM", sx, sy, links)
     dens = _math(nodes, "DIVIDE", longest, _math(nodes, "ADD", 2.0, _math(nodes, "MULTIPLY", o["Density"], 0.4, links), links), links)
