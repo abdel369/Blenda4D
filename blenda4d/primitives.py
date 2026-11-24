@@ -1270,11 +1270,15 @@ def material_output(ob, mat):
         use = tree.interface.items_tree.get(USE_MATERIAL_SOCKET)
         if use is not None:
             try:
-                set_input(mod, use.identifier, mat is not None)
+                owner, attr = input_slot(mod, use.identifier)
             except KeyError:
                 mod.node_group = tree
-                set_input(mod, use.identifier, mat is not None)
-            ob.update_tag()
+                owner, attr = input_slot(mod, use.identifier)
+            want = mat is not None
+            now = owner.value if attr == "value" else mod.get(use.identifier)
+            if now is None or bool(now) != want:        # only on a real change: a tag here runs this handler again,
+                set_input(mod, use.identifier, want)    # and a live render (Octane) restarts on every tag
+                ob.update_tag()
 
 
 def material_parts(ob, tags):
