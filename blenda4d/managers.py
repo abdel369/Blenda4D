@@ -1008,6 +1008,9 @@ def divider_x(context, region, rows=None):
     return max(3.0 * u, min(x, region.width - (2.6 + tags) * u))
 
 
+_press_alt = [False]
+
+
 class BLENDA4D_OT_om_divider(bpy.types.Operator):
     bl_idname = "blenda4d.om_divider"
     bl_label = "Move Column Divider"
@@ -1018,7 +1021,8 @@ class BLENDA4D_OT_om_divider(bpy.types.Operator):
         return roles.role(context.area) == "OBJECTS"
 
     def invoke(self, context, event):
-        region = context.region
+        _press_alt[0] = event.alt                          # a drag begun here paints both dots: Blender's drag event
+        region = context.region                            # does not carry the press's Alt (Option on a Mac)
         if region is None or region.type != "WINDOW":
             return {"PASS_THROUGH"}
         x = event.mouse_x - region.x
@@ -1994,7 +1998,7 @@ class BLENDA4D_OT_om_paint(bpy.types.Operator):
             return {"PASS_THROUGH"}
         ob = self.rows[i][0]
         self.col = col if col == "CHECK" else "DOT_VIEW" if col == "DOT_VIEW" else "DOT_RENDER"
-        self.both = event.alt and col != "CHECK"
+        self.both = (event.alt or _press_alt[0]) and col != "CHECK"
         if col == "CHECK":
             self.value = not ob.b4d_enabled
         else:
@@ -2449,7 +2453,7 @@ def _add_keymap():
     if kc is None:
         return
     km = kc.keymaps.new(name="Property Editor", space_type="PROPERTIES")
-    _keymaps.append((km, km.keymap_items.new("blenda4d.om_divider", "LEFTMOUSE", "PRESS")))   # passes on away from the line
+    _keymaps.append((km, km.keymap_items.new("blenda4d.om_divider", "LEFTMOUSE", "PRESS", any=True)))   # passes on away from the line; notes Alt
     for mods in ({}, {"shift": True}, {"ctrl": True}, {"oskey": True}, {"alt": True}):   # a drag down the dots or checks paints them
         _keymaps.append((km, km.keymap_items.new("blenda4d.om_paint", "LEFTMOUSE", "CLICK_DRAG", **mods)))
     for mods in ({}, {"shift": True}, {"ctrl": True}, {"oskey": True}):     # a drag from empty space draws a box
