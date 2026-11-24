@@ -1679,8 +1679,8 @@ def vis_state(ob, attr):
 
 def _hidden(ob, attr):
     s = vis_state(ob, attr)
-    if s == 2 or not ob.get("_b4d_enabled", True):
-        return True
+    if s == 2 or (not ob.get("_b4d_enabled", True) and _switch_kind(ob) is None):
+        return True                                   # switched off: only lights, cameras, nulls are hidden for it
     if s == 1:
         return False
     return _hidden(ob.parent, attr) if ob.parent is not None else False
@@ -1721,6 +1721,70 @@ def set_vis(ob, attr, state):
 _enabling = [False]
 
 
+OFF_MOD = "B4D Switched Off"        # not "Blenda ...": those names mark an object's own generator
+
+
+def _switch_kind(ob):
+    """How the check switches this object off without hiding it (a hidden object cannot be picked in the Object
+    Manager): "self" for deformers (they stop working on their own), "geometry" for objects drawn (generators too)
+    from geometry (an empty-geometry step at the end of their modifiers), None for the rest (lights, cameras, nulls:
+    hidden as before)."""
+    from . import deformers
+    if deformers.is_deformer(ob):                         # its effect stops; its cage stays in view, as in C4D
+        return "self"
+    if ob.type in ("MESH", "CURVE", "FONT", "SURFACE", "META", "CURVES", "POINTCLOUD", "VOLUME", "GREASEPENCIL"):
+        return "geometry"
+    return None
+
+
+def _off_group():
+    ng = bpy.data.node_groups.get(OFF_MOD)
+    if ng is None:
+        ng = bpy.data.node_groups.new(OFF_MOD, "GeometryNodeTree")
+        ng.interface.new_socket("Geometry", in_out="INPUT", socket_type="NodeSocketGeometry")
+        ng.interface.new_socket("Geometry", in_out="OUTPUT", socket_type="NodeSocketGeometry")
+        ng.nodes.new("NodeGroupInput"); ng.nodes.new("NodeGroupOutput")     # nothing wired: no geometry out
+    return ng
+
+
+def apply_switch(ob):
+    """The check's effect on the object itself (see _switch_kind)."""
+    on = bool(ob.get("_b4d_enabled", True))
+    if _switch_kind(ob) != "geometry":
+        return
+    m = ob.modifiers.get(OFF_MOD)
+    if on:
+        if m is not None:
+            ob.modifiers.remove(m)
+        return
+    if m is None:
+        try:
+            m = ob.modifiers.new(OFF_MOD, "NODES")
+        except (RuntimeError, TypeError):
+            return
+        m.node_group = _off_group()
+        m.show_in_editmode = False
+    while ob.modifiers.find(m.name) < len(ob.modifiers) - 1:     # last, after everything else
+        try:
+            ob.modifiers.move(ob.modifiers.find(m.name), len(ob.modifiers) - 1)
+        except (AttributeError, RuntimeError):
+            break
+
+
+@bpy.app.handlers.persistent
+def _switch_refresh(*_args):
+    """Files saved while a switched-off object was hidden for it: it shows the new way (selectable in the Object
+    Manager, drawn as nothing)."""
+    try:
+        for ob in bpy.data.objects:
+            if not ob.get("_b4d_enabled", True):
+                apply_switch(ob)
+                for attr in _VIS_KEY:
+                    apply_vis(ob, attr)
+    except (AttributeError, ReferenceError, RuntimeError):
+        pass
+
+
 def _enabled_set(self, v):
     if not _enabling[0] and self.select_get():           # the check of a selected object sets every selected object
         _enabling[0] = True
@@ -1731,12 +1795,10 @@ def _enabled_set(self, v):
         finally:
             _enabling[0] = False
     self["_b4d_enabled"] = bool(v)
-    if not v:
-        self.hide_viewport = True
-        self.hide_render = True
-    else:
-        for attr in _VIS_KEY:
-            apply_vis(self, attr)
+    apply_switch(self)
+    for attr in _VIS_KEY:
+        apply_vis(self, attr)
+    self.update_tag()
 
 
 class BLENDA4D_OT_om_dot(bpy.types.Operator):
@@ -1979,6 +2041,8 @@ def register():
     W.b4d_ab_tab = bpy.props.EnumProperty(description='Which kind of asset the Asset Browser lists', items=[(k, l, AB_TIPS.get(k, f"Show {l.lower()}")) for k, l in AB_TABS], default="ALL")
     W.b4d_ab_search = bpy.props.StringProperty(description='Show only assets whose name contains this', name="Search")
     _add_keymap()
+    if _switch_refresh not in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.append(_switch_refresh)
     from . import multiedit
     multiedit.register()
     _draw.append(bpy.types.SpaceProperties.draw_handler_add(_draw_rows, (), "WINDOW", "POST_PIXEL"))
@@ -2376,6 +2440,8 @@ def _add_keymap():
 
 
 def unregister():
+    if _switch_refresh in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.remove(_switch_refresh)
     from . import multiedit
     multiedit.unregister()
     for h in _draw:
