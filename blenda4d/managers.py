@@ -1751,9 +1751,11 @@ def _switch_kind(ob):
     Manager): "self" for deformers (they stop working on their own), "geometry" for objects drawn (generators too)
     from geometry (an empty-geometry step at the end of their modifiers), None for the rest (lights, cameras, nulls:
     hidden as before)."""
-    from . import deformers
+    from . import deformers, generators
     if deformers.is_deformer(ob):                         # its effect stops; its cage stays in view, as in C4D
         return "self"
+    if ob.get("b4d_type") in generators.MOD_KINDS:        # Subdivision Surface, Reduce, Remesh: their effect stops
+        return "self"                                     # (generators.enabled), what is under them shows as it is
     if ob.type in ("MESH", "CURVE", "FONT", "SURFACE", "META", "CURVES", "POINTCLOUD", "VOLUME", "GREASEPENCIL"):
         return "geometry"
     return None
