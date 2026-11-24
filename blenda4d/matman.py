@@ -778,6 +778,12 @@ class BLENDA4D_OT_mm_drag(bpy.types.Operator):
                 if not (0 <= x < self.region.width and 0 <= y < self.region.height):
                     _drag.clear()
                     _tag_redraw()
+                    if _over_role(context, event, "ASSETS"):     # into the Asset Browser: saved as assets
+                        from . import assets
+                        n, where = assets.add_materials(context, self.moving)
+                        self.report({"INFO"}, f"{n} material{'s' if n != 1 else ''} saving to {where}" if n
+                                    else "Nothing to save")
+                        return {"FINISHED"} if n else {"CANCELLED"}
                     return {"FINISHED"} if drop_on_object(context, self.moving, event) else {"CANCELLED"}
                 i, _line = self._index(context, x, y)
                 if i is not None:
@@ -809,6 +815,22 @@ class BLENDA4D_OT_mm_drag(bpy.types.Operator):
             _tag_redraw()
             return {"CANCELLED"}
         return {"RUNNING_MODAL"}
+
+
+def _over_role(context, event, role):
+    for a in context.window.screen.areas:
+        if roles.role(a) == role and a.x <= event.mouse_x < a.x + a.width and a.y <= event.mouse_y < a.y + a.height:
+            return True
+    return False
+
+
+@bpy.app.handlers.persistent
+def _keep_unused(*_args):
+    """A material no object uses stays in the Material Manager, as in C4D: Blender would drop it when the file is saved."""
+    for m in bpy.data.materials:
+        if m.users == 0 and not m.use_fake_user and not m.name.startswith(".") and not m.is_grease_pencil \
+                and m.library is None:
+            m.use_fake_user = True
 
 
 def object_under(context, event):
@@ -1105,6 +1127,8 @@ def register():
     sceneconvert.register()
     if _selection_changed not in bpy.app.handlers.depsgraph_update_post:
         bpy.app.handlers.depsgraph_update_post.append(_selection_changed)
+    if _keep_unused not in bpy.app.handlers.save_pre:
+        bpy.app.handlers.save_pre.append(_keep_unused)
     W = bpy.types.WindowManager
     W.b4d_mm_view = bpy.props.EnumProperty(description='Show materials as previews, as a list, or as a list with their textures', name="View", items=VIEWS, default="ICONS", update=_px_update)
     W.b4d_mm_px = bpy.props.IntProperty(description='How large the material previews are', name="Preview Size", default=64, min=PX_MIN, max=PX_MAX, subtype="PIXEL",
@@ -1130,6 +1154,8 @@ def unregister():
     matconvert.unregister()
     if _selection_changed in bpy.app.handlers.depsgraph_update_post:
         bpy.app.handlers.depsgraph_update_post.remove(_selection_changed)
+    if _keep_unused in bpy.app.handlers.save_pre:
+        bpy.app.handlers.save_pre.remove(_keep_unused)
     while _draw:
         bpy.types.SpaceProperties.draw_handler_remove(_draw.pop(), "WINDOW")
     for t in (_watch, _rerender, _redraw_until_done):

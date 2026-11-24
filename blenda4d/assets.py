@@ -915,6 +915,40 @@ def add_paths(context, files):
     return len(files), folder or lib_name
 
 
+def add_materials(context, mats):
+    """Materials dropped from the Material Manager become assets in the open folder (of the shown library, else the
+    User Library), kept for any later scene. Each is written to a file of its own with its picture (for an Octane
+    material, the Material Manager's ball: Blender cannot render it), then the background Blender files it as when a
+    .blend is dropped from the Finder. Returns (count, where)."""
+    import tempfile
+    import numpy as np
+    from . import matman
+    tmp = tempfile.mkdtemp(prefix="b4d_mat_assets_")
+    files = []
+    for m in mats:
+        was_asset = m.asset_data is not None
+        if not was_asset:
+            m.asset_mark()
+        ball = next((b for fn in matman.BALLS for b in (fn(m),) if b is not None), None)
+        try:
+            if ball is not None:                      # Octane: its own picture, drawn from the shader's values
+                h, w = ball.shape[:2]
+                pv = m.preview_ensure()
+                pv.image_size = (w, h)
+                pv.image_pixels_float.foreach_set(np.ascontiguousarray(ball, dtype=np.float32).ravel())
+            else:
+                m.asset_generate_preview()
+        except Exception as e:
+            print("Blenda 4D: material preview", m.name, e)
+        safe = "".join(c if c.isalnum() or c in " -_." else "_" for c in m.name).strip() or "Material"
+        path = os.path.join(tmp, safe + ".blend")
+        bpy.data.libraries.write(path, {m}, path_remap="ABSOLUTE", fake_user=True, compress=True)
+        if not was_asset:
+            m.asset_clear()
+        files.append(path)
+    return add_paths(context, files)
+
+
 class BLENDA4D_OT_ab_add_files(bpy.types.Operator):
     bl_idname = "blenda4d.ab_add_files"
     bl_label = "Add Files to Library"
