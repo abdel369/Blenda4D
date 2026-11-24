@@ -929,6 +929,23 @@ class BLENDA4D_OT_mm_context(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class BLENDA4D_OT_mm_to_assets(bpy.types.Operator):
+    """Save the selected materials as assets in the Asset Browser's open folder (else the User Library), for any later
+    scene. Dragging them onto the Asset Browser does the same"""
+    bl_idname = "blenda4d.mm_to_assets"
+    bl_label = "Add to Asset Browser"
+
+    def execute(self, context):
+        mats = selected(context)
+        if not mats:
+            self.report({"INFO"}, "Select materials first")
+            return {"CANCELLED"}
+        from . import assets
+        n, where = assets.add_materials(context, mats)
+        self.report({"INFO"}, f"{n} material{'s' if n != 1 else ''} saving to {where}")
+        return {"FINISHED"}
+
+
 class BLENDA4D_MT_mm_context(bpy.types.Menu):
     bl_idname = "BLENDA4D_MT_mm_context"
     bl_label = ""
@@ -947,6 +964,8 @@ class BLENDA4D_MT_mm_context(bpy.types.Menu):
         lay.operator("blenda4d.mm_render", text="Render Materials", icon="RENDER_STILL").every = False
         lay.operator("blenda4d.mm_render", text="Render All Materials", icon="RENDERLAYERS").every = True
         lay.operator("blenda4d.mm_sort", text="Sort Materials", icon="SORTALPHA")
+        lay.separator()
+        lay.operator("blenda4d.mm_to_assets", text="Add to Asset Browser", icon="ASSET_MANAGER")
         lay.separator()
         lay.operator("blenda4d.mm_delete", text="Delete", icon="TRASH")
         lay.operator("blenda4d.mm_delete_unused", text="Delete Unused Materials", icon="TRASH")
@@ -1112,7 +1131,7 @@ def _selection_changed(*_args):
         _tag_redraw()
 
 
-classes = (BLENDA4D_OT_mm_filter_toggle, BLENDA4D_OT_mm_click, BLENDA4D_OT_mm_drag, BLENDA4D_OT_mm_context, BLENDA4D_MT_mm_context, BLENDA4D_OT_mm_edit, BLENDA4D_OT_mm_rename,
+classes = (BLENDA4D_OT_mm_to_assets, BLENDA4D_OT_mm_filter_toggle, BLENDA4D_OT_mm_click, BLENDA4D_OT_mm_drag, BLENDA4D_OT_mm_context, BLENDA4D_MT_mm_context, BLENDA4D_OT_mm_edit, BLENDA4D_OT_mm_rename,
            BLENDA4D_OT_mm_select_of_active, BLENDA4D_OT_mm_select_users, BLENDA4D_OT_mm_select_same, BLENDA4D_OT_mm_render, BLENDA4D_OT_mm_sort, BLENDA4D_OT_mm_double, BLENDA4D_OT_mm_apply, BLENDA4D_OT_mm_pick, BLENDA4D_OT_mm_delete, BLENDA4D_OT_mm_delete_unused,
            BLENDA4D_OT_mm_delete_duplicates, BLENDA4D_PT_mm_bar)
 
