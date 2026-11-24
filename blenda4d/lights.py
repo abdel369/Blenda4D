@@ -299,11 +299,16 @@ def octane_emission(ob):
 
 
 def _emission_color(em):
+    """(owner, property) for the light's colour under Octane: Blenda's colour node when the emission is converted
+    (its Power then stays in Blender's watts), else the emission's own Texture."""
+    rgb = em.id_data.nodes.get("Blenda Light Color")
+    if rgb is not None:
+        return rgb, "a_value"
     tex = em.inputs.get("Texture")
     if tex is None or tex.is_linked or not hasattr(tex, "default_value"):
         return None
     try:
-        return tex if len(tex.default_value) in (3, 4) else None
+        return (tex, "default_value") if len(tex.default_value) in (3, 4) else None
     except TypeError:
         return None
 
@@ -313,7 +318,7 @@ def rows_general(ob):
     em = octane_emission(ob)
     if em is not None:
         col = _emission_color(em)
-        return [("prop", col, "default_value", "Color", True) if col is not None else ("prop", d, "color", "Color", True),
+        return [("prop", col[0], col[1], "Color", True) if col is not None else ("prop", d, "color", "Color", True),
                 ("prop", em.inputs["Power"], "default_value", "Intensity", True),
                 ("prop", em.inputs["Surface brightness"], "default_value", "Same Brightness at Any Size", True)
                 if "Surface brightness" in em.inputs else ("sep",),

@@ -9,6 +9,8 @@ picture, or the background colour and strength).
 To Blender: Cycles renders it, every Octane material becomes a Principled BSDF (matconvert.to_blender), every light
 goes back to Blender's own light with the Octane emission's power and colour, and the world gets Blender's Background
 from Octane's environment. The scene's objects, cameras and animation are not touched; Undo puts everything back."""
+import math
+
 import bpy
 
 from . import matconvert
@@ -79,13 +81,40 @@ def light_to_octane(ob):
     if em is None:
         return False
     em.inputs["Power"].default_value = energy
-    tex = em.inputs.get("Texture")
-    if tex is not None and not tex.is_linked:
-        try:
-            tex.default_value = color[:len(tex.default_value)] if len(tex.default_value) == 3 else (*color, 1.0)
-        except TypeError:
-            pass
+    watts_to_octane(light, em, color)
     return True
+
+
+# Measured (the same white floor and light rendered in Cycles and in Octane, Nov 24 2026): at the same number Octane is
+# 7 times as bright for area, point and spot lights and pi times as bright for the sun. So Power keeps the light's own
+# watts (the same number in both renderers) and a Multiply node scales the colour by this into Octane's emission.
+OCTANE_PER_BLENDER = {"AREA": 1 / 7, "POINT": 1 / 7, "SPOT": 1 / 7, "SUN": 1 / math.pi}
+COLOR_NODE, SCALE_NODE, MULT_NODE = "Blenda Light Color", "Blenda Watts to Octane", "Blenda Light Emission"
+
+
+def watts_to_octane(light, em, color):
+    """The light's colour (an RGB node), times Blender-watts-to-Octane (a greyscale node), into the emission's Texture."""
+    nt, tex = light.node_tree, em.inputs.get("Texture")
+    if tex is None:
+        return
+    for name in (COLOR_NODE, SCALE_NODE, MULT_NODE):
+        if nt.nodes.get(name) is not None:
+            nt.nodes.remove(nt.nodes[name])
+    rgb = nt.nodes.new("OctaneRGBColor"); rgb.name = rgb.label = COLOR_NODE; rgb.a_value = tuple(color)[:3]
+    k = nt.nodes.new("OctaneGreyscaleColor"); k.name = SCALE_NODE
+    k.label = "Blender watts to Octane (x 1/%s)" % ("pi" if light.type == "SUN" else "7")
+    k.a_value = OCTANE_PER_BLENDER.get(light.type, 1 / 7)
+    mul = nt.nodes.new("OctaneMultiplyTexture"); mul.name = mul.label = MULT_NODE
+    nt.links.new(rgb.outputs[0], mul.inputs[0]); nt.links.new(k.outputs[0], mul.inputs[1])
+    nt.links.new(mul.outputs[0], tex)
+    x, y = em.location
+    mul.location = (x - 220, y); rgb.location = (x - 440, y + 60); k.location = (x - 440, y - 80)
+
+
+def light_color(light):
+    """The RGB node Blenda put before the emission (its a_value is the light's colour), or None."""
+    nt = light.node_tree
+    return nt.nodes.get(COLOR_NODE) if nt is not None else None
 
 
 def light_to_blender(ob):
@@ -93,11 +122,18 @@ def light_to_blender(ob):
     em = _octane_emission(light)
     if em is None:
         return False
-    light.energy = float(em.inputs["Power"].default_value)
+    light.energy = float(em.inputs["Power"].default_value)       # Power is kept in Blender's watts
     tex = em.inputs.get("Texture")
-    if tex is not None and not tex.is_linked:
+    rgb = light_color(light)
+    if rgb is not None:
+        light.color = tuple(rgb.a_value)[:3]
+    elif tex is not None and not tex.is_linked:
+        # an Octane light Blenda did not convert: Octane's emission is 7 (sun: pi) times Blender's at the same number
+        k = OCTANE_PER_BLENDER.get(light.type, 1 / 7)
         try:
-            light.color = tuple(tex.default_value)[:3]
+            light.energy = float(em.inputs["Power"].default_value) * max(tuple(tex.default_value)[:3]) / k
+            c = tuple(tex.default_value)[:3]; top = max(c) or 1.0
+            light.color = tuple(v / top for v in c)
         except (TypeError, ValueError):
             pass
     light.node_tree.nodes.clear()
