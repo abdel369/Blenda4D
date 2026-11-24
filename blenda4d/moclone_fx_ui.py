@@ -51,6 +51,8 @@ def _props():
     O.b4d_fx_list = P.CollectionProperty(type=B4DFxEntry)
     O.b4d_fx_index = P.IntProperty()
     O.b4d_field_list = P.CollectionProperty(type=B4DFieldEntry)
+    for lst in ("b4d_fx_list_all", "b4d_fx_list_lines", "b4d_fx_list_words"):     # MoText's All, Lines and Words
+        setattr(O, lst, P.CollectionProperty(type=B4DFxEntry))
     O.b4d_field_index = P.IntProperty()
     pct = dict(subtype="PERCENTAGE", update=_live)
     O.b4d_fx_strength = P.FloatProperty(name="Strength", default=100.0, soft_min=0.0, soft_max=100.0, min=-1000.0, max=1000.0,
@@ -187,7 +189,7 @@ def create(context, k):
         p = ob.b4d_fx_probes.add(); p.name = "Probe 1"
     if k in fx.EFFECTORS:
         for g in [o for o in sel if o.get("b4d_type") in MOGENS + fx.NESTS]:  # a selected Cloner (or Group) takes it at once
-            add_effector(g, ob)
+            add_effector(g, ob, gen_list(g, context))
     else:
         for e in [o for o in sel if fx.is_effector(o)]:                     # a selected effector takes the field
             add_field(e, ob)
@@ -211,10 +213,11 @@ def create(context, k):
     return ob
 
 
-def add_effector(gen, eff):
-    if gen == eff or any(e.obj == eff for e in gen.b4d_fx_list):
+def add_effector(gen, eff, lst="b4d_fx_list"):
+    lst = getattr(gen, lst)
+    if gen == eff or any(e.obj == eff for e in lst):
         return
-    it = gen.b4d_fx_list.add()
+    it = lst.add()
     it.obj = eff
 
 
@@ -238,7 +241,7 @@ class BLENDA4D_OT_fx_remove(bpy.types.Operator):
         ob = bpy.data.objects.get(self.owner)
         if ob is None:
             return {"CANCELLED"}
-        lst = ob.b4d_fx_list if self.which == "fx" else ob.b4d_field_list
+        lst = _lst(ob, self.which)
         if 0 <= self.index < len(lst):
             lst.remove(self.index)
         _restructure(None, context)
@@ -259,7 +262,7 @@ class BLENDA4D_OT_fx_move(bpy.types.Operator):
         ob = bpy.data.objects.get(self.owner)
         if ob is None:
             return {"CANCELLED"}
-        lst = ob.b4d_fx_list if self.which == "fx" else ob.b4d_field_list
+        lst = _lst(ob, self.which)
         to = self.index + self.step
         if 0 <= self.index < len(lst) and 0 <= to < len(lst):
             lst.move(self.index, to)
@@ -305,8 +308,25 @@ class BLENDA4D_MT_field_add(bpy.types.Menu):
 
 # --- pages -----------------------------------------------------------------------------------------------------------
 
+TAB_LISTS = {"ALL": "b4d_fx_list_all", "LINES": "b4d_fx_list_lines", "WORDS": "b4d_fx_list_words", "LETTERS": "b4d_fx_list"}
+
+
+def _lst(ob, which):
+    """which: "fx", "field", or a list's own name (MoText's All, Lines, Words, Letters)."""
+    if which.startswith("b4d_"):
+        return getattr(ob, which)
+    return ob.b4d_fx_list if which == "fx" else ob.b4d_field_list
+
+
+def gen_list(gen, context):
+    """The Effectors list an effector made or dropped now joins: MoText's level shown on its page, else the list."""
+    if gen.get("b4d_type") == "motext":
+        return TAB_LISTS.get(getattr(context.window_manager, "b4d_am_tab", ""), "b4d_fx_list")
+    return "b4d_fx_list"
+
+
 def _list(col, ob, which):
-    lst = ob.b4d_fx_list if which == "fx" else ob.b4d_field_list
+    lst = _lst(ob, which)
     box = col.column(align=True)
     box.use_property_split = False                      # rows span the page: name on the left, strength on the right
     if not len(lst):
@@ -332,8 +352,8 @@ def _list(col, ob, which):
         r = row.operator("blenda4d.fx_remove", text="", icon="X", emboss=False)
         r.owner, r.which, r.index = ob.name, which, i
     col.separator()
-    col.menu("BLENDA4D_MT_fx_add" if which == "fx" else "BLENDA4D_MT_field_add",
-             text="Add Effector" if which == "fx" else "Add Field", icon="ADD")
+    col.menu("BLENDA4D_MT_field_add" if which == "field" else "BLENDA4D_MT_fx_add",
+             text="Add Field" if which == "field" else "Add Effector", icon="ADD")
 
 
 def page_cloner_effectors(col, ob):
@@ -502,10 +522,10 @@ def drop(context, objs, event):
                 gen.pop("b4d_dyn_sig", None)
                 over.tag_redraw()
             return took
-    if ob is not None and ob.get("b4d_type") in MOGENS and tab == "EFFECTORS":
+    if ob is not None and ob.get("b4d_type") in MOGENS and (tab == "EFFECTORS" or (ob.get("b4d_type") == "motext" and tab in TAB_LISTS)):
         for o in objs:
             if fx.is_effector(o):
-                add_effector(ob, o); took = True
+                add_effector(ob, o, gen_list(ob, context)); took = True
     elif ob is not None and ob.get("b4d_type") in fx.NESTS and tab == "EFFECTOR":
         for o in objs:
             if fx.is_effector(o) and o != ob:

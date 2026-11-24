@@ -599,6 +599,8 @@ def make_group(name, kind, kids, owner):
     tree.is_modifier = True
     tree["b4d_owner"] = owner
     tree.interface.new_socket("Geometry", in_out="OUTPUT", socket_type="NodeSocketGeometry")
+    if kind in _mg.OWN_MESH:                          # its own mesh (made in Python) is what it works on
+        tree.interface.new_socket("Geometry", in_out="INPUT", socket_type="NodeSocketGeometry")
     for sname, stype, default, _key in inputs:
         if sname in menus:
             tree.interface.new_socket(sname, in_out="INPUT", socket_type="NodeSocketMenu")

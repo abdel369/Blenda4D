@@ -147,6 +147,9 @@ def create(context, k):
             s = slot(gen, "Object Reference")
             if s:
                 setattr(*s, sel[0])
+    elif k in ("motext", "mospline"):                  # made from nothing: the selection stays where it is
+        gen.location = context.scene.cursor.location
+        rebuild(gen)
     elif k == "instance":
         gen.location = context.scene.cursor.location
         rebuild(gen)

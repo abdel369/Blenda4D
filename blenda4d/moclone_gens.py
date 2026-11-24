@@ -40,10 +40,15 @@ MOSPLINE_MENUS = {"MoSpline Mode": MOSPLINE_MODES, "Grow Mode": GROW_MODES, "Gen
 KINDS = {"fracture": ("Fracture", FRACTURE_INPUTS, {"Fracture Mode": FRACTURE_MODES}, True),
          "moinstance": ("MoInstance", MOINSTANCE_INPUTS, {}, False),
          "tracer": ("Tracer", TRACER_INPUTS, TRACER_MENUS, False),
-         "mospline": ("MoSpline", MOSPLINE_INPUTS, MOSPLINE_MENUS, False)}
-WITH_EFFECTORS = ("fracture", "moinstance", "mospline")
+         "mospline": ("MoSpline", MOSPLINE_INPUTS, MOSPLINE_MENUS, False),
+         "voronoi": ("Voronoi Fracture", list(TRANSFORM), {}, True),
+         "motext": ("MoText", [("Depth", "FLOAT", 20.0, 'motext.depth'), ("Subdivision", "INT", 1, 'motext.segments'),
+                               ("Height", "FLOAT", 200.0, 'motext.height'), ("Horizontal Spacing", "FLOAT", 0.0, 'motext.hspace'),
+                               ("Vertical Spacing", "FLOAT", 0.0, 'motext.vspace')] + TRANSFORM, {}, False)}
+WITH_EFFECTORS = ("fracture", "moinstance", "mospline", "voronoi", "motext")
+OWN_MESH = ("voronoi",)                                   # generators whose own mesh is the input (made in Python)
 FX_GENS = ("cloner", "matrix") + WITH_EFFECTORS          # generators with an Effectors list
-OWN_SIG = ("tracer", "moinstance")                        # generators whose nodes also hang on linked objects
+OWN_SIG = ("tracer", "moinstance", "voronoi", "motext")                        # generators whose nodes also hang on linked objects
 
 
 def extra_signature(gen):
@@ -56,6 +61,12 @@ def extra_signature(gen):
         ref = g.gval(gen, "Object Reference")
         bare = ref is not None and not any(sl.material for sl in getattr(ref, "material_slots", []))
         return [f"ref:{ref.name if ref else ''}:{bare}"]
+    if k == "voronoi":
+        from . import moclone_voronoi
+        return ["vor:" + moclone_voronoi.signature(gen)]
+    if k == "motext":
+        f = gen.b4d_motext_font
+        return [f"text:{gen.b4d_motext_text}:{f.name if f else ''}:{gen.b4d_motext_align}:{bool(gen.material_slots)}"]
     return []
 
 
@@ -326,4 +337,113 @@ def _clamp01(nodes, links, v):
     return _math(nodes, "MINIMUM", _math(nodes, "MAXIMUM", v, 0.0, links), 1.0, links)
 
 
-BUILDERS.update({"moinstance": build_moinstance, "tracer": build_tracer, "mospline": build_mospline})
+def build_voronoi(nodes, links, o, kids, gen=None):
+    """The pieces cut in Python (moclone_voronoi.py) come in as the object's own mesh; each is a clone."""
+    from . import moclone_voronoi, moclone_fx
+    if gen is not None and gen.get("b4d_vor_sig") != moclone_voronoi.signature(gen):
+        moclone_voronoi.compute(gen)
+    colors = mp.random_colors(nodes, links) if gen is not None and gen.b4d_vor_colorize else None
+    effect = moclone_fx.effect_fn(gen, drop_hidden=False) if gen is not None else None
+    return mp.pieces_effect(nodes, links, o["Geometry"], effect, o, colors=colors)
+
+
+# --- MoText -------------------------------------------------------------------------------------------------------
+
+MAX_CHARS = 1000
+
+
+def _text_ranks(text):
+    """Per character: its letter, word and line number among the visible characters (-1 for spaces and line
+    breaks), each counted from 0 without gaps."""
+    letters, words, lines = [], [], []
+    li = wi = ln = -1
+    in_word = False
+    line_has = False
+    cur_line = 0
+    for ch in text:
+        if ch == "\n":
+            cur_line += 1; in_word = False; line_has = False
+            letters.append(-1); words.append(-1); lines.append(-1)
+            continue
+        if ch.isspace():
+            in_word = False
+            letters.append(-1); words.append(-1); lines.append(-1)
+            continue
+        if not in_word:
+            wi += 1; in_word = True
+        if not line_has:
+            ln += 1; line_has = True
+        li += 1
+        letters.append(li); words.append(wi); lines.append(ln)
+    return letters, words, lines
+
+
+def build_motext(nodes, links, o, kids, gen=None):
+    """Text, extruded to Depth in Subdivision steps; the whole text, each line, each word and each letter are clones
+    of their own effector lists (All, Lines, Words, Letters), applied in that order."""
+    text = (gen.b4d_motext_text if gen is not None else "MoText").replace("\\n", "\n")[:MAX_CHARS]
+    if not text.strip():
+        return nodes.new("GeometryNodeJoinGeometry").outputs[0]
+    s2c = nodes.new("GeometryNodeStringToCurves")
+    s2c.inputs["String"].default_value = text
+    if gen is not None and gen.b4d_motext_font is not None:
+        s2c.inputs["Font"].default_value = gen.b4d_motext_font
+    s2c.inputs["Align X"].default_value = {"LEFT": "Left", "CENTER": "Center", "RIGHT": "Right"}[gen.b4d_motext_align if gen else "LEFT"]
+    h = _math(nodes, "MULTIPLY", o["Height"], 0.01, links)
+    links.new(h, s2c.inputs["Size"])
+    links.new(_math(nodes, "ADD", 1.0, _math(nodes, "DIVIDE", o["Horizontal Spacing"], _math(nodes, "MAXIMUM", _math(nodes, "MULTIPLY", o["Height"], 0.55, links), 1e-3, links), links), links),
+              s2c.inputs["Character Spacing"])
+    links.new(_math(nodes, "ADD", 1.0, _math(nodes, "DIVIDE", o["Vertical Spacing"], _math(nodes, "MAXIMUM", o["Height"], 1e-3, links), links), links), s2c.inputs["Line Spacing"])
+    letters, words, lines = _text_ranks(text)
+    inst = s2c.outputs["Curve Instances"]
+    ii = nodes.new("GeometryNodeInputIndex").outputs[0]
+    for name, ranks in (("b4d_letter", letters), ("b4d_word", words), ("b4d_line", lines)):
+        inst = mp._store(nodes, links, inst, name, "INT", gc.index_switch(nodes, links, "INT", ii, ranks), domain="INSTANCE")
+    real = nodes.new("GeometryNodeRealizeInstances"); links.new(inst, real.inputs["Geometry"])
+    curves = real.outputs["Geometry"]
+    fill = nodes.new("GeometryNodeFillCurve"); links.new(curves, fill.inputs["Curve"]); links.new(mp._attr(nodes, "b4d_letter", "INT"), fill.inputs["Group ID"])
+    fill.inputs["Mode"].default_value = "N-gons"
+    face = fill.outputs["Mesh"]
+    # the fill's points take their letter, word and line from the nearest curve point (Sample Nearest reads point
+    # clouds and meshes, not curves)
+    cpts = nodes.new("GeometryNodeCurveToPoints"); cpts.mode = "EVALUATED"; links.new(curves, cpts.inputs["Curve"])
+    src = cpts.outputs["Points"]
+    near = nodes.new("GeometryNodeSampleNearest"); near.domain = "POINT"; links.new(src, near.inputs["Geometry"])
+    for name in ("b4d_letter", "b4d_word", "b4d_line"):
+        s = nodes.new("GeometryNodeSampleIndex"); s.data_type = "INT"; s.domain = "POINT"
+        links.new(src, s.inputs["Geometry"]); links.new(mp._attr(nodes, name, "INT"), s.inputs["Value"]); links.new(near.outputs["Index"], s.inputs["Index"])
+        face = mp._store(nodes, links, face, name, "INT", s.outputs[0])
+    # Depth in Subdivision steps (built flat, faces out, then stood up below)
+    rin = nodes.new("GeometryNodeRepeatInput"); rout = nodes.new("GeometryNodeRepeatOutput"); rin.pair_with_output(rout)
+    sub = _math(nodes, "MAXIMUM", o["Subdivision"], 1.0, links)
+    links.new(sub, rin.inputs["Iterations"])
+    start = mp._store(nodes, links, face, "b4d_top", "BOOLEAN", True, domain="FACE")
+    links.new(start, rin.inputs["Geometry"])
+    ex = nodes.new("GeometryNodeExtrudeMesh"); ex.mode = "FACES"; ex.inputs["Individual"].default_value = False
+    links.new(rin.outputs["Geometry"], ex.inputs["Mesh"]); links.new(mp._attr(nodes, "b4d_top", "BOOLEAN"), ex.inputs["Selection"])
+    depth = _math(nodes, "MULTIPLY", o["Depth"], 0.01, links)
+    links.new(gc.combine(nodes, links, 0.0, 0.0, _math(nodes, "DIVIDE", depth, sub, links)), ex.inputs["Offset"])
+    top = nodes.new("GeometryNodeStoreNamedAttribute"); top.data_type = "BOOLEAN"; top.domain = "FACE"
+    links.new(ex.outputs["Mesh"], top.inputs["Geometry"]); top.inputs["Name"].default_value = "b4d_top"; links.new(ex.outputs["Top"], top.inputs["Value"])
+    links.new(top.outputs["Geometry"], rout.inputs["Geometry"])
+    # the front sits at 0 and the depth runs back; stood up, the text faces shown -Z and its depth runs along +Z
+    solid = gc.merge(nodes, links, gc.join(nodes, links, [gc.flip(nodes, links, face), rout.outputs["Geometry"]]))
+    solid = gc.move(nodes, links, solid, translation=gc.combine(nodes, links, 0.0, 0.0, _math(nodes, "MULTIPLY", depth, -1.0, links)))
+    solid = gc.move(nodes, links, solid, rotation=(1.5707963267948966, 0.0, 0.0))
+    rm = nodes.new("GeometryNodeRemoveAttribute"); links.new(solid, rm.inputs["Geometry"]); rm.inputs["Name"].default_value = "b4d_top"
+    mesh = rm.outputs["Geometry"]
+    if gen is not None and not gen.material_slots:
+        mesh = mp.bare_material(nodes, links, mesh)
+    from . import moclone_fx
+    for lst, attr, with_o in (("b4d_fx_list_all", None, True), ("b4d_fx_list_lines", "b4d_line", False),
+                              ("b4d_fx_list_words", "b4d_word", False), ("b4d_fx_list", "b4d_letter", False)):
+        if gen is None or (not moclone_fx.effectors_of(gen, lst) and not with_o):
+            continue
+        piece = 0 if attr is None else mp._attr(nodes, attr, "INT")
+        mesh = mp._store(nodes, links, mesh, mp.PIECE, "INT", piece)
+        mesh = mp.pieces_effect(nodes, links, mesh, moclone_fx.effect_fn(gen, lst, drop_hidden=False), o if with_o else None)
+    return mesh
+
+
+BUILDERS.update({"moinstance": build_moinstance, "tracer": build_tracer, "mospline": build_mospline, "voronoi": build_voronoi,
+                 "motext": build_motext})

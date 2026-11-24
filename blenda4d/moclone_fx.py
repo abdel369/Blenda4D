@@ -625,59 +625,35 @@ def _push_apart(nodes, links, geo, gen, i, e, w):
     f = _math(nodes, "MULTIPLY", ww, is_mode(2), links)
     shrink = _math(nodes, "ADD", 1.0, _math(nodes, "MULTIPLY", f, _math(nodes, "SUBTRACT", room, 1.0, links), links), links)
     geo = _store(nodes, links, geo, "b4d_scale", "FLOAT_VECTOR", gc.vmath(nodes, links, "SCALE", _attr(nodes, "b4d_scale", "FLOAT_VECTOR"), scale=shrink))
-    # Hide: each pass keeps the clones with no earlier undecided clone nearby, then hides the undecided ones that
-    # overlap a kept clone (state 0 undecided, 1 kept, 2 hidden)
+    # Hide: clone by clone in order, a clone whose sphere overlaps one already kept is hidden (state 0 undecided,
+    # 1 kept, 2 hidden). One pass per clone: exact, the same on every computer.
     hin = nodes.new("GeometryNodeRepeatInput"); hout = nodes.new("GeometryNodeRepeatOutput"); hin.pair_with_output(hout)
-    links.new(_math(nodes, "MULTIPLY", _math(nodes, "MAXIMUM", iters, 1.0, links), _math(nodes, "MULTIPLY", is_mode(0), _math(nodes, "GREATER_THAN", ww, 0.0, links), links), links),
-              hin.inputs["Iterations"])
+    on = _math(nodes, "GREATER_THAN", _driven(nodes, e, "b4d_fx_strength"), 0.0, links)     # one value: a pass count can't vary per clone
+    links.new(_math(nodes, "MULTIPLY", _count(nodes, links, geo), _math(nodes, "MULTIPLY", is_mode(0), on, links), links), hin.inputs["Iterations"])
     geo = _store(nodes, links, geo, "b4d_push_st", "INT", _math(nodes, "MULTIPLY", idx, 0.0, links))
     links.new(geo, hin.inputs["Geometry"])
     g = hin.outputs["Geometry"]
-    stt = _attr(nodes, "b4d_push_st", "INT")
-    und = _math(nodes, "COMPARE", stt, 0.0, links)
-    # an undecided clone is blocked while an earlier undecided clone overlaps it; each of eight groups (number mod 8)
-    # gives its nearest undecided clone, so a tie between neighbours can't hide the earlier one
-    H = 8
-    hcls = _math(nodes, "FLOORED_MODULO", idx, float(H), links)
-    g = _store(nodes, links, g, "b4d_push_i", "INT", idx)
-    own_i, own_has, own_pos, own_gap = nearest(g, _math(nodes, "ADD", _math(nodes, "MULTIPLY", stt, float(H), links), hcls, links))
-    blocked = 0.0
-    for c in range(H):
-        part = nodes.new("GeometryNodeSeparateGeometry"); part.domain = "POINT"; links.new(g, part.inputs["Geometry"])
-        links.new(_math(nodes, "MULTIPLY", _math(nodes, "COMPARE", _attr(nodes, "b4d_push_st", "INT"), 0.0, links),
-                        _math(nodes, "COMPARE", _math(nodes, "FLOORED_MODULO", nodes.new("GeometryNodeInputIndex").outputs[0], float(H), links), float(c), links), links),
-                  part.inputs["Selection"])
-        sn = nodes.new("GeometryNodeSampleNearest"); sn.domain = "POINT"; links.new(part.outputs["Selection"], sn.inputs["Geometry"])
-        ci = sample(part.outputs["Selection"], _attr(nodes, "b4d_push_i", "INT"), "INT", sn.outputs["Index"])
-        cpos = sample(part.outputs["Selection"], gc.position(nodes), "FLOAT_VECTOR", sn.outputs["Index"])
-        cgap = _math(nodes, "ADD", own_r, _math(nodes, "MULTIPLY", R, size(sample(part.outputs["Selection"], _attr(nodes, "b4d_scale", "FLOAT_VECTOR"), "FLOAT_VECTOR", sn.outputs["Index"])), links), links)
-        cn = nodes.new("GeometryNodeAttributeDomainSize"); cn.component = "POINTCLOUD"; links.new(part.outputs["Selection"], cn.inputs["Geometry"])
-        mine = _math(nodes, "COMPARE", hcls, float(c), links)
-        oi = gc.switch(nodes, links, "INT", mine, ci, own_i)
-        opos = gc.switch(nodes, links, "VECTOR", mine, cpos, own_pos)
-        ogap = gc.switch(nodes, links, "FLOAT", mine, cgap, own_gap)
-        ohas = gc.switch(nodes, links, "FLOAT", mine, _math(nodes, "GREATER_THAN", cn.outputs["Point Count"], 0.0, links), own_has)
-        hit = _math(nodes, "MULTIPLY", _math(nodes, "MULTIPLY", ohas, _math(nodes, "LESS_THAN", _vdist(nodes, links, gc.position(nodes), opos), ogap, links), links),
-                    _math(nodes, "LESS_THAN", oi, idx, links), links)
-        blocked = _math(nodes, "MAXIMUM", blocked, hit, links)
-    keep = _math(nodes, "MULTIPLY", und, _math(nodes, "SUBTRACT", 1.0, blocked, links), links)
-    g = _store(nodes, links, g, "b4d_push_st", "INT", _math(nodes, "MAXIMUM", stt, keep, links))
+    k = hin.outputs["Iteration"]
     kept = nodes.new("GeometryNodeSeparateGeometry"); kept.domain = "POINT"
     links.new(g, kept.inputs["Geometry"]); links.new(_math(nodes, "COMPARE", _attr(nodes, "b4d_push_st", "INT"), 1.0, links), kept.inputs["Selection"])
-    near = nodes.new("GeometryNodeSampleNearest"); near.domain = "POINT"; links.new(kept.outputs["Selection"], near.inputs["Geometry"])
-    kpos = sample(kept.outputs["Selection"], gc.position(nodes), "FLOAT_VECTOR", near.outputs["Index"])
-    kgap = _math(nodes, "ADD", own_r, _math(nodes, "MULTIPLY", R, size(sample(kept.outputs["Selection"], _attr(nodes, "b4d_scale", "FLOAT_VECTOR"), "FLOAT_VECTOR", near.outputs["Index"])), links), links)
-    cnt = nodes.new("GeometryNodeAttributeDomainSize"); cnt.component = "POINTCLOUD"; links.new(kept.outputs["Selection"], cnt.inputs["Geometry"])
-    hit = _math(nodes, "MULTIPLY", _math(nodes, "LESS_THAN", _vdist(nodes, links, gc.position(nodes), kpos), kgap, links),
+    kg = kept.outputs["Selection"]
+    here = sample(g, gc.position(nodes), "FLOAT_VECTOR", k)
+    my_r = _math(nodes, "MULTIPLY", R, size(sample(g, _attr(nodes, "b4d_scale", "FLOAT_VECTOR"), "FLOAT_VECTOR", k)), links)
+    near = nodes.new("GeometryNodeSampleNearest"); near.domain = "POINT"; links.new(kg, near.inputs["Geometry"]); links.new(here, near.inputs["Sample Position"])
+    kpos = sample(kg, gc.position(nodes), "FLOAT_VECTOR", near.outputs["Index"])
+    kgap = _math(nodes, "ADD", my_r, _math(nodes, "MULTIPLY", R, size(sample(kg, _attr(nodes, "b4d_scale", "FLOAT_VECTOR"), "FLOAT_VECTOR", near.outputs["Index"])), links), links)
+    cnt = nodes.new("GeometryNodeAttributeDomainSize"); cnt.component = "POINTCLOUD"; links.new(kg, cnt.inputs["Geometry"])
+    hit = _math(nodes, "MULTIPLY", _math(nodes, "LESS_THAN", _vdist(nodes, links, here, kpos), kgap, links),
                 _math(nodes, "GREATER_THAN", cnt.outputs["Point Count"], 0.0, links), links)
-    stt2 = _attr(nodes, "b4d_push_st", "INT")
-    goes = _math(nodes, "MULTIPLY", _math(nodes, "COMPARE", stt2, 0.0, links), hit, links)
-    g = _store(nodes, links, g, "b4d_push_st", "INT", _math(nodes, "ADD", stt2, _math(nodes, "MULTIPLY", goes, 2.0, links), links))
-    links.new(g, hout.inputs["Geometry"])
+    st = nodes.new("GeometryNodeStoreNamedAttribute"); st.data_type = "INT"; st.domain = "POINT"
+    links.new(g, st.inputs["Geometry"]); st.inputs["Name"].default_value = "b4d_push_st"
+    links.new(_math(nodes, "COMPARE", idx, k, links), st.inputs["Selection"])
+    links.new(_math(nodes, "ADD", 1.0, hit, links), st.inputs["Value"])
+    links.new(st.outputs["Geometry"], hout.inputs["Geometry"])
     geo = hout.outputs["Geometry"]
     gone = _math(nodes, "COMPARE", _attr(nodes, "b4d_push_st", "INT"), 2.0, links)
     geo = _store(nodes, links, geo, "b4d_hidden", "FLOAT", _math(nodes, "MAXIMUM", _attr(nodes, "b4d_hidden", "FLOAT"), gone, links))
-    for name in ("b4d_push_st", "b4d_push_i"):
+    for name in ("b4d_push_st",):
         rm = nodes.new("GeometryNodeRemoveAttribute"); links.new(geo, rm.inputs["Geometry"]); rm.inputs["Name"].default_value = name
         geo = rm.outputs["Geometry"]
     return geo

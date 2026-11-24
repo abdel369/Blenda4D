@@ -12,13 +12,15 @@ from . import kinds
 from . import moclone_fx_ui
 
 ICONS = {"cloner": "MOD_ARRAY", "matrix": "LIGHTPROBE_VOLUME", "fracture": "MOD_EXPLODE", "moinstance": "TRACKING_BACKWARDS",
-         "tracer": "CURVE_PATH", "mospline": "OUTLINER_OB_CURVES"}
+         "tracer": "CURVE_PATH", "mospline": "OUTLINER_OB_CURVES", "voronoi": "MOD_EXPLODE", "motext": "OUTLINER_OB_FONT"}
 TIPS = {"cloner": "Places copies of the objects under it in a row, ring, grid, honeycomb or on another object",
         "matrix": "Makes the points of a Cloner arrangement, shown as small cubes, for other Cloners to use",
         "fracture": "Makes the objects under it, or each of their loose parts, into clones that effectors move",
         "moinstance": "Leaves a trail of copies of an object along the path it moves (play the animation from the start)",
         "tracer": "Draws splines along the paths objects and their points move, or through them (play from the start)",
-        "mospline": "Grows splines, fanned out and bent, or from another spline, for a Sweep; effectors move their points"}
+        "mospline": "Grows splines, fanned out and bent, or from another spline, for a Sweep; effectors move their points",
+        "voronoi": "Cuts the objects under it into pieces around scattered points; each piece is a clone effectors move",
+        "motext": "3D text whose whole text, lines, words and letters each have their own effectors"}
 
 
 def _mode(v):
@@ -103,6 +105,131 @@ def page_fracture(col, ob):
     if not g.kids_of(ob):
         g._hint(col, "Put objects under the Fracture")
     g._rows(col, ob, [("Fracture Mode", "Mode")])
+
+
+def page_voronoi(col, ob):
+    if g._missing(col, ob):
+        return
+    if not g.kids_of(ob):
+        g._hint(col, "Put objects under the Voronoi Fracture")
+    c = col.column()
+    c.prop(ob, "b4d_vor_colorize"); c.prop(ob, "b4d_vor_ngons"); c.prop(ob, "b4d_vor_offset")
+    c.prop(ob, "b4d_vor_hull")
+    sub = c.row(); sub.active = ob.b4d_vor_hull; sub.prop(ob, "b4d_vor_thickness")
+    c.prop(ob, "b4d_vor_optimize")
+    r = c.column(align=True)
+    for i, a in enumerate("XYZ"):
+        r.prop(ob, "b4d_vor_cell_scale", index=i, text=f"Scale Cells . {a}")
+
+
+class BLENDA4D_UL_vor_sources(bpy.types.UIList):
+    def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
+        if item.kind == "OBJECT":
+            layout.prop(item, "obj", text="", emboss=False, icon="OBJECT_DATA")
+        else:
+            layout.prop(item, "name", text="", emboss=False, icon="STICKY_UVS_DISABLE")
+
+
+class BLENDA4D_OT_vor_source(bpy.types.Operator):
+    """Add a source of seed points (a Distribution Source, or the selected objects), or remove the chosen one"""
+    bl_idname = "blenda4d.vor_source"
+    bl_label = "Source"
+    bl_options = {"REGISTER", "UNDO"}
+    owner: bpy.props.StringProperty()
+    action: bpy.props.StringProperty()          # DISTRIBUTION, OBJECTS or REMOVE
+
+    def execute(self, context):
+        gen = bpy.data.objects.get(self.owner)
+        if gen is None:
+            return {"CANCELLED"}
+        lst = gen.b4d_vor_sources
+        if self.action == "REMOVE":
+            if 0 <= gen.b4d_vor_source_index < len(lst):
+                lst.remove(gen.b4d_vor_source_index)
+        elif self.action == "OBJECTS":
+            for o in context.selected_objects:
+                if o != gen and o not in g.kids_of(gen):
+                    it = lst.add(); it.kind = "OBJECT"; it.obj = o; it.name = o.name
+        else:
+            it = lst.add(); it.name = "Distribution Source"
+        gen.b4d_vor_source_index = max(0, len(lst) - 1)
+        g.sync_all()
+        return {"FINISHED"}
+
+
+def page_vor_sources(col, ob):
+    r = col.row()
+    r.template_list("BLENDA4D_UL_vor_sources", "", ob, "b4d_vor_sources", ob, "b4d_vor_source_index", rows=3)
+    side = r.column(align=True)
+    for icon, act in (("ADD", "DISTRIBUTION"), ("OBJECT_DATA", "OBJECTS"), ("REMOVE", "REMOVE")):
+        op = side.operator("blenda4d.vor_source", text="", icon=icon); op.owner, op.action = ob.name, act
+    col.label(text="+ adds a Distribution Source", icon="ADD")
+    col.label(text="The object button adds the selected objects", icon="OBJECT_DATA")
+    if 0 <= ob.b4d_vor_source_index < len(ob.b4d_vor_sources):
+        s = ob.b4d_vor_sources[ob.b4d_vor_source_index]
+        c = col.column()
+        if s.kind == "OBJECT":
+            c.prop(s, "obj")
+            return
+        c.prop(s, "dist")
+        if s.dist != "UNIFORM":
+            c.prop(s, "deviation")
+        if s.dist == "EXPONENTIAL":
+            c.prop(s, "pull_x"); c.prop(s, "pull_y"); c.prop(s, "pull_z")
+        c.prop(s, "amount"); c.prop(s, "seed"); c.prop(s, "inside"); c.prop(s, "per_object")
+        r = c.column(align=True)
+        for i, a in enumerate("XYZ"):
+            r.prop(s, "pos", index=i, text=f"P . {a}")
+        r = c.column(align=True)
+        for i, a in enumerate("XYZ"):
+            r.prop(s, "scale", index=i, text=f"S . {a}")
+
+
+def page_vor_sorting(col, ob):
+    c = col.column()
+    c.prop(ob, "b4d_vor_sort")
+    sub = c.column(); sub.active = ob.b4d_vor_sort
+    sub.prop(ob, "b4d_vor_invert"); sub.prop(ob, "b4d_vor_sort_by")
+    if ob.b4d_vor_sort_by == "DIRECTION":
+        r = sub.column(align=True)
+        for i, a in enumerate("XYZ"):
+            r.prop(ob, "b4d_vor_sort_dir", index=i, text=f"Direction . {a}")
+    elif ob.b4d_vor_sort_by == "OBJECT":
+        sub.prop(ob, "b4d_vor_sort_obj")
+
+
+def _create_voronoi(context):
+    gen = g.create(context, "voronoi")
+    if not len(gen.b4d_vor_sources):
+        gen.b4d_vor_sources.add().name = "Distribution Source"
+        g.sync_all()
+    return gen
+
+
+def _motext_changed(self, context):
+    g.sync_all()
+
+
+def page_motext(col, ob):
+    if g._missing(col, ob):
+        return
+    c = col.column()
+    c.prop(ob, "b4d_motext_text")
+    r = c.split(factor=0.4, align=True)
+    lab = r.row(); lab.alignment = "RIGHT"; lab.label(text="Font")
+    r.template_ID(ob, "b4d_motext_font", open="font.open")
+    c.prop(ob, "b4d_motext_align")
+    g._rows(col, ob, [("Depth", "Depth"), ("Subdivision", "Subdivision"), ("Height", "Height"),
+                      ("Horizontal Spacing", "Horizontal Spacing"), ("Vertical Spacing", "Vertical Spacing")])
+
+
+def _level_page(lst, transform=False):
+    def page(col, ob):
+        moclone_fx_ui._list(col, ob, lst)
+        if transform:
+            col.separator()
+            page_transform(col, ob)
+    return page
 
 
 def page_moinstance(col, ob):
@@ -257,12 +384,20 @@ def register():
     moclone_fx_ui.register()
     from . import moclone_dyn
     moclone_dyn.register()
-    for c in (B4DTraceEntry, BLENDA4D_UL_trace, BLENDA4D_OT_trace_link):
+    for c in (B4DTraceEntry, BLENDA4D_UL_trace, BLENDA4D_OT_trace_link, BLENDA4D_UL_vor_sources, BLENDA4D_OT_vor_source):
         bpy.utils.register_class(c)
+    from . import moclone_voronoi
+    moclone_voronoi.props()
+    O = bpy.types.Object
+    O.b4d_motext_text = bpy.props.StringProperty(name="Text", default="MoText", update=_motext_changed,
+                                                 description="The text; type \\n for a new line")
+    O.b4d_motext_font = bpy.props.PointerProperty(name="Font", type=bpy.types.VectorFont, update=_motext_changed)
+    O.b4d_motext_align = bpy.props.EnumProperty(name="Align", items=[("LEFT", "Left", ""), ("CENTER", "Center", ""), ("RIGHT", "Right", "")],
+                                                default="LEFT", update=_motext_changed)
     bpy.types.Object.b4d_trace_list = bpy.props.CollectionProperty(type=B4DTraceEntry)
     bpy.types.Object.b4d_trace_index = bpy.props.IntProperty()
     for k, page in (("cloner", page_cloner), ("matrix", page_matrix), ("fracture", page_fracture), ("moinstance", page_moinstance),
-                    ("mospline", page_mospline), ("tracer", page_tracer)):
+                    ("mospline", page_mospline), ("tracer", page_tracer), ("voronoi", page_voronoi), ("motext", page_motext)):
         g.ICONS[k] = ICONS[k]
         g.TIPS[k] = TIPS[k]
         g.PAGES[k] = page
@@ -271,17 +406,25 @@ def register():
             tabs = [tabs[0], tabs[2]]
         elif k == "tracer":
             tabs = tabs[:1]
-        kinds.add(k, g.LABELS[k], ICONS[k], create=(lambda k: lambda context: g.create(context, k))(k),
+        elif k == "voronoi":
+            tabs = [tabs[0], ("SOURCES", "Sources"), ("SORTING", "Sorting"), tabs[1], tabs[2]]
+        elif k == "motext":
+            tabs = [tabs[0], ("ALL", "All"), ("LINES", "Lines"), ("WORDS", "Words"), ("LETTERS", "Letters")]
+        kinds.add(k, g.LABELS[k], ICONS[k], create=_create_voronoi if k == "voronoi" else (lambda k: lambda context: g.create(context, k))(k),
                   tabs=tabs,
-                  pages={"OBJECT": page, "TRANSFORM": page_transform, "EFFECTORS": moclone_fx_ui.page_cloner_effectors},
-                  titles={"OBJECT": g.LABELS[k], "TRANSFORM": "Transform", "EFFECTORS": "Effectors"},
+                  pages={"OBJECT": page, "TRANSFORM": page_transform, "EFFECTORS": moclone_fx_ui.page_cloner_effectors,
+                         "SOURCES": page_vor_sources, "SORTING": page_vor_sorting, "ALL": _level_page("b4d_fx_list_all", True),
+                         "LINES": _level_page("b4d_fx_list_lines"), "WORDS": _level_page("b4d_fx_list_words"), "LETTERS": _level_page("b4d_fx_list")},
+                  titles={"OBJECT": g.LABELS[k], "TRANSFORM": "Transform", "EFFECTORS": "Effectors", "SOURCES": "Sources", "SORTING": "Sorting",
+                          "ALL": "All", "LINES": "Lines", "WORDS": "Words", "LETTERS": "Letters"},
                   describe=TIPS[k] + {"cloner": " (selected objects go under it)", "fracture": " (selected objects go under it)",
-                                      "moinstance": " (the selected object is its reference)", "tracer": " (the selected objects are traced)"}.get(k, ""))
+                                      "moinstance": " (the selected object is its reference)", "tracer": " (the selected objects are traced)",
+                                      "voronoi": " (selected objects go under it)"}.get(k, ""))
         kinds.create_button("moclone", g.LABELS[k], k)
 
 
 def unregister():
-    for c in (BLENDA4D_OT_trace_link, BLENDA4D_UL_trace, B4DTraceEntry):
+    for c in (BLENDA4D_OT_vor_source, BLENDA4D_UL_vor_sources, BLENDA4D_OT_trace_link, BLENDA4D_UL_trace, B4DTraceEntry):
         if getattr(c, "is_registered", False):
             bpy.utils.unregister_class(c)
     from . import moclone_dyn
