@@ -40,10 +40,23 @@ def new_light(context, kind):
     li.energy = ENERGY[typ]
     if typ in {"POINT", "SPOT"}:
         li.shadow_soft_size = 0.1              # a small round source: slightly soft shadows
+    oc = getattr(li, "octane", None)           # Octane turns a new light into its own; left alone, a point light
+    if oc is not None:                         # becomes a toon light and a sun a toon directional light
+        for attr, value in (("octane_point_light_type", "Sphere"), ("octane_directional_light_type", "Directional")):
+            try:
+                setattr(oc, attr, value)
+            except (AttributeError, TypeError):
+                pass
     ob = bpy.data.objects.new(name, li)
     context.collection.objects.link(ob)
     ob.location = (0.0, 0.0, HEIGHT)
     ob["b4d_type"] = kind
+    if context.scene.render.engine == "octane":    # Octane converts only lights made by Blender's Add operator
+        try:
+            from . import sceneconvert
+            sceneconvert.light_to_octane(ob)
+        except Exception as e:
+            print("Blenda 4D: Octane light", e)
     return ob
 
 
@@ -70,6 +83,9 @@ def _make(kind):
             li.temperature = 5500.0
             li.angle = 0.0093                  # about the size the sun looks from the ground
             ob.rotation_euler = (0.70, 0.0, 0.52)
+        em = octane_emission(ob)                # Octane's copy of the brightness, made before it was set above
+        if em is not None:
+            em.inputs["Power"].default_value = li.energy
         return ob
     return create
 

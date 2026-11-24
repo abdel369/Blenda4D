@@ -62,9 +62,9 @@ def apply():
         _set(w, "show_shaded", False)
         _set(w, "roundness", 0.15)
     for name in ("wcol_tool", "wcol_toggle", "wcol_regular"):     # buttons that stay pressed while on: a stronger
-        w = getattr(ui, name)                                    # fill and a light outline, seen at a glance
+        w = getattr(ui, name)                                    # fill, seen at a glance; no light outline
         _set(w, "inner_sel", PRESSED)
-        _set(w, "outline_sel", ACCENT)
+        _set(w, "outline_sel", OUTLINE)
     _set(th.view_3d, "camera", (0.89, 0.843, 0.796))
     # Object Manager names: selected = orange, active = bright
     _set(ui.wcol_list_item, "outline", (0, 0, 0, 0))          # trees are plain rows, no boxes
