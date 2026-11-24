@@ -62,16 +62,23 @@ def bare_material(nodes, links, geo):
     return sm.outputs["Geometry"]
 
 
-def pieces_effect(nodes, links, mesh, effect, o=None, piece=PIECE, colors=None):
+def pieces_effect(nodes, links, mesh, effect, o=None, piece=PIECE, colors=None, frame=None, blend=None):
     """mesh: geometry whose points carry an INT attribute `piece` numbered 0..N-1. effect(nodes, links, points) ->
     points runs the effectors (moclone_fx.effect_fn(..., drop_hidden=False)). o: the generator's settings, for the
-    Transform tab (Clone Position, Scale, Rotation, Color, Weight). colors: a colour field per piece, or None."""
+    Transform tab (Clone Position, Scale, Rotation, Color, Weight). colors: a colour field per piece, or None.
+    frame: each piece's own starting rotation (a field on the mesh, e.g. turned to its face's normal), so effectors
+    move, turn and scale it in its own axes. blend: a field on the mesh, 0..1 per point, for how much of its piece's
+    change each point takes (PolyFX Partial); None is all of it."""
     pid = _attr(nodes, piece, "INT")
     pos = gc.position(nodes)
     total = _accumulate(nodes, links, "FLOAT_VECTOR", pos, pid)
     count = _accumulate(nodes, links, "FLOAT", 1.0, pid)
     centre = gc.vmath(nodes, links, "SCALE", total, scale=_math(nodes, "DIVIDE", 1.0, _math(nodes, "MAXIMUM", count, 1.0, links), links))
     mesh = _store(nodes, links, mesh, "b4d_centre", "FLOAT_VECTOR", centre)
+    if frame is not None:
+        mesh = _store(nodes, links, mesh, "b4d_rot0", "QUATERNION", frame)
+    if blend is not None:
+        mesh = _store(nodes, links, mesh, "b4d_blend", "FLOAT", blend)
     first = _math(nodes, "COMPARE", _accumulate(nodes, links, "INT", 1, pid, "Leading"), 1.0, links)
     sep = nodes.new("GeometryNodeSeparateGeometry"); sep.domain = "POINT"
     links.new(mesh, sep.inputs["Geometry"]); links.new(first, sep.inputs["Selection"])
@@ -88,7 +95,7 @@ def pieces_effect(nodes, links, mesh, effect, o=None, piece=PIECE, colors=None):
     pts = _store(nodes, links, pts, "b4d_index", "INT", idx)
     pts = _store(nodes, links, pts, "b4d_u", "FLOAT", u)
     pts = _store(nodes, links, pts, "b4d_uv", "FLOAT_VECTOR", gc.combine(nodes, links, u, None, None))
-    rot = nodes.new("FunctionNodeEulerToRotation").outputs[0]
+    rot = nodes.new("FunctionNodeEulerToRotation").outputs[0] if frame is None else _attr(nodes, "b4d_rot0", "QUATERNION")
     scale = (1.0, 1.0, 1.0)
     color = (1.0, 1.0, 1.0, 1.0) if colors is None else colors
     weight = 0.0
@@ -97,7 +104,9 @@ def pieces_effect(nodes, links, mesh, effect, o=None, piece=PIECE, colors=None):
         ps = nodes.new("GeometryNodeSetPosition"); links.new(pts, ps.inputs["Geometry"])
         links.new(_shown_vec(nodes, links, o["Clone Position"], 0.01), ps.inputs["Offset"])
         pts = ps.outputs["Geometry"]
-        rot = _euler(nodes, links, o["Clone Rotation"])
+        rr = nodes.new("FunctionNodeRotateRotation"); rr.rotation_space = "LOCAL"
+        links.new(rot, rr.inputs["Rotation"]); links.new(_euler(nodes, links, o["Clone Rotation"]), rr.inputs["Rotate By"])
+        rot = rr.outputs[0]
         scale = _shown_vec(nodes, links, o["Clone Scale"], 0.01)
         if colors is None:
             color = o["Clone Color"]
@@ -114,18 +123,31 @@ def pieces_effect(nodes, links, mesh, effect, o=None, piece=PIECE, colors=None):
         links.new(pts, s.inputs["Geometry"]); links.new(field, s.inputs["Value"]); links.new(_attr(nodes, piece, "INT"), s.inputs["Index"])
         return s.outputs[0]
 
-    off = gc.vmath(nodes, links, "MULTIPLY", gc.vmath(nodes, links, "SUBTRACT", gc.position(nodes), _attr(nodes, "b4d_centre", "FLOAT_VECTOR")),
-                   mine(_attr(nodes, "b4d_scale", "FLOAT_VECTOR"), "FLOAT_VECTOR"))
+    off = gc.vmath(nodes, links, "SUBTRACT", gc.position(nodes), _attr(nodes, "b4d_centre", "FLOAT_VECTOR"))
+    q = mine(_attr(nodes, "b4d_rot_q", "QUATERNION"), "QUATERNION")
+    if frame is not None:                      # into the piece's own axes, scaled there, then turned to where it is now
+        back = nodes.new("FunctionNodeInvertRotation"); links.new(_attr(nodes, "b4d_rot0", "QUATERNION"), back.inputs[0])
+        loc = nodes.new("FunctionNodeRotateVector"); links.new(off, loc.inputs["Vector"]); links.new(back.outputs[0], loc.inputs["Rotation"])
+        off = loc.outputs[0]
+    off = gc.vmath(nodes, links, "MULTIPLY", off, mine(_attr(nodes, "b4d_scale", "FLOAT_VECTOR"), "FLOAT_VECTOR"))
     rv = nodes.new("FunctionNodeRotateVector"); links.new(off, rv.inputs["Vector"])
-    links.new(mine(_attr(nodes, "b4d_rot_q", "QUATERNION"), "QUATERNION"), rv.inputs["Rotation"])
+    links.new(q, rv.inputs["Rotation"])
+    moved = gc.vmath(nodes, links, "ADD", mine(gc.position(nodes), "FLOAT_VECTOR"), rv.outputs[0])
+    if blend is not None:
+        from .moclone_fx import _mix
+        moved = _mix(nodes, links, "VECTOR", _attr(nodes, "b4d_blend", "FLOAT"), gc.position(nodes), moved)
     mv = nodes.new("GeometryNodeSetPosition"); links.new(mesh, mv.inputs["Geometry"])
-    links.new(gc.vmath(nodes, links, "ADD", mine(gc.position(nodes), "FLOAT_VECTOR"), rv.outputs[0]), mv.inputs["Position"])
+    links.new(moved, mv.inputs["Position"])
     out = _store(nodes, links, mv.outputs["Geometry"], "b4d_color", "FLOAT_COLOR", mine(_attr(nodes, "b4d_color", "FLOAT_COLOR"), "FLOAT_COLOR"))
     drop = nodes.new("GeometryNodeDeleteGeometry"); drop.domain = "POINT"; links.new(out, drop.inputs["Geometry"])
     links.new(_math(nodes, "GREATER_THAN", mine(_attr(nodes, "b4d_hidden", "FLOAT"), "FLOAT"), 0.5, links), drop.inputs["Selection"])
     rm = nodes.new("GeometryNodeRemoveAttribute"); links.new(drop.outputs["Geometry"], rm.inputs["Geometry"])
     rm.inputs["Name"].default_value = "b4d_centre"
-    return rm.outputs["Geometry"]
+    out = rm.outputs["Geometry"]
+    for name in (("b4d_rot0",) if frame is not None else ()) + (("b4d_blend",) if blend is not None else ()):
+        r2 = nodes.new("GeometryNodeRemoveAttribute"); links.new(out, r2.inputs["Geometry"]); r2.inputs["Name"].default_value = name
+        out = r2.outputs["Geometry"]
+    return out
 
 
 def random_colors(nodes, links, seed=0):

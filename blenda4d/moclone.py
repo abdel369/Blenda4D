@@ -388,6 +388,8 @@ def register():
         bpy.utils.register_class(c)
     from . import moclone_voronoi
     moclone_voronoi.props()
+    from . import moclone_deform
+    moclone_deform.props()
     O = bpy.types.Object
     O.b4d_motext_text = bpy.props.StringProperty(name="Text", default="MoText", update=_motext_changed,
                                                  description="The text; type \\n for a new line")

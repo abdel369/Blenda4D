@@ -47,7 +47,7 @@ KINDS = {"fracture": ("Fracture", FRACTURE_INPUTS, {"Fracture Mode": FRACTURE_MO
                                ("Vertical Spacing", "FLOAT", 0.0, 'motext.vspace')] + TRANSFORM, {}, False)}
 WITH_EFFECTORS = ("fracture", "moinstance", "mospline", "voronoi", "motext")
 OWN_MESH = ("voronoi",)                                   # generators whose own mesh is the input (made in Python)
-FX_GENS = ("cloner", "matrix") + WITH_EFFECTORS          # generators with an Effectors list
+FX_GENS = ("cloner", "matrix") + WITH_EFFECTORS + ("polyfx", "moextrude")    # objects with an Effectors list
 OWN_SIG = ("tracer", "moinstance", "voronoi", "motext")                        # generators whose nodes also hang on linked objects
 
 

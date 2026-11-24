@@ -530,7 +530,7 @@ def drop(context, objs, event):
         for o in objs:
             if fx.is_effector(o) and o != ob:
                 add_effector(ob, o); took = True
-    elif fx.is_effector(ob) and tab == "FIELDS":
+    elif (fx.is_effector(ob) or (ob is not None and ob.get("b4d_type") == "polyfx")) and tab == "FIELDS":
         for o in objs:
             if fx.is_field(o):
                 add_field(ob, o); took = True
