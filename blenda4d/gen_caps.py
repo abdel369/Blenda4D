@@ -161,6 +161,16 @@ def grid_fill(nodes, links, curve, spacing, jitter=0.0, quad=None, margin=0.0):
     de = nodes.new("GeometryNodeDeleteGeometry"); de.domain = "FACE"; de.mode = "ALL"
     links.new(grid, de.inputs["Geometry"]); links.new(_math(nodes, "LESS_THAN", keep, 0.5, links), de.inputs["Selection"])
     inner = de.outputs["Geometry"]
+    # Squares that touch only at a corner (a staircase along a curved edge, the inside of an "e") make a vertex with
+    # four outline edges; Mesh to Curve breaks the outline there into open pieces, and the band fill closed each with a
+    # straight line, so strips of cap ran across the letter's holes. Such squares are dropped (twice: a drop can make one).
+    for _ in range(2):
+        vn = nodes.new("GeometryNodeInputMeshVertexNeighbors")
+        bow = _math(nodes, "MULTIPLY", _math(nodes, "GREATER_THAN", vn.outputs["Vertex Count"], 3.5, links),
+                    _math(nodes, "LESS_THAN", vn.outputs["Face Count"], 2.5, links), links)
+        cut = nodes.new("GeometryNodeDeleteGeometry"); cut.domain = "POINT"; cut.mode = "ALL"
+        links.new(inner, cut.inputs["Geometry"]); links.new(_math(nodes, "GREATER_THAN", bow, 0.5, links), cut.inputs["Selection"])
+        inner = cut.outputs["Geometry"]
     if jitter:
         r = nodes.new("FunctionNodeRandomValue"); r.data_type = "FLOAT_VECTOR"
         r.inputs[0].default_value = (-jitter, -jitter, 0.0); r.inputs[1].default_value = (jitter, jitter, 0.0)
@@ -172,8 +182,13 @@ def grid_fill(nodes, links, curve, spacing, jitter=0.0, quad=None, margin=0.0):
     body = tri.outputs["Mesh"] if quad is None else switch(nodes, links, "GEOMETRY", quad, tri.outputs["Mesh"], inner)
     fc = nodes.new("GeometryNodeInputMeshEdgeNeighbors")
     m2c = nodes.new("GeometryNodeMeshToCurve"); links.new(inner, m2c.inputs["Mesh"])
-    links.new(_math(nodes, "LESS_THAN", fc.outputs["Face Count"], 1.5, links), m2c.inputs["Selection"])
-    band = fill(nodes, links, join(nodes, links, [curve, m2c.outputs["Curve"]]), "Triangles")
+    # exactly one face: a deleted square can leave loose edges (no face), which made the outline branch and break apart
+    links.new(_math(nodes, "MULTIPLY", _math(nodes, "GREATER_THAN", fc.outputs["Face Count"], 0.5, links), _math(nodes, "LESS_THAN", fc.outputs["Face Count"], 1.5, links), links), m2c.inputs["Selection"])
+    # the outline of whole squares is always closed loops, but Mesh to Curve hands most of them back open (measured: 40 of
+    # 49 on the Octane logo); the fill then closed each with a straight chord and cut strips across the letters
+    cyc = nodes.new("GeometryNodeSetSplineCyclic"); cyc.inputs["Cyclic"].default_value = True
+    links.new(m2c.outputs["Curve"], cyc.inputs["Geometry"])
+    band = fill(nodes, links, join(nodes, links, [curve, cyc.outputs["Geometry"]]), "Triangles")
     return merge(nodes, links, join(nodes, links, [body, band]))
 
 

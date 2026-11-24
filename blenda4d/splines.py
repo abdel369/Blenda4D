@@ -773,6 +773,7 @@ def page_shape(col, ob):
     col.prop(s, "reverse")
     col.separator()
     _spline_rows(col, ob, SHAPES[kind][3])
+    interpolation_rows(col, ob)
     col.separator()
     col.operator("blenda4d.spline_make_editable", icon="CURVE_DATA")
 
