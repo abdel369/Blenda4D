@@ -127,7 +127,7 @@ def fill(nodes, links, curve, mode):
     return f.outputs["Mesh"]
 
 
-def grid_fill(nodes, links, curve, spacing, jitter=0.0, quad=None):
+def grid_fill(nodes, links, curve, spacing, jitter=0.0, quad=None, margin=0.0):
     """Regular grid inside the contour, stitched to it with a triangle band (holes respected)."""
     ngon = fill(nodes, links, curve, "N-gons")
     bb = nodes.new("GeometryNodeBoundBox"); links.new(curve, bb.inputs["Geometry"])
@@ -149,9 +149,13 @@ def grid_fill(nodes, links, curve, spacing, jitter=0.0, quad=None):
     edges = nodes.new("GeometryNodeCurveToMesh"); links.new(curve, edges.inputs["Curve"])
     prox = nodes.new("GeometryNodeProximity"); prox.target_element = "EDGES"
     links.new(edges.outputs["Mesh"], prox.inputs["Geometry"]); links.new(p, prox.inputs["Sample Position"])
-    far = _math(nodes, "GREATER_THAN", prox.outputs["Distance"], _math(nodes, "MULTIPLY", sp, 0.6, links), links)
+    # Judged per grid square, at its centre: a square stays only when no part of the contour comes within its
+    # half-diagonal (plus the jitter and a margin), so it lies wholly inside. Judging its corners instead let a sharp
+    # inner corner (the notches of N, A, 4) poke into a kept square, and the band filled around it left holes.
+    reach = _math(nodes, "ADD", _math(nodes, "MULTIPLY", sp, 0.8 + 1.5 * jitter, links), margin, links)
+    far = _math(nodes, "GREATER_THAN", prox.outputs["Distance"], reach, links)
     keep = _math(nodes, "MULTIPLY", ray.outputs["Is Hit"], far, links)
-    de = nodes.new("GeometryNodeDeleteGeometry"); de.domain = "POINT"; de.mode = "ALL"
+    de = nodes.new("GeometryNodeDeleteGeometry"); de.domain = "FACE"; de.mode = "ALL"
     links.new(grid, de.inputs["Geometry"]); links.new(_math(nodes, "LESS_THAN", keep, 0.5, links), de.inputs["Selection"])
     inner = de.outputs["Geometry"]
     if jitter:
@@ -170,7 +174,7 @@ def grid_fill(nodes, links, curve, spacing, jitter=0.0, quad=None):
     return merge(nodes, links, join(nodes, links, [body, band]))
 
 
-def flat_fill(nodes, links, o, curve):
+def flat_fill(nodes, links, o, curve, margin=0.0):
     """Cap surface of a contour lying in XY, per Tessellation."""
     cyc = nodes.new("GeometryNodeInputSplineCyclic").outputs[0]
     op = nodes.new("GeometryNodeDeleteGeometry"); op.domain = "CURVE"
@@ -183,8 +187,8 @@ def flat_fill(nodes, links, o, curve):
     dens = _math(nodes, "DIVIDE", longest, _math(nodes, "ADD", 2.0, _math(nodes, "MULTIPLY", o["Density"], 0.4, links), links), links)
     return index_switch(nodes, links, "GEOMETRY", o["Tessellation"], [
         tris, tris, switch(nodes, links, "GEOMETRY", has_holes(nodes, links, closed), fill(nodes, links, closed, "N-gons"), tris),
-        grid_fill(nodes, links, closed, dens, 0.3, o["Quad Dominant"]),
-        grid_fill(nodes, links, closed, _cm(nodes, links, o["Cap Size"]), 0.0, o["Quad Dominant"])])
+        grid_fill(nodes, links, closed, dens, 0.3, o["Quad Dominant"], margin),
+        grid_fill(nodes, links, closed, _cm(nodes, links, o["Cap Size"]), 0.0, o["Quad Dominant"], margin)])
 
 
 def has_holes(nodes, links, curve):
@@ -311,8 +315,41 @@ def side_part(nodes, links, geo, start):
     return part(nodes, links, geo, v)
 
 
-def piece(nodes, links, o, side, ring):
-    """Bevel + cap on a flat contour: base at z = 0, outward = +Z."""
+def cap_surface(nodes, links, o, clean, contour, margin):
+    """The cap inside contour, which is clean with each point moved (clean and contour have the same points, in the
+    same order). Filling contour itself left holes: moved along their normals, the points near a sharp corner cross
+    over each other and the fill reads the little loop that makes as a hole. So the clean outline is filled and only
+    its edge points are then moved where contour has them; at such a corner the cap folds over by a hair instead."""
+    idx = nodes.new("GeometryNodeInputIndex").outputs[0]
+    to = nodes.new("GeometryNodeSampleIndex"); to.data_type = "FLOAT_VECTOR"; to.domain = "POINT"
+    links.new(contour, to.inputs["Geometry"]); links.new(position(nodes), to.inputs["Value"]); links.new(idx, to.inputs["Index"])
+    st = nodes.new("GeometryNodeStoreNamedAttribute"); st.data_type = "FLOAT_VECTOR"; st.domain = "POINT"
+    st.inputs["Name"].default_value = "b4d_to"
+    links.new(clean, st.inputs["Geometry"]); links.new(to.outputs[0], st.inputs["Value"])
+    pts = nodes.new("GeometryNodeCurveToPoints"); pts.mode = "EVALUATED"; links.new(st.outputs["Geometry"], pts.inputs["Curve"])
+    surf = flat_fill(nodes, links, o, clean, margin)
+    near = nodes.new("GeometryNodeSampleNearest"); near.domain = "POINT"
+    links.new(pts.outputs["Points"], near.inputs["Geometry"])
+    at = nodes.new("GeometryNodeSampleIndex"); at.data_type = "FLOAT_VECTOR"; at.domain = "POINT"
+    links.new(pts.outputs["Points"], at.inputs["Geometry"]); links.new(position(nodes), at.inputs["Value"])
+    links.new(near.outputs["Index"], at.inputs["Index"])
+    rd = nodes.new("GeometryNodeInputNamedAttribute"); rd.data_type = "FLOAT_VECTOR"; rd.inputs["Name"].default_value = "b4d_to"
+    dest = nodes.new("GeometryNodeSampleIndex"); dest.data_type = "FLOAT_VECTOR"; dest.domain = "POINT"
+    links.new(pts.outputs["Points"], dest.inputs["Geometry"]); links.new(rd.outputs["Attribute"], dest.inputs["Value"])
+    links.new(near.outputs["Index"], dest.inputs["Index"])
+    gap = nodes.new("ShaderNodeVectorMath"); gap.operation = "DISTANCE"
+    links.new(at.outputs[0], gap.inputs[0]); links.new(position(nodes), gap.inputs[1])
+    on_edge = _math(nodes, "LESS_THAN", gap.outputs["Value"], 1e-6, links)
+    sp = nodes.new("GeometryNodeSetPosition"); links.new(surf, sp.inputs["Geometry"])
+    links.new(on_edge, sp.inputs["Selection"]); links.new(dest.outputs[0], sp.inputs["Position"])
+    rm = nodes.new("GeometryNodeRemoveAttribute"); links.new(sp.outputs["Geometry"], rm.inputs["Geometry"])
+    rm.inputs["Name"].default_value = "b4d_to"
+    return rm.outputs["Geometry"]
+
+
+def piece(nodes, links, o, side, ring, clean=None):
+    """Bevel + cap on a flat contour: base at z = 0, outward = +Z. clean: the contour before ring was offset from it
+    (the same points), when it was; the cap is filled from it."""
     from .node_arrange import subgroup
     tree, name = nodes.id_data, {"S": "Start", "E": "End"}.get(side, str(side))
 
@@ -320,7 +357,8 @@ def piece(nodes, links, o, side, ring):
         prof, a_end, h_end, S, O = bevel_profile(n, l, o, side)
         return part(n, l, sweep_ring(n, l, ring, prof), PART_BEVEL), a_end, h_end, S, O
     wall, a_end, h_end, S, O = subgroup(tree, name + " Bevel", bevel)
-    cap = subgroup(tree, name + " Cap", lambda n, l: part(n, l, move(n, l, flat_fill(n, l, o, inset(n, l, ring, a_end)),
+    cap = subgroup(tree, name + " Cap", lambda n, l: part(n, l, move(n, l, cap_surface(n, l, o, ring if clean is None else clean,
+                                                                                       inset(n, l, ring, a_end), _math(n, "ABSOLUTE", a_end, None, l)),
                                                                     translation=combine(n, l, z=h_end)), PART_CAP))
     has = _math(nodes, "GREATER_THAN", _math(nodes, "ADD", S, _math(nodes, "ABSOLUTE", O, None, links), links), 1e-6, links)
     return switch(nodes, links, "GEOMETRY", has, cap, merge(nodes, links, join(nodes, links, [wall, cap])))

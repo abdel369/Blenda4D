@@ -76,7 +76,8 @@ def page_object(col, ob):
     lab = sp.row()
     lab.alignment = "RIGHT"
     lab.label(text="Font")
-    sp.template_ID(d, "font", open="font.open", unlink="font.unlink")
+    from . import fontpick
+    fontpick.draw(sp, d.font, "text")
     _row(col, d, "b4d_align", "Align", expand=True)
     _row(col, d, "b4d_height", "Height")
     _row(col, d, "space_character", "Horizontal Spacing")

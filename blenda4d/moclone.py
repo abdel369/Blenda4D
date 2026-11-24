@@ -217,7 +217,8 @@ def page_motext(col, ob):
     c.prop(ob, "b4d_motext_text")
     r = c.split(factor=0.4, align=True)
     lab = r.row(); lab.alignment = "RIGHT"; lab.label(text="Font")
-    r.template_ID(ob, "b4d_motext_font", open="font.open")
+    from . import fontpick
+    fontpick.draw(r, ob.b4d_motext_font, "motext")
     c.prop(ob, "b4d_motext_align")
     g._rows(col, ob, [("Depth", "Depth"), ("Subdivision", "Subdivision"), ("Height", "Height"),
                       ("Horizontal Spacing", "Horizontal Spacing"), ("Vertical Spacing", "Vertical Spacing")])

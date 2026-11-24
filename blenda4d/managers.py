@@ -2043,8 +2043,9 @@ def register():
     _add_keymap()
     if _switch_refresh not in bpy.app.handlers.load_post:
         bpy.app.handlers.load_post.append(_switch_refresh)
-    from . import multiedit
+    from . import multiedit, fontpick
     multiedit.register()
+    fontpick.register()
     _draw.append(bpy.types.SpaceProperties.draw_handler_add(_draw_rows, (), "WINDOW", "POST_PIXEL"))
 
 
@@ -2442,8 +2443,9 @@ def _add_keymap():
 def unregister():
     if _switch_refresh in bpy.app.handlers.load_post:
         bpy.app.handlers.load_post.remove(_switch_refresh)
-    from . import multiedit
+    from . import multiedit, fontpick
     multiedit.unregister()
+    fontpick.unregister()
     for h in _draw:
         bpy.types.SpaceProperties.draw_handler_remove(h, "WINDOW")
     _draw.clear()

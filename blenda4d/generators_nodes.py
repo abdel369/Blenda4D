@@ -280,8 +280,8 @@ def _extrude_curve(nodes, links, o, curve):
     links.new(gc.combine(nodes, links, y=_math(nodes, "DIVIDE", H, sub, links)), line.inputs["Offset"])
     m2c = nodes.new("GeometryNodeMeshToCurve"); links.new(line.outputs["Mesh"], m2c.inputs["Mesh"])
     wall = gc.part(nodes, links, _mark_skin(nodes, links, gc.sweep_ring(nodes, links, base, m2c.outputs["Curve"])), gc.PART_SHELL)
-    top = gc.side_part(nodes, links, gc.move(nodes, links, gc.piece(nodes, links, o, "E", base), translation=gc.combine(nodes, links, z=H)), False)
-    bottom = gc.side_part(nodes, links, gc.flip(nodes, links, gc.move(nodes, links, gc.piece(nodes, links, o, "S", base), scale=(1.0, 1.0, -1.0))), True)
+    top = gc.side_part(nodes, links, gc.move(nodes, links, gc.piece(nodes, links, o, "E", base, ring), translation=gc.combine(nodes, links, z=H)), False)
+    bottom = gc.side_part(nodes, links, gc.flip(nodes, links, gc.move(nodes, links, gc.piece(nodes, links, o, "S", base, ring), scale=(1.0, 1.0, -1.0))), True)
     parts = [wall, gc.switch(nodes, links, "GEOMETRY", o["End"], _empty(nodes), top), gc.switch(nodes, links, "GEOMETRY", o["Start"], _empty(nodes), bottom)]
     out = gc.merge(nodes, links, gc.join(nodes, links, parts))
     # a direction that is not perpendicular to the contour shears the solid
