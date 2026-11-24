@@ -712,6 +712,31 @@ def prepare(scene, animation):
         scene.render.fps, scene.render.fps_base = p.fps, 1.0
 
 
+def _has_simulation(tree, seen=None):
+    seen = set() if seen is None else seen
+    if tree is None or tree.name in seen:
+        return False
+    seen.add(tree.name)
+    for n in tree.nodes:
+        if n.bl_idname == "GeometryNodeSimulationOutput":
+            return True
+        if getattr(n, "node_tree", None) is not None and _has_simulation(n.node_tree, seen):
+            return True
+    return False
+
+
+def prime_simulations(scene, last):
+    """A render only sees a simulation (Delay, Tracer, MoInstance and other effects that remember earlier frames) as
+    far as the timeline has been played: rendered cold, Delay froze the clones where they started. So before a render
+    the frames from the start up to the last one rendered are stepped through once, in order, which fills the cache."""
+    if not any(m.type == "NODES" and _has_simulation(m.node_group) for o in scene.objects for m in o.modifiers):
+        return
+    now = scene.frame_current
+    for f in range(scene.frame_start, last + 1):
+        scene.frame_set(f)
+    scene.frame_set(now)
+
+
 class BLENDA4D_OT_render(bpy.types.Operator):
     bl_idname = "blenda4d.render"
     bl_label = "Render"
@@ -724,6 +749,7 @@ class BLENDA4D_OT_render(bpy.types.Operator):
             self.report({"INFO"}, "A render is running")
             return {"CANCELLED"}
         prepare(scene, self.animation)
+        prime_simulations(scene, scene.frame_end if self.animation else scene.frame_current)
         keep = scene.b4d_render.save or self.animation       # animations are always written
         from . import viewer
         if not bpy.app.background:

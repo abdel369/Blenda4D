@@ -144,6 +144,8 @@ class BLENDA4D_OT_render_still(bpy.types.Operator):
         if bpy.app.is_job_running("RENDER"):
             return {"CANCELLED"}
         scene = context.scene
+        from .render_settings import prime_simulations
+        prime_simulations(scene, scene.frame_current)
         viewer.begin(scene, scene.frame_current, scene.frame_current, False)
         try:
             return bpy.ops.render.render("INVOKE_DEFAULT", use_viewport=self.use_viewport, write_still=True)

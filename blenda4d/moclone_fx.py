@@ -54,8 +54,9 @@ RANDOM_MODES = [("RANDOM", "Random", "A fixed random value for each clone", 0),
                 ("GAUSSIAN", "Gaussian", "Random values that gather around the middle", 1),
                 ("NOISE", "Noise", "A smooth noise through space that can move over time", 2),
                 ("TURBULENCE", "Turbulence", "A sharper, rougher noise through space", 3)]
-DELAY_MODES = [("BLEND", "Blend", "Clones ease toward where the effectors above put them", 0),
-               ("SPRING", "Spring", "Clones overshoot and spring back", 1)]
+DELAY_MODES = [("BLEND", "Blend", "Clones ease toward where the effectors above put them: fast at first, then slow", 0),
+               ("SPRING", "Spring", "Clones overshoot and spring back", 1),
+               ("EVEN", "Even", "Clones move toward where the effectors above put them at an even speed", 2)]
 TARGET_MODES = [("OBJECT", "Object", "Clones face the Target Object", 0), ("CAMERA", "Camera", "Clones face the scene camera", 1)]
 PUSH_MODES = [("HIDE", "Hide", "Hides clones that overlap ones earlier in the order; none move", 0),
               ("PUSH", "Push Apart", "Moves clones away from each other until they don't overlap", 1),
@@ -468,7 +469,9 @@ def _delay(nodes, links, geo, gen, i, e, w):
 
     # how far each frame closes the gap: full strength = a long lag
     lag = _clamp(nodes, links, _math(nodes, "SUBTRACT", 1.0, _math(nodes, "MULTIPLY", _clamp(nodes, links, w), 0.95, links), links), 0.02, 1.0)
-    spring = _math(nodes, "GREATER_THAN", _driven(nodes, e, "b4d_fx_delay_mode"), 0.5, links)
+    mode = _driven(nodes, e, "b4d_fx_delay_mode")
+    spring = _math(nodes, "MULTIPLY", _math(nodes, "GREATER_THAN", mode, 0.5, links), _math(nodes, "LESS_THAN", mode, 1.5, links), links)
+    even = _math(nodes, "GREATER_THAN", mode, 1.5, links)
     p_prev, p_now = before(gc.position(nodes), "FLOAT_VECTOR"), gc.position(nodes)
     v_prev = before(_attr(nodes, "b4d_vel", "FLOAT_VECTOR"), "FLOAT_VECTOR")
     eased = _mix(nodes, links, "VECTOR", lag, p_prev, p_now)
@@ -476,7 +479,12 @@ def _delay(nodes, links, geo, gen, i, e, w):
     vel = gc.vmath(nodes, links, "ADD", gc.vmath(nodes, links, "SCALE", v_prev, scale=0.8),
                    gc.vmath(nodes, links, "SCALE", gc.vmath(nodes, links, "SUBTRACT", p_now, p_prev), scale=lag))
     sprung = gc.vmath(nodes, links, "ADD", p_prev, vel)
-    newp = gc.switch(nodes, links, "VECTOR", spring, eased, sprung)
+    # even: a fixed distance each frame (up to 20 cm at full lag), never past where the clone is going
+    gap = gc.vmath(nodes, links, "SUBTRACT", p_now, p_prev)
+    glen = _vlen(nodes, links, gap)
+    stepd = _math(nodes, "MINIMUM", glen, _math(nodes, "MULTIPLY", lag, 0.2, links), links)
+    evened = gc.vmath(nodes, links, "ADD", p_prev, gc.vmath(nodes, links, "SCALE", gc.vmath(nodes, links, "NORMALIZE", gap), scale=stepd))
+    newp = gc.switch(nodes, links, "VECTOR", even, gc.switch(nodes, links, "VECTOR", spring, eased, sprung), evened)
     sp = nodes.new("GeometryNodeSetPosition"); links.new(geo, sp.inputs["Geometry"]); links.new(newp, sp.inputs["Position"])
     out = _store(nodes, links, sp.outputs["Geometry"], "b4d_vel", "FLOAT_VECTOR", gc.vmath(nodes, links, "SUBTRACT", newp, p_prev))
     sc = _mix(nodes, links, "VECTOR", lag, before(_attr(nodes, "b4d_scale", "FLOAT_VECTOR"), "FLOAT_VECTOR"), _attr(nodes, "b4d_scale", "FLOAT_VECTOR"))
