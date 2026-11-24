@@ -223,7 +223,13 @@ def draw_material(layout, context, mat, head=True):
         tools = row.row(align=True)
         tools.alignment = "RIGHT"
         tools.operator("blenda4d.mat_node_editor", text="Open Node Editor...", icon="NODETREE").name = mat.name
-        layout.template_preview(mat, show_buttons=False)      # the live ball: re-renders as values change
+        from . import matman
+        if any(fn(mat) is not None for fn in matman.BALLS):      # Octane: Blender cannot render its preview, so the
+            big = layout.row()                                    # ball is drawn from the shader's own values
+            big.alignment = "CENTER"
+            big.template_icon(icon_value=matman.tile_icon(mat, False, 128, layout), scale=6.0)
+        else:
+            layout.template_preview(mat, show_buttons=False)  # the live ball: re-renders as values change
     col = layout.column()
     col.use_property_split = True
     col.use_property_decorate = True
