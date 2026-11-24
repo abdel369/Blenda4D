@@ -637,7 +637,8 @@ _draw = []
 class BLENDA4D_OT_mm_drag(bpy.types.Operator):
     bl_idname = "blenda4d.mm_drag"
     bl_label = "Drag in the Material Manager"
-    bl_description = ("Drag a selected material to move it (every selected one goes along); Cmd/Ctrl-drag drops "
+    bl_description = ("Drag a selected material to move it (every selected one goes along), or onto an object in the "
+                      "viewport or the Object Manager to give it a material tag; Cmd/Ctrl-drag drops "
                       "copies. Drag from empty space or an unselected material to select with a box (Shift or Cmd/Ctrl adds)")
     bl_options = {"UNDO"}
 
@@ -655,6 +656,7 @@ class BLENDA4D_OT_mm_drag(bpy.types.Operator):
         self.copy = event.ctrl or event.oskey
         if mat is None or not is_selected(context, mat):   # C4D: from empty space or an unselected material, a box
             self.mode = "BOX"
+            self.start_mat = mat                            # leaving the panel with it: it is dragged out instead
             self.add = event.shift or event.ctrl or event.oskey
             self.before = selected(context) if self.add else []
             _drag.clear()
@@ -700,7 +702,13 @@ class BLENDA4D_OT_mm_drag(bpy.types.Operator):
     def modal(self, context, event):
         x, y = event.mouse_x - self.region.x, event.mouse_y - self.region.y
         if event.type in {"MOUSEMOVE", "INBETWEEN_MOUSEMOVE"}:
-            if self.mode == "BOX":
+            if self.mode == "BOX" and getattr(self, "start_mat", None) is not None and not (
+                    0 <= x < self.region.width and 0 <= y < self.region.height):
+                select_only(context, [self.start_mat], self.start_mat)   # out of the panel: drag the material out
+                self.mode, self.moving = "MOVE", [self.start_mat]
+                _drag.clear()
+                context.window.cursor_modal_set("HAND")
+            elif self.mode == "BOX":
                 _drag["box"][2:] = [x, y]
                 self._box(context)
             else:
@@ -713,6 +721,10 @@ class BLENDA4D_OT_mm_drag(bpy.types.Operator):
         if event.type == "LEFTMOUSE" and event.value == "RELEASE":
             if self.mode == "MOVE":
                 context.window.cursor_modal_restore()
+                if not (0 <= x < self.region.width and 0 <= y < self.region.height):
+                    _drag.clear()
+                    _tag_redraw()
+                    return {"FINISHED"} if drop_on_object(context, self.moving, event) else {"CANCELLED"}
                 i, _line = self._index(context, x, y)
                 if i is not None:
                     shown = self.mats
@@ -743,6 +755,38 @@ class BLENDA4D_OT_mm_drag(bpy.types.Operator):
             _tag_redraw()
             return {"CANCELLED"}
         return {"RUNNING_MODAL"}
+
+
+def object_under(context, event):
+    """The object under the mouse in a viewport (what its surface shows) or on an Object Manager row, or None."""
+    from . import assets, managers
+    area, region = assets._viewport_under(context, event.mouse_x, event.mouse_y)
+    if area is not None:
+        _loc, ob = assets.drop_point(context, region, event.mouse_x, event.mouse_y)
+        return ob
+    for a in context.window.screen.areas:
+        if roles.role(a) != "OBJECTS":
+            continue
+        for r in a.regions:
+            if r.type == "WINDOW" and r.x <= event.mouse_x < r.x + r.width and r.y <= event.mouse_y < r.y + r.height:
+                with context.temp_override(area=a, region=r):
+                    rows = managers.visible_rows(bpy.context)
+                    i = managers.row_at(bpy.context, r, event.mouse_y)
+                return rows[i][0] if 0 <= i < len(rows) else None
+    return None
+
+
+def drop_on_object(context, mats, event):
+    """C4D: a material dropped on an object (in a viewport or on its Object Manager row) becomes a new material tag."""
+    ob = object_under(context, event)
+    if ob is None or not hasattr(getattr(ob, "data", None), "materials"):
+        return False
+    for m in mats:
+        ob.data.materials.append(m)
+    ob.update_tag()
+    for a in context.window.screen.areas:
+        a.tag_redraw()
+    return True
 
 
 def _draw_drag():
