@@ -495,11 +495,35 @@ def register():
     kinds.menu_item("Create", "Floor", "floor")
     _order_environment()
     for h, f in ((bpy.app.handlers.render_init, _render_start), (bpy.app.handlers.render_complete, _render_end),
-                 (bpy.app.handlers.render_cancel, _render_end)):
+                 (bpy.app.handlers.render_cancel, _render_end), (bpy.app.handlers.frame_change_post, _frame)):
         if f not in h:
             h.append(f)
     if not bpy.app.background and not bpy.app.timers.is_registered(_tick):
         bpy.app.timers.register(_tick, first_interval=0.5, persistent=True)
+
+
+@bpy.app.handlers.persistent
+def _frame(scene, *_args):
+    """Keyframed Sky settings reach the World on every frame: an animated setting never runs its update function,
+    so the World (and Octane's sky) would keep the value it last had by hand. Only values change here, no nodes are
+    made or removed (safe while rendering)."""
+    w = getattr(scene, "b4d_sky_world", None)
+    if w is None or w.node_tree is None or find(scene) is None:
+        return
+    nt = w.node_tree
+    sun_sky = scene.b4d_sky_image is None and scene.get("b4d_sky_physical")
+    n = nt.nodes.get(PREFIX + "Background")
+    if n is not None:
+        n.inputs["Strength"].default_value = scene.b4d_sky_intensity * (PHYSICAL_SCALE if sun_sky else 1.0)
+    n = nt.nodes.get(PREFIX + "Rotation")
+    if n is not None:
+        n.inputs["Rotation"].default_value[2] = scene.b4d_sky_rotation
+    n = nt.nodes.get(PREFIX + "Octane Sky")
+    if n is not None and "Power" in n.inputs:
+        n.inputs["Power"].default_value = scene.b4d_sky_intensity
+    n = nt.nodes.get(PREFIX + "Octane Rotation")
+    if n is not None:
+        n.inputs["Translation"].default_value = (scene.b4d_sky_rotation / (2.0 * math.pi), 0.0, 0.0)
 
 
 def _order_environment():
@@ -518,7 +542,7 @@ def unregister():
     if bpy.app.timers.is_registered(_tick):
         bpy.app.timers.unregister(_tick)
     for h, f in ((bpy.app.handlers.render_init, _render_start), (bpy.app.handlers.render_complete, _render_end),
-                 (bpy.app.handlers.render_cancel, _render_end)):
+                 (bpy.app.handlers.render_cancel, _render_end), (bpy.app.handlers.frame_change_post, _frame)):
         if f in h:
             h.remove(f)
     for k in (KIND, "physical_sky", "floor"):
