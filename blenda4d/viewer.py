@@ -809,7 +809,34 @@ def _loaded(*_a):
     _ready.clear()
 
 
-HANDLERS = (("save_pre", _before_save), ("save_post", _after_save), ("load_post", _loaded), ("frame_change_post", _scene_frame))
+_outside = []
+
+
+@bpy.app.handlers.persistent
+def _on_init(scene, *_a):
+    """A render Blenda did not start (Blender's own F12 or Ctrl+F12, a script, another add-on): the Render Viewer
+    follows it too. This may run on the render's thread, so the viewer is set up from a timer on the main one."""
+    if not S.rendering and not _outside:
+        _outside.append((scene.name, scene.frame_current, scene.frame_start, scene.frame_end))
+        bpy.app.timers.register(_adopt, first_interval=0.0)
+
+
+def _adopt():
+    if not _outside:
+        return None
+    name, now, first, last = _outside.pop()
+    _outside.clear()
+    scene = bpy.data.scenes.get(name)
+    if scene is None or S.rendering:
+        return None
+    try:
+        begin(scene, now, last, keep=True)            # Blender writes where the scene says: nothing is moved
+    except Exception as e:
+        print("Blenda 4D: Render Viewer could not follow the render", e)
+    return None
+
+
+HANDLERS = (("render_init", _on_init), ("save_pre", _before_save), ("save_post", _after_save), ("load_post", _loaded), ("frame_change_post", _scene_frame))
 
 
 def register():
