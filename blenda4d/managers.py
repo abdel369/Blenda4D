@@ -178,12 +178,14 @@ class BLENDA4D_OT_om_select(bpy.types.Operator):
         if not self.extend:
             for o in context.view_layer.objects:
                 o.select_set(False)
+        was = ob.select_get()
         try:
-            ob.select_set(not (self.extend and ob.select_get()))
+            ob.select_set(not (self.extend and was))
         except RuntimeError:
-            return {"CANCELLED"}
-        if ob.select_get():
-            context.view_layer.objects.active = ob
+            pass
+        if ob.select_get() or not ob.visible_get() and not (self.extend and act == ob):
+            context.view_layer.objects.active = ob        # switched off (hidden): Blender cannot select it, but it is
+                                                          # the active object, shown in the Attribute Manager (C4D)
         elif act == ob:                                   # took the active object out: the next selected one leads
             context.view_layer.objects.active = next((o for o in context.selected_objects), None)
         return {"FINISHED"}
@@ -2242,7 +2244,8 @@ def _draw_tree(context, region, rows, drop, shader):
             boxes.append((cx, mid, ob.b4d_om_closed))
         if kind == "INTO" and ob.name == into:
             continue                                     # the drop target's name is drawn white on black (_draw_drop)
-        col = (SELECTED_NAME if ob == context.view_layer.objects.active else OTHER_SELECTED_NAME) if ob in sel \
+        act = context.view_layer.objects.active
+        col = SELECTED_NAME if ob == act and (ob in sel or not ob.visible_get()) else OTHER_SELECTED_NAME if ob in sel \
             else PARENT_NAME if ob in parents else normal
         names.append(((TEXT_X + d * INDENT) * u, bottom + (top - bottom - size * 0.72) / 2, ob.name, col))
     gpu.state.blend_set("ALPHA")
