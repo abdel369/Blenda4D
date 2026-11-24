@@ -855,6 +855,24 @@ def _adopt():
     return None
 
 
+_kept_display = [None]
+
+
+def own_render_display(on):
+    """In Blenda mode every render shows in the Render Viewer only: Blender's own render window is switched off (its
+    preference set to Keep User Interface) so it never opens, even for F12 or a script's render. Closing that window
+    once it is open is no answer: closing it cancels the render. Back in Blender mode the preference returns."""
+    v = bpy.context.preferences.view
+    if on:
+        if v.render_display_type != "NONE":
+            _kept_display[0] = v.render_display_type
+            v.render_display_type = "NONE"
+    else:
+        if v.render_display_type == "NONE":
+            v.render_display_type = _kept_display[0] or "WINDOW"
+        _kept_display[0] = None
+
+
 HANDLERS = (("render_init", _on_init), ("save_pre", _before_save), ("save_post", _after_save), ("load_post", _loaded), ("frame_change_post", _scene_frame))
 
 

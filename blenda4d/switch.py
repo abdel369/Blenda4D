@@ -146,12 +146,21 @@ def splash(on):
             os.environ[key] = old
 
 
+def _render_window(on):
+    try:
+        from . import viewer
+        viewer.own_render_display(on)
+    except Exception as e:
+        print("Blenda 4D: render window preference", e)
+
+
 def set_mode(on, forget=False):
     splash(on)
     if on and not _on[0]:
         _register_mode()
         theme.apply()
         _screen_chrome(True)
+        _render_window(True)
         for scene in bpy.data.scenes:
             scene.unit_settings.system = "METRIC"
             scene.unit_settings.length_unit = "CENTIMETERS"
@@ -166,6 +175,7 @@ def set_mode(on, forget=False):
                 _leave_workspace(window, forget)
         theme.restore()
         _screen_chrome(False)
+        _render_window(False)
         _unregister_mode()
         _on[0] = False
     try:
