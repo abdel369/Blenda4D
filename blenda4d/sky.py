@@ -213,8 +213,60 @@ def apply(scene, render_hidden=False):
         L.new(cam.outputs["Background"], mix.inputs[2])
         result = mix.outputs["Shader"]
     L.new(result, out.inputs["Surface"])
+    _octane(scene, nt, out, result, keep)
     for n in [n for n in nt.nodes if n.name.startswith(PREFIX) and n.name not in keep]:
         nt.nodes.remove(n)
+
+
+def _octane(scene, nt, out, result, keep):
+    """The same sky for Octane, which renders a World only through its own environment nodes: the HDRI (turned by
+    Rotation), the colour, or a daylight sky, at the Sky's Intensity; with Hide from Camera the camera sees the Sky
+    Color while lighting and reflections still come from the sky. Blender's own output then serves Cycles, with a
+    copy for EEVEE (Octane reads an output meant for every renderer instead of its own)."""
+    try:
+        from . import octane_live
+        if not octane_live.installed():
+            return
+    except (ImportError, AttributeError):
+        return
+    L = nt.links
+    image = scene.b4d_sky_image
+    try:
+        env = _node(nt, "Octane Sky", "OctaneTextureEnvironment", (400, -600), keep)
+        oout = _node(nt, "Octane Output", "OctaneEditorWorldOutputNode", (700, -600), keep)
+        if image is not None:
+            tex = _node(nt, "Octane HDRI", "OctaneRGBImage", (100, -600), keep)
+            tex.image = image
+            turn = _node(nt, "Octane Rotation", "Octane3DTransformation", (-200, -700), keep)
+            turn.inputs["Translation"].default_value = (scene.b4d_sky_rotation / (2.0 * math.pi), 0.0, 0.0)
+            L.new(turn.outputs[0], tex.inputs["UV transform"])
+            L.new(tex.outputs[0], env.inputs["Texture"])
+        elif scene.get("b4d_sky_physical"):
+            day = _node(nt, "Octane Daylight", "OctaneDaylightEnvironment", (400, -600), keep)
+            L.new(day.outputs[0], oout.inputs[0])
+            env = day
+        else:
+            col = _node(nt, "Octane Color", "OctaneRGBColor", (100, -600), keep)
+            col.a_value = tuple(scene.b4d_sky_color)
+            L.new(col.outputs[0], env.inputs["Texture"])
+        if "Power" in env.inputs:
+            env.inputs["Power"].default_value = scene.b4d_sky_intensity
+        L.new(env.outputs[0], oout.inputs["Environment"])
+        if scene.b4d_sky_hide_camera and (image is not None or scene.get("b4d_sky_physical")):
+            vis = _node(nt, "Octane Camera Sky", "OctaneTextureEnvironment", (400, -900), keep)
+            vcol = _node(nt, "Octane Camera Color", "OctaneRGBColor", (100, -900), keep)
+            vcol.a_value = tuple(scene.b4d_sky_color)
+            L.new(vcol.outputs[0], vis.inputs["Texture"])
+            vis.inputs["Backplate"].default_value = True
+            L.new(vis.outputs[0], oout.inputs["Visible Environment"])
+    except (RuntimeError, KeyError, AttributeError) as e:
+        print("Blenda 4D: Octane sky", e)
+        return
+    if out.target == "ALL":
+        out.target = "CYCLES"
+    ev = _node(nt, "EEVEE Output", "ShaderNodeOutputWorld", (400, 200), keep)
+    ev.target = "EEVEE"
+    L.new(result, ev.inputs["Surface"])
 
 
 def _changed(self, context):
