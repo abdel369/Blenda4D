@@ -99,28 +99,31 @@ _renamed = [0.0]
 class BLENDA4D_OT_om_select(bpy.types.Operator):
     bl_idname = "blenda4d.om_select"
     bl_label = "Select"
-    bl_description = "Select the object (Shift adds to the selection); a click below the list deselects all"
+    bl_description = ("Select the object. Cmd or Ctrl adds or removes one object, Shift selects every row from the active "
+                      "object to this one. A click below the list deselects all")
     bl_options = {"UNDO"}
     name: bpy.props.StringProperty(options={"SKIP_SAVE"})
     extend: bpy.props.BoolProperty(options={"SKIP_SAVE"})
+    range: bpy.props.BoolProperty(options={"SKIP_SAVE"})
 
     @classmethod
     def poll(cls, context):
         return roles.role(context.area) == "OBJECTS"
 
     def invoke(self, context, event):
-        self.extend = event.shift or event.ctrl or event.oskey
+        self.extend = event.ctrl or event.oskey
+        self.range = event.shift and not self.extend
         if not self.name:
             ob = object_at(context, event)
             now = time.monotonic()
             last, _clicks[:] = list(_clicks), [ob.name if ob else "", now]
-            if (ob is not None and not self.extend and last[0] == ob.name
+            if (ob is not None and not (self.extend or self.range) and last[0] == ob.name
                     and now - last[1] < context.preferences.inputs.mouse_double_click_time / 1000
                     and now - _renamed[0] > 0.6):
                 _clicks[0] = ""
                 return bpy.ops.blenda4d.om_rename("INVOKE_DEFAULT", name=ob.name)
             if ob is None:
-                if self.extend:
+                if self.extend or self.range:
                     return {"CANCELLED"}
                 context.window_manager.b4d_am_subject = ""
                 for o in context.view_layer.objects:
@@ -136,6 +139,19 @@ class BLENDA4D_OT_om_select(bpy.types.Operator):
         context.window_manager.b4d_am_subject = ""         # a click on the object shows the object again, not its tag
         if context.mode != "OBJECT":
             bpy.ops.object.mode_set(mode="OBJECT")
+        act = context.view_layer.objects.active
+        if self.range and act is not None and act != ob:
+            names = [o.name for o, _d in visible_rows(context)]
+            if act.name in names and ob.name in names:
+                a, b = sorted((names.index(act.name), names.index(ob.name)))
+                for o in context.view_layer.objects:
+                    o.select_set(False)
+                for n in names[a:b + 1]:
+                    try:
+                        bpy.data.objects[n].select_set(True)
+                    except RuntimeError:
+                        pass
+                return {"FINISHED"}                       # the active object stays where the range started
         if not self.extend:
             for o in context.view_layer.objects:
                 o.select_set(False)
@@ -143,7 +159,10 @@ class BLENDA4D_OT_om_select(bpy.types.Operator):
             ob.select_set(not (self.extend and ob.select_get()))
         except RuntimeError:
             return {"CANCELLED"}
-        context.view_layer.objects.active = ob
+        if ob.select_get():
+            context.view_layer.objects.active = ob
+        elif act == ob:                                   # took the active object out: the next selected one leads
+            context.view_layer.objects.active = next((o for o in context.selected_objects), None)
         return {"FINISHED"}
 
 
@@ -367,6 +386,11 @@ class BLENDA4D_OT_om_drag(bpy.types.Operator):
         i = row_at(context, self.region, event.mouse_prev_press_y)
         if not 0 <= i < len(self.rows):
             return {"PASS_THROUGH"}
+        x = event.mouse_prev_press_x - self.region.x
+        dxx = divider_x(context, self.region, self.rows)
+        if (_name_end(context, self.region, i, self.rows) + 0.4 * _unit(self.region) < x < dxx - 3
+                or dxx - 3 <= x < dxx + 2 * _unit(self.region)):     # empty space: a box; the dots and checks: paint
+            return {"PASS_THROUGH"}                       # empty space right of the name: om_box draws a box
         src = self.rows[i][0]
         self.objs = [src] + ([o for o in context.selected_objects if o != src] if src.select_get() else [])
         context.window_manager.b4d_om_drop = "SELF"
@@ -417,6 +441,99 @@ class BLENDA4D_OT_om_drag(bpy.types.Operator):
 
 
 _drag_mouse = []                 # the mouse in the Object Manager's region while dragging (for the cursor badge)
+
+
+def _name_end(context, region, i, rows):
+    """Where row i's name text ends, in region pixels."""
+    import blf
+    ob, d = rows[i]
+    size = context.preferences.ui_styles[0].widget.points * context.preferences.system.ui_scale * _zoom(region)
+    blf.size(0, size)
+    return _name_x(context, region, d)[1] + blf.dimensions(0, ob.name)[0]
+
+
+class BLENDA4D_OT_om_box(bpy.types.Operator):
+    bl_idname = "blenda4d.om_box"
+    bl_label = "Box Select"
+    bl_description = ("Drag from empty space (right of the names or below the list) to select every row the box "
+                      "touches. Shift, Cmd or Ctrl adds to the selection")
+    bl_options = {"UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        return roles.role(context.area) == "OBJECTS"
+
+    def invoke(self, context, event):
+        region = context.region
+        if region is None or region.type != "WINDOW":
+            return {"PASS_THROUGH"}
+        rows = visible_rows(context)
+        x = event.mouse_prev_press_x - region.x
+        i = row_at(context, region, event.mouse_prev_press_y)
+        if i < 0:
+            return {"PASS_THROUGH"}
+        if i < len(rows):
+            u = _unit(region)
+            if x < _name_end(context, region, i, rows) + 0.4 * u or x > divider_x(context, region, rows) - 3:
+                return {"PASS_THROUGH"}                    # on a name or the status columns: om_drag moves it
+        self.region, self.rows = region, rows
+        self.add = event.shift or event.ctrl or event.oskey
+        self.before = {o.name for o in context.selected_objects} if self.add else set()
+        _box[:] = [x, event.mouse_prev_press_y - region.y, event.mouse_x - region.x, event.mouse_y - region.y]
+        context.window_manager.modal_handler_add(self)
+        self._apply(context, event)
+        return {"RUNNING_MODAL"}
+
+    def _hit(self, context):
+        h = row_height()
+        v2d = self.region.view2d
+        y0, y1 = sorted((_box[1], _box[3]))
+        out = []
+        for i in range(len(self.rows)):
+            bottom, top = _row_y(self.region, i)
+            if top >= y0 and bottom <= y1:
+                out.append(self.rows[i][0])
+        return out
+
+    def _apply(self, context, event):
+        _box[2:] = [event.mouse_x - self.region.x, event.mouse_y - self.region.y]
+        hit = self._hit(context)
+        for o in context.view_layer.objects:
+            try:
+                o.select_set(o.name in self.before or o in hit)
+            except RuntimeError:
+                pass
+        if hit and (context.view_layer.objects.active not in hit or not self.add):
+            if context.view_layer.objects.active is None or not context.view_layer.objects.active.select_get():
+                context.view_layer.objects.active = hit[0]
+        self.region.tag_redraw()
+
+    def modal(self, context, event):
+        if event.type in {"MOUSEMOVE", "INBETWEEN_MOUSEMOVE"}:
+            self._apply(context, event)
+            return {"RUNNING_MODAL"}
+        if event.type == "LEFTMOUSE" and event.value == "RELEASE":
+            self._apply(context, event)
+            hit = self._hit(context)
+            if hit and not self.add:
+                context.view_layer.objects.active = hit[0]
+            context.window_manager.b4d_am_subject = ""
+            _box[:] = []
+            self.region.tag_redraw()
+            return {"FINISHED"}
+        if event.type in {"ESC", "RIGHTMOUSE"}:
+            for o in context.view_layer.objects:
+                try:
+                    o.select_set(o.name in self.before)
+                except RuntimeError:
+                    pass
+            _box[:] = []
+            self.region.tag_redraw()
+            return {"CANCELLED"}
+        return {"RUNNING_MODAL"}
+
+
+_box = []                        # the box being dragged in the Object Manager: x0, y0, x1, y1 in region pixels
 
 
 class BLENDA4D_OT_om_rename(bpy.types.Operator):
@@ -622,6 +739,59 @@ def _status_split(context, buttons):
     return max(0.25, min(0.9, 1 - need / max(width, 1)))
 
 
+def divider_x(context, region, rows=None):
+    """Where the Object Manager's column divider sits, in region pixels: the dots, check and tags start right after
+    it (C4D). Dragged by the user (b4d_om_divider, in row units, so it keeps its place at any Size), or just past the
+    longest name until then."""
+    import blf
+    rows = visible_rows(context) if rows is None else rows
+    u = _unit(region)
+    want = context.window_manager.b4d_om_divider
+    if want > 0:
+        x = want * u
+    else:
+        size = context.preferences.ui_styles[0].widget.points * context.preferences.system.ui_scale * _zoom(region)
+        blf.size(0, size)
+        x = max((_name_x(context, region, d)[1] + blf.dimensions(0, ob.name)[0] for ob, d in rows), default=4 * u) + 0.8 * u
+    tags = max((len(_tags(ob)) + (ob.type == "CAMERA") for ob, _d in rows), default=0)
+    return max(3.0 * u, min(x, region.width - (2.6 + tags) * u))
+
+
+class BLENDA4D_OT_om_divider(bpy.types.Operator):
+    bl_idname = "blenda4d.om_divider"
+    bl_label = "Move Column Divider"
+    bl_description = "Drag the line between the names and the status columns to move the dots, checks and tags"
+
+    @classmethod
+    def poll(cls, context):
+        return roles.role(context.area) == "OBJECTS"
+
+    def invoke(self, context, event):
+        region = context.region
+        if region is None or region.type != "WINDOW":
+            return {"PASS_THROUGH"}
+        x = event.mouse_x - region.x
+        if abs(x - divider_x(context, region)) > 5 * context.preferences.system.ui_scale:
+            return {"PASS_THROUGH"}
+        self.region = region
+        context.window.cursor_modal_set("MOVE_X")
+        context.window_manager.modal_handler_add(self)
+        return {"RUNNING_MODAL"}
+
+    def modal(self, context, event):
+        if event.type in {"MOUSEMOVE", "INBETWEEN_MOUSEMOVE"}:
+            u = _unit(self.region)
+            context.window_manager.b4d_om_divider = max(3.0, (event.mouse_x - self.region.x) / max(u, 1.0))
+            for a in context.screen.areas:
+                if roles.role(a) == "OBJECTS":
+                    a.tag_redraw()
+            return {"RUNNING_MODAL"}
+        if event.type == "LEFTMOUSE" and event.value == "RELEASE" or event.type in {"ESC", "RIGHTMOUSE"}:
+            context.window.cursor_modal_restore()
+            return {"FINISHED"}
+        return {"RUNNING_MODAL"}
+
+
 OM_MENU_SHARE = 0.915
 
 
@@ -688,7 +858,8 @@ class BLENDA4D_PT_objects(roles.RolePanel, bpy.types.Panel):
         drop = context.window_manager.b4d_om_drop
         rows = visible_rows(context)
         tags = max((len(_tags(ob)) + (ob.type == "CAMERA") for ob, _d in rows), default=0)   # every row keeps room for the most tags,
-        split = _status_split(context, 2 + tags)                      # so the dots and checks stay in columns
+        region = context.region
+        split = max(0.05, min(0.95, divider_x(context, region, rows) / max(region.width, 1)))   # the column divider
         for ob, depth in rows:
             self._row(col, ob, depth, tags, split)
 
@@ -707,7 +878,7 @@ class BLENDA4D_PT_objects(roles.RolePanel, bpy.types.Panel):
         name.alignment = "LEFT"
         name.label(text="", **type_icon_kw(ob))          # the name is drawn in its colour by _draw_rows (C4D look)
         right = sp.row(align=True)
-        right.alignment = "RIGHT"
+        right.alignment = "LEFT"                          # the status columns start at the divider (C4D)
         right.operator("blenda4d.om_dot", text="", emboss=False, **dots_kw(ob)).name = ob.name   # viewport over render
         right.prop(ob, "b4d_enabled", text="", emboss=False, icon="CHECKMARK" if ob.b4d_enabled else "X")
         if ob.type == "CAMERA":                            # the camera's view switch: filled while looking through it
@@ -1238,7 +1409,7 @@ class BLENDA4D_PT_assets(roles.RolePanel, bpy.types.Panel):
             b.prop_enum(wm, "b4d_ab_tab", tab, text=label, icon=icon)
 
 
-classes = (BLENDA4D_OT_om_look_through, BLENDA4D_OT_size_step, BLENDA4D_OT_om_delete, BLENDA4D_OT_om_solo, BLENDA4D_OT_om_scroll_active, BLENDA4D_OT_om_select, BLENDA4D_OT_om_drag, BLENDA4D_OT_om_rename, BLENDA4D_OT_om_fold, BLENDA4D_OT_om_expand, BLENDA4D_OT_group, BLENDA4D_OT_new_material,
+classes = (BLENDA4D_OT_om_look_through, BLENDA4D_OT_size_step, BLENDA4D_OT_om_delete, BLENDA4D_OT_om_solo, BLENDA4D_OT_om_scroll_active, BLENDA4D_OT_om_select, BLENDA4D_OT_om_box, BLENDA4D_OT_om_divider, BLENDA4D_OT_om_drag, BLENDA4D_OT_om_rename, BLENDA4D_OT_om_fold, BLENDA4D_OT_om_expand, BLENDA4D_OT_group, BLENDA4D_OT_new_material,
            BLENDA4D_OT_mat_pick, BLENDA4D_OT_mat_tag, *OM_MENUS, *AM_MENUS, *MM_MENUS, *AB_MENUS,
            *(menus.make_more(m) for m in (OM_MENUS, AM_MENUS, MM_MENUS)),
            BLENDA4D_PT_objects, BLENDA4D_PT_om_bar, BLENDA4D_PT_om_head, BLENDA4D_PT_attributes, BLENDA4D_PT_materials, BLENDA4D_PT_assets)
@@ -1291,7 +1462,23 @@ def _vis_set(attr):
     return put
 
 
+def set_vis(ob, attr, state):
+    ob[_VIS_KEY[attr]] = state
+    apply_vis(ob, attr)
+
+
+_enabling = [False]
+
+
 def _enabled_set(self, v):
+    if not _enabling[0] and self.select_get():           # the check of a selected object sets every selected object
+        _enabling[0] = True
+        try:
+            for o in bpy.context.selected_objects:
+                if o != self:
+                    o.b4d_enabled = v
+        finally:
+            _enabling[0] = False
     self["_b4d_enabled"] = bool(v)
     if not v:
         self.hide_viewport = True
@@ -1328,14 +1515,99 @@ class BLENDA4D_OT_om_dot(bpy.types.Operator):
         if ob is None:
             return {"CANCELLED"}
         attr = "hide_render" if self.render else "hide_viewport"
-        ob[_VIS_KEY[attr]] = (vis_state(ob, attr) + 1) % 3
-        apply_vis(ob, attr)
+        state = (vis_state(ob, attr) + 1) % 3
+        group = [o for o in context.selected_objects] if ob.select_get() else []
+        for o in (group if len(group) > 1 else [ob]):      # a dot of a selected object sets every selected object
+            set_vis(o, attr, state)
         for a in context.screen.areas if context.screen else ():
             a.tag_redraw()
         return {"FINISHED"}
 
 
 classes += (BLENDA4D_OT_om_dot,)
+
+
+class BLENDA4D_OT_om_paint(bpy.types.Operator):
+    bl_idname = "blenda4d.om_paint"
+    bl_label = "Paint Visibility"
+    bl_description = ("Drag down the dots or the checks to give every row you pass the same state as the first one "
+                      "(the first row steps on, as a click would)")
+    bl_options = {"UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        return roles.role(context.area) == "OBJECTS"
+
+    def _cell(self, event):
+        """(row index, column) under the mouse: column DOT_VIEW / DOT_RENDER / CHECK, or None off those columns."""
+        r = self.region
+        x = event.mouse_x - r.x
+        u = _unit(r)
+        v = r.view2d.region_to_view(0, event.mouse_y - r.y)[1]
+        h = row_height()
+        f = -v / h - rows_top()
+        i = int(f // 1) if f >= 0 else -1
+        if not 0 <= i < len(self.rows):
+            return i, None
+        if self.dx - 3 <= x < self.dx + u:
+            return i, "DOT_RENDER" if f % 1.0 >= 0.5 else "DOT_VIEW"
+        if self.dx + u <= x < self.dx + 2 * u:
+            return i, "CHECK"
+        return i, None
+
+    def invoke(self, context, event):
+        r = context.region
+        if r is None or r.type != "WINDOW":
+            return {"PASS_THROUGH"}
+        self.region, self.rows = r, visible_rows(context)
+        self.dx = divider_x(context, r, self.rows)
+
+        class E:                                          # where the button went down, not where the drag began
+            mouse_x, mouse_y = event.mouse_prev_press_x, event.mouse_prev_press_y
+        i, col = self._cell(E)
+        if col is None:
+            return {"PASS_THROUGH"}
+        ob = self.rows[i][0]
+        self.col = col if col == "CHECK" else "DOT_VIEW" if col == "DOT_VIEW" else "DOT_RENDER"
+        if col == "CHECK":
+            self.value = not ob.b4d_enabled
+        else:
+            attr = "hide_render" if col == "DOT_RENDER" else "hide_viewport"
+            self.value = (vis_state(ob, attr) + 1) % 3
+        self.done = set()
+        self._apply(context, ob)
+        context.window_manager.modal_handler_add(self)
+        return {"RUNNING_MODAL"}
+
+    def _apply(self, context, ob):
+        if ob.name in self.done:
+            return
+        self.done.add(ob.name)
+        if self.col == "CHECK":
+            _enabling[0] = True                          # one row at a time here, not the whole selection
+            try:
+                ob.b4d_enabled = self.value
+            finally:
+                _enabling[0] = False
+        else:
+            set_vis(ob, "hide_render" if self.col == "DOT_RENDER" else "hide_viewport", self.value)
+        for a in context.screen.areas:
+            a.tag_redraw()
+
+    def modal(self, context, event):
+        if event.type in {"MOUSEMOVE", "INBETWEEN_MOUSEMOVE"}:
+            v = self.region.view2d.region_to_view(0, event.mouse_y - self.region.y)[1]
+            f = -v / row_height() - rows_top()
+            i = int(f // 1) if f >= 0 else -1
+            if 0 <= i < len(self.rows):
+                self._apply(context, self.rows[i][0])
+            return {"RUNNING_MODAL"}
+        if event.type == "LEFTMOUSE" and event.value == "RELEASE" or event.type in {"ESC", "RIGHTMOUSE"}:
+            return {"FINISHED"}
+        return {"RUNNING_MODAL"}
+
+
+classes += (BLENDA4D_OT_om_paint,)
 
 
 def dots_kw(ob):
@@ -1354,6 +1626,8 @@ def register():
     O.b4d_vis_editor = bpy.props.EnumProperty(description='Show or hide the object in the viewport (Blender: Hide in Viewport)', items=vis, get=_vis_get("hide_viewport"), set=_vis_set("hide_viewport"))
     O.b4d_vis_render = bpy.props.EnumProperty(description='Show or hide the object in renders (Blender: Disable in Renders)', items=vis, get=_vis_get("hide_render"), set=_vis_set("hide_render"))
     W.b4d_om_search = bpy.props.StringProperty(description='Show only objects whose name contains this', name="Search", options={"TEXTEDIT_UPDATE"})
+    W.b4d_om_divider = bpy.props.FloatProperty(name="Column Divider", description="Where the Object Manager's status "
+                                               "columns start, in rows from the left (0: just past the longest name)", default=0.0, min=0.0)
     W.b4d_om_drop = bpy.props.StringProperty(description='Where a dragged object will be dropped', )
     W.b4d_om_zoom = bpy.props.FloatProperty(name="Size", description="Size of the Object Manager's names and icons, "
                                             "up to the largest that still fits the panel",
@@ -1367,6 +1641,8 @@ def register():
     W.b4d_ab_tab = bpy.props.EnumProperty(description='Which kind of asset the Asset Browser lists', items=[(k, l, AB_TIPS.get(k, f"Show {l.lower()}")) for k, l in AB_TABS], default="ALL")
     W.b4d_ab_search = bpy.props.StringProperty(description='Show only assets whose name contains this', name="Search")
     _add_keymap()
+    from . import multiedit
+    multiedit.register()
     _draw.append(bpy.types.SpaceProperties.draw_handler_add(_draw_rows, (), "WINDOW", "POST_PIXEL"))
 
 
@@ -1411,6 +1687,18 @@ def _draw_rows():
             batch.draw(shader)
         gpu.state.blend_set("NONE")
     _draw_tree(context, region, rows, drop, shader)
+    dx = divider_x(context, region, rows) - 2 * context.preferences.system.ui_scale
+    gpu.state.blend_set("ALPHA")
+    _rect(shader, dx, 0, dx + max(1.0, context.preferences.system.ui_scale), region.height, (0.0, 0.0, 0.0, 0.35))
+    gpu.state.blend_set("NONE")
+    if _box:
+        x0, x1 = sorted((_box[0], _box[2]))
+        y0, y1 = sorted((_box[1], _box[3]))
+        gpu.state.blend_set("ALPHA")
+        _rect(shader, x0, y0, x1, y1, (1.0, 1.0, 1.0, 0.08))
+        shader.uniform_float("color", (1.0, 1.0, 1.0, 0.6))
+        batch_for_shader(shader, "LINE_LOOP", {"pos": [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]}).draw(shader)
+        gpu.state.blend_set("NONE")
     if drop:
         _draw_drop(context, region, rows, drop, shader)
 
@@ -1432,7 +1720,8 @@ def _zoom(region):
 
 # Where the panel lays out a row's parts, in row heights from the region's left edge (measured on drawn rows)
 FOLD_CX, ICON_X, TEXT_X, INDENT = 0.9, 1.55, 2.75, 0.45
-SELECTED_NAME = (1.0, 0.769, 0.18, 1.0)             # C4D: the selected object's name, #FFC42E
+SELECTED_NAME = (1.0, 0.769, 0.18, 1.0)             # C4D: the active object's name, #FFC42E
+OTHER_SELECTED_NAME = (0.96, 0.56, 0.2, 1.0)        # C4D: the other selected objects' names, orange
 PARENT_NAME = (0.663, 0.4, 0.133, 1.0)              # C4D: the selected object's parents, #A96622
 TREE = (0.33, 0.33, 0.33, 1.0)                      # the hierarchy lines
 BOX = (0.58, 0.58, 0.58, 1.0)                       # the fold box
@@ -1500,7 +1789,8 @@ def _draw_tree(context, region, rows, drop, shader):
             boxes.append((cx, mid, ob.b4d_om_closed))
         if kind == "INTO" and ob.name == into:
             continue                                     # the drop target's name is drawn white on black (_draw_drop)
-        col = SELECTED_NAME if ob in sel else PARENT_NAME if ob in parents else normal
+        col = (SELECTED_NAME if ob == context.view_layer.objects.active else OTHER_SELECTED_NAME) if ob in sel \
+            else PARENT_NAME if ob in parents else normal
         names.append(((TEXT_X + d * INDENT) * u, bottom + (top - bottom - size * 0.72) / 2, ob.name, col))
     gpu.state.blend_set("ALPHA")
     gpu.state.line_width_set(max(1.0, s))
@@ -1544,8 +1834,7 @@ def _draw_drop(context, region, rows, drop, shader):
     s = context.preferences.system.ui_scale
     z = _zoom(region)
     gpu.state.blend_set("ALPHA")
-    split = _status_split(context, 2)
-    name_end = region.width * split - 4 * s
+    name_end = divider_x(context, region, rows) - 4 * s
     if kind in ("BEFORE", "AFTER", "END") and (name in names or kind == "END") and rows:
         i = len(rows) - 1 if kind == "END" else names.index(name)
         depth = 0 if kind == "END" else rows[i][1]
@@ -1609,9 +1898,16 @@ def _add_keymap():
     if kc is None:
         return
     km = kc.keymaps.new(name="Property Editor", space_type="PROPERTIES")
-    _keymaps.append((km, km.keymap_items.new("blenda4d.om_drag", "LEFTMOUSE", "CLICK_DRAG")))
+    _keymaps.append((km, km.keymap_items.new("blenda4d.om_divider", "LEFTMOUSE", "PRESS")))   # passes on away from the line
+    for mods in ({}, {"shift": True}, {"ctrl": True}, {"oskey": True}):     # a drag down the dots or checks paints them
+        _keymaps.append((km, km.keymap_items.new("blenda4d.om_paint", "LEFTMOUSE", "CLICK_DRAG", **mods)))
+    for mods in ({}, {"shift": True}, {"ctrl": True}, {"oskey": True}):     # a drag from empty space draws a box
+        _keymaps.append((km, km.keymap_items.new("blenda4d.om_box", "LEFTMOUSE", "CLICK_DRAG", **mods)))
+    _keymaps.append((km, km.keymap_items.new("blenda4d.om_drag", "LEFTMOUSE", "CLICK_DRAG")))  # after om_box: it passes on a name
     _keymaps.append((km, km.keymap_items.new("blenda4d.om_select", "LEFTMOUSE", "CLICK")))
     _keymaps.append((km, km.keymap_items.new("blenda4d.om_select", "LEFTMOUSE", "CLICK", shift=True)))
+    _keymaps.append((km, km.keymap_items.new("blenda4d.om_select", "LEFTMOUSE", "CLICK", ctrl=True)))
+    _keymaps.append((km, km.keymap_items.new("blenda4d.om_select", "LEFTMOUSE", "CLICK", oskey=True)))
     _keymaps.append((km, km.keymap_items.new("blenda4d.om_rename", "LEFTMOUSE", "DOUBLE_CLICK")))
     _keymaps.append((km, km.keymap_items.new("blenda4d.om_rename", "F2", "PRESS")))
     for key in ("DEL", "BACK_SPACE"):                      # Delete and Backspace delete the selection (issue #2)
@@ -1619,6 +1915,8 @@ def _add_keymap():
 
 
 def unregister():
+    from . import multiedit
+    multiedit.unregister()
     for h in _draw:
         bpy.types.SpaceProperties.draw_handler_remove(h, "WINDOW")
     _draw.clear()
@@ -1631,7 +1929,7 @@ def unregister():
     O, W = bpy.types.Object, bpy.types.WindowManager
     for n in ("b4d_om_closed", "b4d_enabled", "b4d_vis_editor", "b4d_vis_render"):
         delattr(O, n)
-    for n in ("b4d_om_search", "b4d_om_drop", "b4d_om_zoom", "b4d_am_tab", "b4d_right_tab", "b4d_material", "b4d_ab_tab", "b4d_ab_search", "b4d_am_subject"):
+    for n in ("b4d_om_search", "b4d_om_divider", "b4d_om_drop", "b4d_om_zoom", "b4d_am_tab", "b4d_right_tab", "b4d_material", "b4d_ab_tab", "b4d_ab_search", "b4d_am_subject"):
         delattr(W, n)
     for c in reversed(classes):
         bpy.utils.unregister_class(c)
