@@ -347,6 +347,45 @@ def reparent(objs, target):
     return done
 
 
+def duplicate_tree(context, objs):
+    """Independent copies of objs with everything under them (C4D copies the whole group). Returns the copies of objs
+    themselves, selected, the first one active."""
+    keep = set()
+
+    def walk(o):
+        keep.add(o)
+        for c in o.children:
+            walk(c)
+    for o in objs:
+        walk(o)
+    vl = context.view_layer
+    for o in vl.objects:
+        try:
+            o.select_set(o in keep)
+        except RuntimeError:
+            pass
+    vl.objects.active = objs[0] if objs else None
+    before = set(bpy.data.objects)
+    bpy.ops.object.duplicate(linked=False)
+    new = [o for o in bpy.data.objects if o not in before]
+    tops = [o for o in new if o.parent not in new]
+    order = {o.name: i for i, o in enumerate(objs)}
+
+    def src_of(c):                               # Blender names a copy "Name.001": match it to its original by order
+        return min((order.get(o.name.rsplit(".", 1)[0], 99), o.name) for o in [c])[0]
+    tops.sort(key=src_of)
+    for o in vl.objects:
+        try:
+            o.select_set(o in tops)
+        except RuntimeError:
+            pass
+    if tops:
+        vl.objects.active = tops[0]
+    from . import generators
+    generators.sync_all()
+    return tops
+
+
 class BLENDA4D_OT_om_drag(bpy.types.Operator):
     bl_idname = "blenda4d.om_drag"
     bl_label = "Drag in the Object Manager"
@@ -392,7 +431,10 @@ class BLENDA4D_OT_om_drag(bpy.types.Operator):
                 or dxx - 3 <= x < dxx + 2 * _unit(self.region)):     # empty space: a box; the dots and checks: paint
             return {"PASS_THROUGH"}                       # empty space right of the name: om_box draws a box
         src = self.rows[i][0]
+        self.src_name = src.name
         self.objs = [src] + ([o for o in context.selected_objects if o != src] if src.select_get() else [])
+        self.objs = [o for o in self.objs if not any(_is_under(p, o) for p in self.objs if p != o)]  # a child goes with its parent
+        self.copy = event.ctrl or event.oskey
         context.window_manager.b4d_om_drop = "SELF"
         _drag_mouse[:] = [event.mouse_x - self.region.x, event.mouse_y - self.region.y]
         context.window.cursor_modal_set("STOP")
@@ -423,8 +465,15 @@ class BLENDA4D_OT_om_drag(bpy.types.Operator):
             t = self._target(context, event)
             kind, _sep, name = t.partition(":")
             target = bpy.data.objects.get(name) if name else None
+            if (self.copy or event.ctrl or event.oskey) and kind in ("INTO", "BEFORE", "AFTER", "END", "SELF"):
+                self.objs = duplicate_tree(context, self.objs)          # Ctrl/Cmd: drop a copy, its children too (C4D)
+                if kind == "SELF":
+                    kind, target = "AFTER", None
             if kind == "INTO" and target is not None:
                 place(self.objs, target)
+            elif kind == "AFTER" and target is None:
+                src = bpy.data.objects.get(getattr(self, "src_name", ""))
+                place(self.objs, src.parent if src else None, after=src)
             elif kind in ("BEFORE", "AFTER") and target is not None:
                 place(self.objs, target.parent, before=target if kind == "BEFORE" else None, after=target if kind == "AFTER" else None)
             elif kind == "END":
@@ -1527,6 +1576,92 @@ class BLENDA4D_OT_om_dot(bpy.types.Operator):
 classes += (BLENDA4D_OT_om_dot,)
 
 
+class BLENDA4D_OT_drag_copy(bpy.types.Operator):
+    """C4D's Move tool: Ctrl/Cmd-drag duplicates. Armed while Ctrl or Cmd is held over the viewport (a window-level
+    watcher hears the press before the move gizmo does): at the press the selection is copied, with everything under
+    it, and Blender's own move then carries the copy. A press that moved nothing (a plain Ctrl/Cmd-click) removes the
+    copy again."""
+    bl_idname = "blenda4d.drag_copy"
+    bl_label = "Drag a Copy"
+    bl_options = {"INTERNAL"}
+
+    @staticmethod
+    def armed(context):
+        if context.mode != "OBJECT" or not context.selected_objects:
+            return False
+        try:
+            tool = context.workspace.tools.from_space_view3d_mode("OBJECT", create=False)
+        except (AttributeError, TypeError):
+            return False
+        return tool is not None and tool.idname in ("builtin.move", "builtin.transform")
+
+    def invoke(self, context, event):
+        if not self.armed(context):
+            return {"PASS_THROUGH"}
+        self.copies, self.origs = [], []
+        context.window_manager.modal_handler_add(self)
+        return {"RUNNING_MODAL", "PASS_THROUGH"}
+
+    def _settle(self, context):
+        """After the move: copies that did not move are taken back, the originals selected again."""
+        if not self.copies:
+            return
+        try:
+            still = all((c.matrix_world.translation - o.matrix_world.translation).length < 1e-6
+                        for c, o in zip(self.copies, self.origs))
+        except ReferenceError:
+            self.copies = []
+            return
+        if still:
+            doomed = set()
+
+            def walk(o):
+                doomed.add(o)
+                for c in o.children:
+                    walk(c)
+            for c in self.copies:
+                walk(c)
+            for o in doomed:
+                bpy.data.objects.remove(o, do_unlink=True)
+            for o in context.view_layer.objects:
+                if o is not None:
+                    o.select_set(o in self.origs)
+            if self.origs:
+                context.view_layer.objects.active = self.origs[0]
+        self.copies, self.origs = [], []
+
+    def modal(self, context, event):
+        held = event.oskey or event.ctrl
+        if event.type == "LEFTMOUSE" and event.value == "PRESS" and held and not self.copies:
+            area = context.area
+            if area is None or area.type != "VIEW_3D" or not self.armed(context):
+                return {"PASS_THROUGH"}
+            sel = context.selected_objects
+            tops = [o for o in sel if not any(_is_under(p, o) for p in sel if p != o)]
+            act = context.view_layer.objects.active
+            if act in tops:
+                tops.remove(act)
+                tops.insert(0, act)
+            self.origs = tops
+            self.saw_move = self.released = False
+            self.copies = duplicate_tree(context, tops)
+            return {"PASS_THROUGH"}                       # the move gizmo (or the tool's drag) now moves the copies
+        if self.copies:
+            moving = any(op.bl_idname.startswith("TRANSFORM_OT") for op in context.window.modal_operators)
+            self.saw_move = getattr(self, "saw_move", False) or moving
+            if event.type == "LEFTMOUSE" and event.value == "RELEASE":
+                self.released = True                      # a click: the move never started
+            if not moving and (self.saw_move or getattr(self, "released", False)):
+                self._settle(context)                     # the move has ended, or there was none: keep or take back
+                self.saw_move = self.released = False
+        if not held and event.type in {"OSKEY", "LEFT_CTRL", "RIGHT_CTRL", "MOUSEMOVE"} and not self.copies:
+            return {"FINISHED", "PASS_THROUGH"}
+        return {"PASS_THROUGH"}
+
+
+classes += (BLENDA4D_OT_drag_copy,)
+
+
 class BLENDA4D_OT_om_paint(bpy.types.Operator):
     bl_idname = "blenda4d.om_paint"
     bl_label = "Paint Visibility"
@@ -1904,12 +2039,17 @@ def _add_keymap():
     for mods in ({}, {"shift": True}, {"ctrl": True}, {"oskey": True}):     # a drag from empty space draws a box
         _keymaps.append((km, km.keymap_items.new("blenda4d.om_box", "LEFTMOUSE", "CLICK_DRAG", **mods)))
     _keymaps.append((km, km.keymap_items.new("blenda4d.om_drag", "LEFTMOUSE", "CLICK_DRAG")))  # after om_box: it passes on a name
+    for mods in ({"ctrl": True}, {"oskey": True}):        # Ctrl/Cmd-drag a name: drop a copy (C4D)
+        _keymaps.append((km, km.keymap_items.new("blenda4d.om_drag", "LEFTMOUSE", "CLICK_DRAG", **mods)))
     _keymaps.append((km, km.keymap_items.new("blenda4d.om_select", "LEFTMOUSE", "CLICK")))
     _keymaps.append((km, km.keymap_items.new("blenda4d.om_select", "LEFTMOUSE", "CLICK", shift=True)))
     _keymaps.append((km, km.keymap_items.new("blenda4d.om_select", "LEFTMOUSE", "CLICK", ctrl=True)))
     _keymaps.append((km, km.keymap_items.new("blenda4d.om_select", "LEFTMOUSE", "CLICK", oskey=True)))
     _keymaps.append((km, km.keymap_items.new("blenda4d.om_rename", "LEFTMOUSE", "DOUBLE_CLICK")))
     _keymaps.append((km, km.keymap_items.new("blenda4d.om_rename", "F2", "PRESS")))
+    vkm = kc.keymaps.new(name="3D View", space_type="VIEW_3D")             # C4D Move tool: Ctrl/Cmd-drag copies
+    for key in ("OSKEY", "LEFT_CTRL", "RIGHT_CTRL"):
+        _keymaps.append((vkm, vkm.keymap_items.new("blenda4d.drag_copy", key, "PRESS", any=True)))
     for key in ("DEL", "BACK_SPACE"):                      # Delete and Backspace delete the selection (issue #2)
         _keymaps.append((km, km.keymap_items.new("blenda4d.om_delete", key, "PRESS")))
 

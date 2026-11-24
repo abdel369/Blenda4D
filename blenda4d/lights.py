@@ -271,8 +271,38 @@ def _track(ob):
     return next((c for c in ob.constraints if c.type == "TRACK_TO"), None)
 
 
+def octane_emission(ob):
+    """The light's Octane emission node while Octane renders, or None. Octane ignores the light's own Intensity and
+    Color: its brightness is the emission node's Power (Octane tab > Emission), so the General page shows that."""
+    try:
+        if bpy.context.scene.render.engine != "octane" or not ob.data.use_nodes or ob.data.node_tree is None:
+            return None
+    except AttributeError:
+        return None
+    return next((n for n in ob.data.node_tree.nodes if n.bl_idname.endswith("Emission") and "Power" in n.inputs), None)
+
+
+def _emission_color(em):
+    tex = em.inputs.get("Texture")
+    if tex is None or tex.is_linked or not hasattr(tex, "default_value"):
+        return None
+    try:
+        return tex if len(tex.default_value) in (3, 4) else None
+    except TypeError:
+        return None
+
+
 def rows_general(ob):
     d = ob.data
+    em = octane_emission(ob)
+    if em is not None:
+        col = _emission_color(em)
+        return [("prop", col, "default_value", "Color", True) if col is not None else ("prop", d, "color", "Color", True),
+                ("prop", em.inputs["Power"], "default_value", "Intensity", True),
+                ("prop", em.inputs["Surface brightness"], "default_value", "Same Brightness at Any Size", True)
+                if "Surface brightness" in em.inputs else ("sep",),
+                ("prop", d, "type", "Type", True),
+                ("prop", ob, "visible_camera", "Visible in Render", True)]
     return [("prop", d, "color", "Color", True),
             ("prop", d, "use_temperature", "Use Temperature", True),
             ("prop", d, "temperature", "Temperature", d.use_temperature),
