@@ -808,7 +808,7 @@ def _do(action):
             a, b = q.frames[0].number, q.frames[-1].number
             S.lo, S.hi = a, b
         S.play = 0
-        if not S.rendering:
+        if not S.rendering or q is S.seq:               # the render's own finished frames can be looked at meanwhile
             V.show(q, action[2])
     elif kind == "fold":
         action[1].open = not action[1].open

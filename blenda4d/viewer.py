@@ -57,6 +57,7 @@ class State:
         self.ab, self.diff, self.a, self.b, self.line, self.vertical, self.show_line, self.show_text = False, False, None, None, 0.5, True, True, True
         self.ab_px, self.four, self.pan, self.auto = {}, False, 0.0, True
         self.rows_room = self.rows_total = 1
+        self.live = True          # while rendering: the picture follows the frame being made (off once you look back)
 
 
 S = State()
@@ -346,6 +347,8 @@ def show(seq, index):
     if compare_ready():
         compare()
         return redraw()
+    if S.rendering:                                    # looking back at a finished frame stops following the render
+        S.live = frame.state == "rendering" or not frame.path
     if not frame.path or (frame.state == "rendering" and S.rendering):
         sp.image = bpy.data.images.get("Render Result")
     elif S.filter["on"]:
@@ -521,13 +524,27 @@ def first_last():
     return S.seq.frames[0].number, S.seq.frames[-1].number
 
 
+def _last_done():
+    """Index of the last finished frame of the sequence (while rendering, the ones after it are not made yet)."""
+    for i in range(len(S.seq.frames) - 1, -1, -1):
+        if S.seq.frames[i].state == "done" and S.seq.frames[i].path:
+            return i
+    return -1
+
+
 def _playback():
-    if not S.play or S.seq is None or len(S.seq.frames) < 2 or S.rendering or window() is None:
+    if not S.play or S.seq is None or len(S.seq.frames) < 2 or window() is None:
         S.play = 0
         redraw()
         return None
     first = S.seq.frames[0].number
     i, low, high = S.index + S.play, S.lo - first, S.hi - first
+    if S.rendering:                                     # play what is made, and stop at the newest finished frame
+        high = min(high, _last_done())
+        if i > high:
+            S.play = 0
+            redraw()
+            return None
     if i > high or i < low:
         if S.repeat == "SIMPLE":
             S.play = 0
@@ -596,6 +613,7 @@ def begin(scene, first, last, keep, seq=None):
         S.seqs.append(seq)
         S.lo = first
     S.seq, S.index, S.rendering, S.layers, S.ab = seq, max(0, len(seq.frames) - 1), True, False, False
+    S.live = True
     S.hi, S.goal, S.resume = last, last, None
     S.restore_path = None
     if not keep:
@@ -656,7 +674,8 @@ def _drain():
             r = bpy.context.scene.render
             frame.size = (r.resolution_x * r.resolution_percentage // 100, r.resolution_y * r.resolution_percentage // 100)
             seq.frames.append(frame)
-            S.index = len(seq.frames) - 1
+            if S.live:
+                S.index = len(seq.frames) - 1
         elif kind == "post" and seq.frames:
             f = seq.frames[-1]
             f.path = next((p for p in paths if os.path.isfile(p)), "")
@@ -664,7 +683,7 @@ def _drain():
         elif kind == "end":
             _ended(seq)
             return None
-    if S.rendering:
+    if S.rendering and S.live:
         sp = _space()
         if sp is not None and (sp.image is None or sp.image.type != "RENDER_RESULT"):
             sp.image = bpy.data.images.get("Render Result")
