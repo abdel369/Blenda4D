@@ -742,6 +742,7 @@ def make_group(name, kind, kids, owner):
     from .primitives import _phong
     with stage(tree, "Phong Shading"):
         out = _phong(tree, out)                                  # generators are Phong shaded like the primitives
+        out = _flat_caps(nodes, links, out)
     _hard = stage(tree, "Hard Edges"); _hard.__enter__()
     if kind == "boolean":
         hard = nodes.new("GeometryNodeInputNamedAttribute"); hard.data_type = "BOOLEAN"; hard.inputs["Name"].default_value = HARD
@@ -753,6 +754,19 @@ def make_group(name, kind, kids, owner):
     links.new(out, gout.inputs["Geometry"])
     arrange(tree)                                                # readable in the node editor, not a pile
     return tree
+
+
+def _flat_caps(nodes, links, out):
+    """Caps are flat, as in C4D: smoothed together with the bevel, a cap's edge points tilted with the bevel and the
+    N-gon's own triangulation spread that tilt across the face in streaks from every inner corner (the counters of
+    B, e, d, a). Faces whose part is a start or end cap are shaded flat; the rest of the Phong shading is unchanged."""
+    part = nodes.new("GeometryNodeInputNamedAttribute"); part.data_type = "FLOAT"; part.inputs["Name"].default_value = gc.PART_ATTR
+    v = part.outputs["Attribute"]
+    lo, hi = min(gc.PART_CODES["C1"], gc.PART_CODES["C2"]), max(gc.PART_CODES["C1"], gc.PART_CODES["C2"])
+    either = _math(nodes, "MULTIPLY", _math(nodes, "GREATER_THAN", v, lo - 0.5, links), _math(nodes, "LESS_THAN", v, hi + 0.5, links), links)
+    flat = nodes.new("GeometryNodeSetShadeSmooth"); flat.domain = "FACE"; flat.inputs["Shade Smooth"].default_value = False
+    links.new(out, flat.inputs["Geometry"]); links.new(either, flat.inputs["Selection"])
+    return flat.outputs["Geometry"]
 
 
 def _part_selections(nodes, links, o, out):
