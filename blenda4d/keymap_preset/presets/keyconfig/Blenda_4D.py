@@ -38,6 +38,8 @@ KEYS = [
     ("3D View", "blenda4d.magnify_out", {"type": "WHEELOUTMOUSE", "value": "PRESS", "ctrl": True, "alt": True}, None),
     ("3D View", "blenda4d.magnify_scroll", {"type": "TRACKPADPAN", "value": "ANY", "ctrl": True, "alt": True}, None),
     ("3D View", "blenda4d.magnify_pan", {"type": "MIDDLEMOUSE", "value": "PRESS", "ctrl": True, "alt": True}, None),
+    # N, then a letter: C4D's display menu (S in it shows or hides the sidebar, Blender's N)
+    ("3D View", "wm.call_menu", {"type": "N", "value": "PRESS"}, [("name", "BLENDA4D_MT_display")]),
     ("3D View", "view3d.move", {"type": "ONE", "value": "PRESS"}, None),
     ("3D View", "view3d.zoom", {"type": "TWO", "value": "PRESS"}, None),
     ("3D View", "view3d.rotate", {"type": "THREE", "value": "PRESS"}, None),

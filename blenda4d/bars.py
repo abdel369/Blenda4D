@@ -274,13 +274,11 @@ def topbar_right(self, context):
 def view_header(self, context):
     layout = self.layout
     layout.label(text="", icon="COLLAPSEMENU")
-    u = 20 * context.preferences.system.ui_scale       # the display and navigation icons on the right: 10 units
-    menus.menu_bar(layout, menus.VIEW_CLASSES, avail=max(u, context.region.width - 11.5 * u))
+    u = 20 * context.preferences.system.ui_scale       # the display and navigation icons on the right: 17 units
+    menus.menu_bar(layout, menus.VIEW_CLASSES, avail=max(u, context.region.width - 19 * u))
     layout.separator_spacer()
-    sh = context.space_data.shading
-    row = layout.row(align=True)
-    for mode, icon in (("WIREFRAME", "SHADING_WIRE"), ("SOLID", "SHADING_SOLID"), ("MATERIAL", "SHADING_TEXTURE"), ("RENDERED", "SHADING_RENDERED")):
-        row.operator("blenda4d.shading", text="", icon=icon, depress=(sh.type == mode)).mode = mode
+    from . import display_modes
+    display_modes.draw_strip(layout, context)
     layout.separator(factor=1.0)
     row = layout.row(align=True)
     row.operator("view3d.view_all", text="", icon="VIEW_PAN", emboss=False)

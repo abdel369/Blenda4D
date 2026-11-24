@@ -422,6 +422,11 @@ def _sync_sub_phong(ob, on):
     _apply(m, {"show_viewport": on, "show_render": on})
 
 
+def _isoparms():
+    scene = getattr(bpy.context, "scene", None)
+    return bool(scene and scene.get("b4d_isoparms"))
+
+
 def sync_subdivision(ob):
     gen = generator_of(ob, "subdivision")
     if gen is None:
@@ -441,7 +446,7 @@ def sync_subdivision(ob):
     _apply(_ensure(ob, SUB_MOD, "SUBSURF"), {
         "subdivision_type": gen.b4d_sub_type, "levels": gen.b4d_sub_view, "render_levels": gen.b4d_sub_render,
         "uv_smooth": gen.b4d_sub_uv, "boundary_smooth": gen.b4d_sub_boundary, "use_creases": gen.b4d_sub_creases,
-        "show_only_control_edges": False, "show_viewport": on, "show_render": on})
+        "show_only_control_edges": _isoparms(), "show_viewport": on, "show_render": on})
     _sync_sub_phong(ob, on)
 
 
