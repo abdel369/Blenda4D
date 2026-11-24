@@ -246,6 +246,21 @@ def bevel_profile(nodes, links, o, side):
     return m2c.outputs["Curve"], a_end, _math(nodes, "ADD", S, O, links), S, O
 
 
+def dedupe(nodes, links, curve, dist=1e-4):
+    """The contour without doubled points (an SVG's sharp corners often have two in one place). A bevel moves each
+    copy its own way while the cap can only meet one, which left a small gap at every such corner. A point lying on
+    the one before it is deleted; each spline stays closed."""
+    prev = nodes.new("GeometryNodeOffsetPointInCurve"); prev.inputs["Offset"].default_value = -1
+    at = nodes.new("GeometryNodeFieldAtIndex"); at.domain = "POINT"; at.data_type = "FLOAT_VECTOR"
+    links.new(position(nodes), at.inputs["Value"]); links.new(prev.outputs["Point Index"], at.inputs["Index"])
+    d = nodes.new("ShaderNodeVectorMath"); d.operation = "DISTANCE"
+    links.new(position(nodes), d.inputs[0]); links.new(at.outputs[0], d.inputs[1])
+    same = _math(nodes, "LESS_THAN", d.outputs["Value"], dist, links)
+    de = nodes.new("GeometryNodeDeleteGeometry"); de.domain = "POINT"
+    links.new(curve, de.inputs["Geometry"]); links.new(same, de.inputs["Selection"])
+    return de.outputs["Geometry"]
+
+
 def inward_ring(nodes, links, curve):
     """Contour in XY with Z-up normals, wound so the curve normal points into the material (holes included)."""
     base = nodes.new("GeometryNodeSetCurveNormal"); base.inputs["Mode"].default_value = "Z Up"

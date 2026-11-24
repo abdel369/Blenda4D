@@ -268,7 +268,7 @@ def _extrude_curve(nodes, links, o, curve):
     n = gc.vmath(nodes, links, "SCALE", auto, scale=_sign(nodes, links, gc.dot(nodes, links, vec, auto)))
     R, Rinv = gc.align_z(nodes, links, n)
     flat = gc.move(nodes, links, gc.move(nodes, links, curve, translation=gc.vmath(nodes, links, "SCALE", p0, scale=-1.0)), rotation=Rinv)
-    ring = gc.inward_ring(nodes, links, flat)
+    ring = gc.inward_ring(nodes, links, gc.dedupe(nodes, links, flat))
     # a direction inside the contour's plane has no height: build at height 1, the shear below lays it along the direction
     H = gc.switch(nodes, links, "FLOAT", _math(nodes, "LESS_THAN", gc.dot(nodes, links, vec, n), 1e-5, links), gc.dot(nodes, links, vec, n), 1.0)
     grow = gc.switch(nodes, links, "FLOAT", o["Bevel Outside"], 0.0,
