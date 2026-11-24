@@ -6,7 +6,7 @@ off (unregister)."""
 import bpy
 from mathutils import Matrix, Vector
 
-from . import roles
+from . import bars, roles
 
 _orig = {}          # (owner, attr) -> value before Blenda first changed it
 _state = {"workplane": None, "render_view": None}
@@ -342,11 +342,11 @@ class BLENDA4D_OT_tb_render_view(bpy.types.Operator):
         area, region, sp = main_view(context)
         if self.how in ("VIEW", "INTERACTIVE") and sp is not None:
             if sp.shading.type == "RENDERED" and self.how == "VIEW":
-                sp.shading.type = _state["render_view"] or "SOLID"
+                bars.set_shading(sp, _state["render_view"] or "SOLID")
                 _state["render_view"] = None
             elif sp.shading.type != "RENDERED":
                 _state["render_view"] = sp.shading.type
-                sp.shading.type = "RENDERED"
+                bars.set_shading(sp, "RENDERED")
         if self.how in ("REGION", "INTERACTIVE") and area is not None:
             from . import magnify
             magnify.leave(area)

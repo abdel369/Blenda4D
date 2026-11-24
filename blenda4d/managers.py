@@ -116,9 +116,25 @@ class BLENDA4D_OT_om_select(bpy.types.Operator):
         if not self.name and roles.role(context.area) == "OBJECTS" and context.region is not None:
             rows = visible_rows(context)
             i = row_at(context, context.region, event.mouse_y)
-            hit = tag_at(context, context.region, rows, i, event.mouse_x - context.region.x) if 0 <= i < len(rows) else None
-            if hit is not None:                           # a material tag's swatch: show the tag (C4D)
+            x = event.mouse_x - context.region.x
+            hit = tag_at(context, context.region, rows, i, x) if 0 <= i < len(rows) else None
+            if hit is not None:                           # a material tag's swatch: show the tag (C4D); Shift/Cmd adds
+                if event.shift or event.ctrl or event.oskey:
+                    toggle_tag(context, hit[0], hit[1])
+                    return {"FINISHED"}
                 return bpy.ops.blenda4d.mat_tag_pick(name=hit[0].name, slot=hit[1])
+            if 0 <= i < len(rows):
+                sx, u = status_x(context, context.region, rows), _unit(context.region)
+                ob = rows[i][0]
+                if sx - 2 <= x < sx + u:                  # the dots: upper the viewport, lower the render
+                    b, t = _row_y(context.region, i)
+                    y = event.mouse_y - context.region.y
+                    return bpy.ops.blenda4d.om_dot(name=ob.name, render=y < (b + t) / 2)
+                if sx + u <= x < sx + 2 * u:              # the check (a selected row: every selected object)
+                    ob.b4d_enabled = not ob.b4d_enabled
+                    for a in context.screen.areas:
+                        a.tag_redraw()
+                    return {"FINISHED"}
         if not self.name:
             ob = object_at(context, event)
             now = time.monotonic()
@@ -143,6 +159,7 @@ class BLENDA4D_OT_om_select(bpy.types.Operator):
         if ob is None:
             return {"CANCELLED"}
         context.window_manager.b4d_am_subject = ""         # a click on the object shows the object again, not its tag
+        context.window_manager.b4d_tag_sel = ""
         if context.mode != "OBJECT":
             bpy.ops.object.mode_set(mode="OBJECT")
         act = context.view_layer.objects.active
@@ -182,14 +199,15 @@ class BLENDA4D_OT_om_delete(bpy.types.Operator):
     def poll(cls, context):
         from . import material_tag
         return roles.role(context.area) == "OBJECTS" and (any(o.select_get() for o in context.view_layer.objects)
-                                                          or material_tag.subject(context) is not None)
+                                                          or bool(picked_tags(context)))
 
     def execute(self, context):
-        from . import material_tag
-        sub = material_tag.subject(context)
-        if sub is not None:                               # a material tag shown: Delete removes the tag (C4D)
-            remove_tag(*sub)
+        tags = picked_tags(context)
+        if tags:                                          # selected material tags: Delete removes them (C4D)
+            for ob, slot in sorted(tags, key=lambda t: (t[0].name, -t[1])):
+                remove_tag(ob, slot)
             context.window_manager.b4d_am_subject = ""
+            context.window_manager.b4d_tag_sel = ""
             for a in context.screen.areas:
                 a.tag_redraw()
             return {"FINISHED"}
@@ -402,6 +420,37 @@ def duplicate_tree(context, objs):
     return tops
 
 
+def picked_tags(context):
+    """Every selected material tag as (object, slot): the one the Attribute Manager shows and any others added with a
+    box, Shift or Cmd/Ctrl."""
+    from . import material_tag
+    out = []
+    for part in context.window_manager.b4d_tag_sel.split("|"):
+        name, _sep, slot = part.rpartition(":")
+        ob = bpy.data.objects.get(name)
+        if ob is not None and slot.isdigit() and int(slot) < len(ob.material_slots):
+            out.append((ob, int(slot)))
+    sub = material_tag.subject(context)
+    if sub is not None and sub not in out:
+        out.append(sub)
+    return out
+
+
+def set_tags(context, tags):
+    context.window_manager.b4d_tag_sel = "|".join(f"{ob.name}:{slot}" for ob, slot in tags)
+    for a in context.screen.areas:
+        a.tag_redraw()
+
+
+def toggle_tag(context, ob, slot):
+    tags = picked_tags(context)
+    if (ob, slot) in tags:
+        tags.remove((ob, slot))
+    else:
+        tags.append((ob, slot))
+    set_tags(context, tags)
+
+
 def status_x(context, region, rows=None):
     """Where the first status cell (the dots) starts, in region pixels: the divider plus the panel's own inset."""
     return divider_x(context, region, rows) + 8 * context.preferences.system.ui_scale * _zoom(region)
@@ -452,7 +501,10 @@ def move_tag(context, src, slot, dst, copy=False):
 def remove_tag(ob, slot):
     from . import material_tag
     material_tag.ensure(ob)
-    ob.data.materials.pop(index=slot)
+    if len(ob.data.materials) <= 1:
+        ob.data.materials.clear()                         # pop() of the last one leaves the object an empty slot
+    else:
+        ob.data.materials.pop(index=slot)
     if slot < len(ob.b4d_mat_tags):
         ob.b4d_mat_tags.remove(slot)
     show_last(ob)
@@ -518,6 +570,8 @@ class BLENDA4D_OT_om_drag(bpy.types.Operator):
                 or dxx - 3 <= x < sxx + 2 * _unit(self.region)):     # empty space: a box; the dots and checks: paint
             return {"PASS_THROUGH"}                       # empty space right of the name: om_box draws a box
         hit = tag_at(context, self.region, self.rows, i, x)
+        if hit is None and x >= sxx + 2 * _unit(self.region):
+            return {"PASS_THROUGH"}                       # empty space in the tag column: om_box draws a box of tags
         self.tag = (hit[0].name, hit[1]) if hit else None          # a material tag swatch: the tag is dragged
         src = self.rows[i][0]
         self.src_name = src.name
@@ -626,11 +680,21 @@ class BLENDA4D_OT_om_box(bpy.types.Operator):
         i = row_at(context, region, event.mouse_prev_press_y)
         if i < 0:
             return {"PASS_THROUGH"}
+        u = _unit(region)
+        self.tags_mode = x >= status_x(context, region, rows) + 2 * u            # from the tag column: a box of tags
         if i < len(rows):
-            u = _unit(region)
-            if x < _name_end(context, region, i, rows) + 0.4 * u or x > divider_x(context, region, rows) - 3:
+            if self.tags_mode:
+                if tag_at(context, region, rows, i, x) is not None:
+                    return {"PASS_THROUGH"}                # on a tag: om_drag moves it
+            elif x < _name_end(context, region, i, rows) + 0.4 * u or x > divider_x(context, region, rows) - 3:
                 return {"PASS_THROUGH"}                    # on a name or the status columns: om_drag moves it
         self.region, self.rows = region, rows
+        if self.tags_mode:
+            self.tags_before = picked_tags(context) if (event.shift or event.ctrl or event.oskey) else []
+            _box[:] = [x, event.mouse_prev_press_y - region.y, event.mouse_x - region.x, event.mouse_y - region.y]
+            context.window_manager.modal_handler_add(self)
+            self._apply(context, event)
+            return {"RUNNING_MODAL"}
         self.add = event.shift or event.ctrl or event.oskey
         self.before = {o.name for o in context.selected_objects} if self.add else set()
         _box[:] = [x, event.mouse_prev_press_y - region.y, event.mouse_x - region.x, event.mouse_y - region.y]
@@ -649,8 +713,34 @@ class BLENDA4D_OT_om_box(bpy.types.Operator):
                 out.append(self.rows[i][0])
         return out
 
+    def _tag_hits(self, context):
+        x0, x1 = sorted((_box[0], _box[2]))
+        y0, y1 = sorted((_box[1], _box[3]))
+        out = []
+        for i, (ob, _d) in enumerate(self.rows):
+            b, t = _row_y(self.region, i)
+            if t < y0 or b > y1:
+                continue
+            for k, (_icon, mat, slot) in enumerate(_tags(ob)):
+                if mat is None:
+                    continue
+                a0, a1 = tag_cell(context, self.region, self.rows, ob, k)
+                if a1 >= x0 and a0 <= x1:
+                    out.append((ob, slot))
+        return out
+
     def _apply(self, context, event):
         _box[2:] = [event.mouse_x - self.region.x, event.mouse_y - self.region.y]
+        if self.tags_mode:
+            hits = self._tag_hits(context)
+            set_tags(context, self.tags_before + [h for h in hits if h not in self.tags_before])
+            from . import material_tag
+            if hits and not self.tags_before:            # the Attribute Manager shows the first tag of the box
+                ob, slot = hits[0]
+                context.window_manager.b4d_am_subject = f"{material_tag.SUBJECT}:{ob.name}:{slot}"
+                context.view_layer.objects.active = ob
+            self.region.tag_redraw()
+            return
         hit = self._hit(context)
         for o in context.view_layer.objects:
             try:
@@ -666,6 +756,11 @@ class BLENDA4D_OT_om_box(bpy.types.Operator):
         if event.type in {"MOUSEMOVE", "INBETWEEN_MOUSEMOVE"}:
             self._apply(context, event)
             return {"RUNNING_MODAL"}
+        if event.type == "LEFTMOUSE" and event.value == "RELEASE" and self.tags_mode:
+            self._apply(context, event)
+            _box[:] = []
+            self.region.tag_redraw()
+            return {"FINISHED"}
         if event.type == "LEFTMOUSE" and event.value == "RELEASE":
             self._apply(context, event)
             hit = self._hit(context)
@@ -1033,8 +1128,9 @@ class BLENDA4D_PT_objects(roles.RolePanel, bpy.types.Panel):
         name.label(text="", **type_icon_kw(ob))          # the name is drawn in its colour by _draw_rows (C4D look)
         right = sp.row(align=True)
         right.alignment = "LEFT"                          # the status columns start at the divider (C4D)
-        right.operator("blenda4d.om_dot", text="", emboss=False, **dots_kw(ob)).name = ob.name   # viewport over render
-        right.prop(ob, "b4d_enabled", text="", emboss=False, icon="CHECKMARK" if ob.b4d_enabled else "X")
+        right.label(text="", icon="BLANK1")              # the dots (viewport over render) and the check are painted
+        right.label(text="", icon="BLANK1")              # by _draw_status and clicked through om_select / om_paint:
+                                                         # a button would take the mouse and stop a drag down the list
         if ob.type == "CAMERA":                            # the camera's view switch: filled while looking through it
             right.operator("blenda4d.om_look_through", text="", emboss=False,
                            icon="VIEW_CAMERA" if looking_through(bpy.context, ob) else "VIEW_CAMERA_UNSELECTED").name = ob.name
@@ -1865,6 +1961,7 @@ def register():
     O.b4d_vis_editor = bpy.props.EnumProperty(description='Show or hide the object in the viewport (Blender: Hide in Viewport)', items=vis, get=_vis_get("hide_viewport"), set=_vis_set("hide_viewport"))
     O.b4d_vis_render = bpy.props.EnumProperty(description='Show or hide the object in renders (Blender: Disable in Renders)', items=vis, get=_vis_get("hide_render"), set=_vis_set("hide_render"))
     W.b4d_om_search = bpy.props.StringProperty(description='Show only objects whose name contains this', name="Search", options={"TEXTEDIT_UPDATE"})
+    W.b4d_tag_sel = bpy.props.StringProperty(description="The selected material tags besides the one shown", options={"SKIP_SAVE"})
     W.b4d_om_divider = bpy.props.FloatProperty(name="Column Divider", description="Where the Object Manager's status "
                                                "columns start, in rows from the left (0: just past the longest name)", default=0.0, min=0.0)
     W.b4d_om_drop = bpy.props.StringProperty(description='Where a dragged object will be dropped', )
@@ -1927,10 +2024,9 @@ def _draw_rows():
         gpu.state.blend_set("NONE")
     _draw_tree(context, region, rows, drop, shader)
     _draw_swatches(context, region, rows)
-    from . import material_tag
-    sub = material_tag.subject(context)
-    if sub is not None and sub[0] in [o for o, _d in rows]:        # the tag the Attribute Manager shows: framed
-        ob, slot = sub
+    for ob, slot in picked_tags(context):                          # the selected tags: framed
+        if ob not in [o for o, _d in rows]:
+            continue
         i = [o for o, _d in rows].index(ob)
         k = next((n for n, t in enumerate(_tags(ob)) if t[1] is not None and t[2] == slot), None)
         if k is not None:
@@ -2006,10 +2102,23 @@ def _draw_swatches(context, region, rows):
     flat = gpu.shader.from_builtin("UNIFORM_COLOR")
     img = gpu.shader.from_builtin("IMAGE")
     gpu.state.blend_set("ALPHA")
+    sx = status_x(context, region, rows)
+    lines = []
     for i, (ob, _d) in enumerate(rows):
         b, t = _row_y(region, i)
         if t < 0 or b > region.height:
             continue
+        cy = (b + t) / 2
+        for attr, dy in (("hide_viewport", 0.17), ("hide_render", -0.17)):     # C4D's stacked visibility dots
+            col = DOT_COLORS[vis_state(ob, attr)]
+            _disc(flat, sx + 0.5 * u, cy + dy * u, 0.12 * u, col)
+        cx = sx + 1.5 * u
+        if ob.b4d_enabled:                                # the check, or a red X when switched off
+            pts = [(cx - 0.22 * u, cy), (cx - 0.06 * u, cy - 0.17 * u), (cx - 0.06 * u, cy - 0.17 * u), (cx + 0.24 * u, cy + 0.2 * u)]
+            lines.append((pts, CHECK_ON))
+        else:
+            h = 0.17 * u
+            lines.append(([(cx - h, cy - h), (cx + h, cy + h), (cx - h, cy + h), (cx + h, cy - h)], CHECK_OFF))
         for k, (_icon, mat, _slot) in enumerate(_tags(ob)):
             if mat is None:
                 continue
@@ -2026,7 +2135,25 @@ def _draw_swatches(context, region, rows):
                 c = mat.diffuse_color
                 flat.uniform_float("color", (c[0], c[1], c[2], 1.0))
                 batch_for_shader(flat, "TRI_FAN", {"pos": q}).draw(flat)
+    gpu.state.line_width_set(max(1.5, 2.0 * context.preferences.system.ui_scale))
+    for pts, col in lines:
+        flat.uniform_float("color", col)
+        batch_for_shader(flat, "LINES", {"pos": pts}).draw(flat)
+    gpu.state.line_width_set(1.0)
     gpu.state.blend_set("NONE")
+
+
+DOT_COLORS = {0: (0.42, 0.42, 0.42, 1.0), 1: (0.30, 0.82, 0.32, 1.0), 2: (0.90, 0.26, 0.20, 1.0)}   # default / on / off
+CHECK_ON = (0.96, 0.60, 0.16, 1.0)
+CHECK_OFF = (0.90, 0.26, 0.20, 1.0)
+
+
+def _disc(shader, x, y, r, col):
+    import math
+    from gpu_extras.batch import batch_for_shader
+    pts = [(x, y)] + [(x + r * math.cos(a * math.pi / 8), y + r * math.sin(a * math.pi / 8)) for a in range(17)]
+    shader.uniform_float("color", col)
+    batch_for_shader(shader, "TRI_FAN", {"pos": pts}).draw(shader)
 
 
 def _row_y(region, i):
@@ -2260,7 +2387,7 @@ def unregister():
     O, W = bpy.types.Object, bpy.types.WindowManager
     for n in ("b4d_om_closed", "b4d_enabled", "b4d_vis_editor", "b4d_vis_render"):
         delattr(O, n)
-    for n in ("b4d_om_search", "b4d_om_divider", "b4d_om_drop", "b4d_om_zoom", "b4d_am_tab", "b4d_right_tab", "b4d_material", "b4d_ab_tab", "b4d_ab_search", "b4d_am_subject"):
+    for n in ("b4d_om_search", "b4d_tag_sel", "b4d_om_divider", "b4d_om_drop", "b4d_om_zoom", "b4d_am_tab", "b4d_right_tab", "b4d_material", "b4d_ab_tab", "b4d_ab_search", "b4d_am_subject"):
         delattr(W, n)
     for c in reversed(classes):
         bpy.utils.unregister_class(c)

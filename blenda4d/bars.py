@@ -74,8 +74,19 @@ class BLENDA4D_OT_shading(bpy.types.Operator):
             area = next((a for a in context.screen.areas if a.type == "VIEW_3D"), None)
             sp = area.spaces.active if area else None
         if sp:
-            sp.shading.type = self.mode
+            set_shading(sp, self.mode)
         return {"FINISHED"}
+
+
+def set_shading(sp, mode):
+    """A viewport's display mode, with Octane's copy of every viewport's mode put right first (octane_live)."""
+    try:
+        from . import octane_live
+        if octane_live.installed():
+            octane_live.sync_shading(sp, mode)
+    except (ImportError, AttributeError):
+        pass
+    sp.shading.type = mode
 
 
 class BLENDA4D_OT_overlay(bpy.types.Operator):

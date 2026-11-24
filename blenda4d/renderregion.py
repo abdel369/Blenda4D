@@ -6,7 +6,7 @@ viewport's earlier display until Resume. Close takes the region away and puts th
 import bpy
 
 
-from . import strip
+from . import bars, strip
 
 BUTTON, GAP, SPACE = 24, 3, 10               # px at scale 1
 TIPS = {"RESUME": "Resume Render Region", "PAUSE": "Pause Render Region", "CLOSE": "Close Render Region"}
@@ -110,7 +110,7 @@ def pause(context, area, on):
         from . import topbar
         st["shading"] = sp.shading.type
         before = topbar._state.get("render_view")
-        sp.shading.type = before if before and before != "RENDERED" else "SOLID"
+        bars.set_shading(sp, before if before and before != "RENDERED" else "SOLID")
     elif st["shading"]:
         sp.shading.type, st["shading"] = st["shading"], None
     area.tag_redraw()
@@ -126,7 +126,7 @@ def close(context, area):
         context.scene.render.use_border = False
     sp.use_render_border = False
     if topbar._state.get("live_region") and was_live and sp.shading.type == "RENDERED":     # the display it started from
-        sp.shading.type = topbar._state.get("render_view") or "SOLID"
+        bars.set_shading(sp, topbar._state.get("render_view") or "SOLID")
         topbar._state["render_view"] = None
     topbar._state["live_region"] = False
     area.tag_redraw()

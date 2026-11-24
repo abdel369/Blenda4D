@@ -388,6 +388,7 @@ class BLENDA4D_OT_mat_tag_pick(bpy.types.Operator):
         context.view_layer.objects.active = ob
         ensure(ob)
         context.window_manager.b4d_am_subject = f"{SUBJECT}:{ob.name}:{self.slot}"
+        context.window_manager.b4d_tag_sel = ""            # a plain click: this tag only
         for a in context.screen.areas if context.screen else ():
             a.tag_redraw()
         return {"FINISHED"}

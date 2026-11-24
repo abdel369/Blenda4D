@@ -457,6 +457,43 @@ def ball(mat):
 # --- coming and going ------------------------------------------------------------------------------------------------------------------
 
 
+def sync_shading(target=None, mode=None):
+    """Keep Octane's copy of every viewport's display mode equal to the real one, without running its update.
+
+    Octane's add-on keeps its own copy of each viewport's display mode. When a viewport stops rendering it copies
+    every viewport's mode into that copy, and the copy's update writes the value to whichever viewport is current,
+    not the one it came from. With quad views in different modes that switches the wrong view, while Blender is still
+    freeing the first render, and Blender crashes (Nov 24 2026: quad view, one view to Wireframe). With the copies
+    already equal there is nothing for it to write. target/mode: a viewport about to change, given its new mode."""
+    wm = bpy.context.window_manager
+    for window in wm.windows if wm else ():
+        for area in window.screen.areas:
+            if area.type != "VIEW_3D":
+                continue
+            for sp in area.spaces:
+                if sp.type != "VIEW_3D":
+                    continue
+                oct_sh = getattr(sp.shading, "octane", None)
+                if oct_sh is None:
+                    continue
+                want = mode if (target is not None and sp == target) else sp.shading.type
+                try:
+                    if oct_sh.shading_type != want:
+                        items = oct_sh.bl_rna.properties["shading_type"].enum_items
+                        oct_sh["shading_type"] = items[want].value     # as an ID property: no update runs
+                except (KeyError, AttributeError, TypeError):
+                    pass
+
+
+def _shading_tick():
+    if installed():
+        try:
+            sync_shading()
+        except (AttributeError, ReferenceError):
+            pass
+    return 0.25
+
+
 def _sync():
     """The add-on was switched on or off: its row and pages come or go."""
     try:
@@ -501,11 +538,14 @@ def register():
     _sync()
     if not bpy.app.background:
         bpy.app.timers.register(_sync, first_interval=2.0, persistent=True)
+        bpy.app.timers.register(_shading_tick, first_interval=1.0, persistent=True)
 
 
 def unregister():
     if bpy.app.timers.is_registered(_sync):
         bpy.app.timers.unregister(_sync)
+    if bpy.app.timers.is_registered(_shading_tick):
+        bpy.app.timers.unregister(_shading_tick)
     _gone()
     _was[0] = None
     for cls, fn in _menus:
