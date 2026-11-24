@@ -228,6 +228,13 @@ def rebuild(gen):
                 set_input(mod, tree.interface.items_tree[name].identifier, v)
             except Exception:
                 pass
+    for it in tree.interface.items_tree:                  # settings new to this object start at their defaults
+        if (it.item_type == "SOCKET" and it.in_out == "INPUT" and old and it.name not in old
+                and getattr(it, "default_value", None) is not None and it.socket_type != "NodeSocketGeometry"):
+            try:
+                set_input(mod, it.identifier, it.default_value)
+            except Exception:
+                pass
     gen["b4d_kids"] = [o.name for o in kids]
     from .moclone_gens import FX_GENS, OWN_SIG
     if k in FX_GENS + OWN_SIG:
