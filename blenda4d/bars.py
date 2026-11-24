@@ -45,8 +45,8 @@ class BLENDA4D_OT_set_mode(bpy.types.Operator):
             if context.mode != "OBJECT":
                 bpy.ops.object.mode_set(mode="OBJECT")
             return {"FINISHED"}
-        if ob is None or ob.type not in ("MESH", "CURVE"):
-            self.report({"INFO"}, "Select a mesh or spline first")
+        if ob is None or ob.type not in ("MESH", "CURVE", "LATTICE", "SURFACE"):
+            self.report({"INFO"}, "Select a mesh, spline or lattice first")
             return {"CANCELLED"}
         if ob.mode != "EDIT":                              # from whole objects, or from sculpting
             bpy.ops.object.mode_set(mode="EDIT")
@@ -392,7 +392,8 @@ def palette_groups(context):
     """The command bar, left to right: groups of (width in buttons, draw(row)). The last group sits at the right."""
     screen = context.window.screen
     mode = context.mode
-    sel = context.tool_settings.mesh_select_mode if mode == "EDIT_MESH" else (False, False, False)
+    sel = context.tool_settings.mesh_select_mode if mode == "EDIT_MESH" else (
+        (True, False, False) if mode in ("EDIT_LATTICE", "EDIT_CURVE", "EDIT_SURFACE") else (False, False, False))
     tool = active_tool(context)
     locks = context.window_manager.b4d_axis
     # a picture icon, which fits its button exactly (Blender's large tool icon spilled past the highlight here)
