@@ -639,6 +639,8 @@ def place(context, a, location=None, target=None):
             _give_material(ob, block)
     elif kind == "worlds":
         scene.world = block
+        from . import octane_live
+        octane_live.sky(block)                       # with the Octane add-on, Octane's sky too
     elif kind == "node_groups":
         obs = [target] if target is not None else list(context.selected_objects)
         if getattr(block, "bl_idname", "") == "GeometryNodeTree":

@@ -238,6 +238,60 @@ def draw_settings(col, scene):
         draw_panels(lay, where, scene=scene)
 
 
+# --- an HDRI's sky for Octane -------------------------------------------------------------------------------------------------------
+def _world_image(tree, seen=None):
+    """The picture an HDRI world shows: its Environment Texture, looked for inside node groups too."""
+    seen = seen or set()
+    if tree is None or tree.as_pointer() in seen:
+        return None
+    seen.add(tree.as_pointer())
+    for n in tree.nodes:
+        if n.bl_idname == "ShaderNodeTexEnvironment" and n.image is not None:
+            return n.image
+    for n in tree.nodes:
+        if n.bl_idname == "ShaderNodeGroup":
+            img = _world_image(n.node_tree, seen)
+            if img is not None:
+                return img
+    return None
+
+
+def sky(world):
+    """Give an HDRI world Octane's own sky with the same picture. Octane reads Blender's world output when that output is
+    for every renderer, and it has no Octane sky in it; so Blender's output becomes Cycles', a copy is EEVEE's, and
+    Octane's World Output, Texture Environment and RGB Image show the picture. A world that has Octane's output is left."""
+    if world is None or not installed() or not world.use_nodes or world.node_tree is None:
+        return False
+    tree = world.node_tree
+    if any(n.bl_idname == "OctaneEditorWorldOutputNode" for n in tree.nodes):
+        return False
+    img = _world_image(tree)
+    out = next((n for n in tree.nodes if n.bl_idname == "ShaderNodeOutputWorld" and n.is_active_output), None)
+    if img is None or out is None:
+        return False
+    if used():
+        _ready(bpy.context.scene)                  # Octane renders a scene only with a kernel
+    try:
+        env = tree.nodes.new("OctaneTextureEnvironment")
+        tex = tree.nodes.new("OctaneRGBImage")
+        oct_out = tree.nodes.new("OctaneEditorWorldOutputNode")
+    except RuntimeError as ex:
+        print("Blenda 4D: Octane sky", ex)
+        return False
+    tex.image = img
+    x, y = out.location
+    oct_out.location, env.location, tex.location = (x, y - 260), (x - 300, y - 260), (x - 600, y - 260)
+    tree.links.new(tex.outputs[0], env.inputs["Texture"])
+    tree.links.new(env.outputs[0], oct_out.inputs[0])
+    if out.target == "ALL" and out.inputs[0].links:
+        out.target = "CYCLES"
+        eevee = tree.nodes.new("ShaderNodeOutputWorld")
+        eevee.target = "EEVEE"
+        eevee.location = (x, y + 160)
+        tree.links.new(out.inputs[0].links[0].from_socket, eevee.inputs[0])
+    return True
+
+
 # --- Create > Octane -----------------------------------------------------------------------------------------------------------------
 class BLENDA4D_OT_octane_add(bpy.types.Operator):
     bl_idname = "blenda4d.octane_add"
