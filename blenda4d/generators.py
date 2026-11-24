@@ -240,6 +240,11 @@ def _needs_rebuild(gen):
     mod = gen_mod(gen)
     if mod is None or mod.node_group is None or mod.node_group.get("b4d_owner") != gen.name:
         return True
+    kind = gn.KINDS.get(gen.get("b4d_type"))
+    if kind is not None:                                  # built by an older Blenda: settings added since are missing
+        have = mod.node_group.interface.items_tree
+        if any(name not in have for name, *_rest in kind[1]):
+            return True
     from .moclone_gens import FX_GENS, OWN_SIG
     if gen.get("b4d_type") in FX_GENS + OWN_SIG:
         from . import moclone_fx
