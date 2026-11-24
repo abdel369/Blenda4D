@@ -1085,6 +1085,9 @@ def draw_om_head(layout, context):
     tools.operator("blenda4d.om_solo", text="", icon="SELECT_INTERSECT", emboss=False,
                    depress=_in_solo(context))
     tools.operator("blenda4d.solo", text="", icon="HIDE_OFF", emboss=False).mode = "OFF"   # Solo Off
+    tools.separator(factor=1.5)
+    tools.operator("blenda4d.scene_to_octane", text="", icon="SHADING_RENDERED", emboss=False)   # whole scene
+    tools.operator("blenda4d.scene_to_blender", text="", icon="BLENDER", emboss=False)
 
 
 class BLENDA4D_PT_om_head(roles.RolePanel, bpy.types.Panel):

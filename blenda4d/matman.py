@@ -1096,8 +1096,9 @@ def register():
     _pcoll.append(bpy.utils.previews.new())
     for c in classes:
         bpy.utils.register_class(c)
-    from . import matconvert
+    from . import matconvert, sceneconvert
     matconvert.register()
+    sceneconvert.register()
     if _selection_changed not in bpy.app.handlers.depsgraph_update_post:
         bpy.app.handlers.depsgraph_update_post.append(_selection_changed)
     W = bpy.types.WindowManager
@@ -1120,7 +1121,8 @@ def register():
 
 
 def unregister():
-    from . import matconvert
+    from . import matconvert, sceneconvert
+    sceneconvert.unregister()
     matconvert.unregister()
     if _selection_changed in bpy.app.handlers.depsgraph_update_post:
         bpy.app.handlers.depsgraph_update_post.remove(_selection_changed)
