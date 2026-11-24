@@ -329,13 +329,18 @@ def _on_update(scene, depsgraph=None):
 def _evaluated_bounds(ob, context):
     """The parent's bounds as it shows, but without the deformers on it (they would fit the box to the bent shape)."""
     off = [m for m in ob.modifiers if _owner(m) is not None and m.show_viewport]
-    for m in off:
-        m.show_viewport = False
-    dg = context.evaluated_depsgraph_get()
-    dg.update()
-    pts = [Vector(c) for c in ob.evaluated_get(dg).bound_box]
-    for m in off:
-        m.show_viewport = True
+    was = _busy[0]
+    _busy[0] = True                     # the update below must not run sync(): it would switch them straight back on,
+    try:                                # and the box would be fitted to the bent shape (it grew with every click)
+        for m in off:
+            m.show_viewport = False
+        dg = context.evaluated_depsgraph_get()
+        dg.update()
+        pts = [Vector(c) for c in ob.evaluated_get(dg).bound_box]
+    finally:
+        for m in off:
+            m.show_viewport = True
+        _busy[0] = was
     return pts
 
 

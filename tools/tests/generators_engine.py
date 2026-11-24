@@ -307,12 +307,12 @@ def t_subdivision():
     for prop, value in (("b4d_sub_view", 3), ("b4d_sub_type", "SIMPLE"), ("b4d_sub_pre", 1), ("b4d_sub_boundary", "PRESERVE_CORNERS"),
                         ("b4d_sub_uv", "NONE"), ("b4d_sub_creases", False), ("b4d_sub_render", 4)):
         mod_before = {m.name: tuple(getattr(m, a) for a in ("levels", "render_levels", "subdivision_type", "uv_smooth", "boundary_smooth", "use_creases"))
-                      for m in k.modifiers}
+                      for m in k.modifiers if m.type == "SUBSURF"}
         old = getattr(gen, prop)
         setattr(gen, prop, value)
         update()
         mod_after = {m.name: tuple(getattr(m, a) for a in ("levels", "render_levels", "subdivision_type", "uv_smooth", "boundary_smooth", "use_creases"))
-                     for m in k.modifiers}
+                     for m in k.modifiers if m.type == "SUBSURF"}
         check(mod_after != mod_before, f"subdivision: {prop} changed nothing")
         setattr(gen, prop, old)
         update()

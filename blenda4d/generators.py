@@ -331,10 +331,89 @@ def _drop(ob, *names):
             ob.modifiers.remove(m)
 
 
+SUB_PHONG = "B4D SubD Phong"     # not "Blenda ...": that marks a generator's own node modifier
+
+
+def _phong_group():
+    """Shading after subdivision, as C4D's Phong: edges whose faces meet at more than the angle are hard, every other
+    edge smooth. The cage's hard edges, carried through the subdivision by Blender, showed as creases."""
+    tree = bpy.data.node_groups.get(SUB_PHONG)
+    if tree is not None:
+        return tree
+    tree = bpy.data.node_groups.new(SUB_PHONG, "GeometryNodeTree")
+    tree.interface.new_socket("Geometry", in_out="INPUT", socket_type="NodeSocketGeometry")
+    s = tree.interface.new_socket("Smoothing Angle", in_out="INPUT", socket_type="NodeSocketFloat")
+    s.subtype, s.default_value, s.min_value, s.max_value = "ANGLE", 1.3962634, 0.0, 3.1415927
+    tree.interface.new_socket("Geometry", in_out="OUTPUT", socket_type="NodeSocketGeometry")
+    n, l = tree.nodes, tree.links
+    i, o = n.new("NodeGroupInput"), n.new("NodeGroupOutput")
+    faces = n.new("GeometryNodeSetShadeSmooth"); faces.domain = "FACE"
+    faces.inputs["Shade Smooth"].default_value = True
+    edges = n.new("GeometryNodeSetShadeSmooth"); edges.domain = "EDGE"
+    ang = n.new("GeometryNodeInputMeshEdgeAngle")
+    hard = n.new("ShaderNodeMath"); hard.operation = "LESS_THAN"           # smooth where the angle is under the limit
+    l.new(ang.outputs["Unsigned Angle"], hard.inputs[0]); l.new(i.outputs["Smoothing Angle"], hard.inputs[1])
+    l.new(i.outputs["Geometry"], faces.inputs["Geometry"])
+    l.new(faces.outputs["Geometry"], edges.inputs["Geometry"])
+    l.new(hard.outputs[0], edges.inputs["Shade Smooth"])
+    l.new(edges.outputs["Geometry"], o.inputs["Geometry"])
+    return tree
+
+
+def _phong_angle(ob):
+    """The object's Phong Angle (its own Blenda modifier's, or a Smooth by Angle's), fully smooth when it has none
+    and is shaded smooth, flat when it is flat."""
+    import math
+    from .primitives import input_slot
+
+    def read(m, name):
+        it = m.node_group.interface.items_tree.get(name)
+        if it is None or getattr(it, "in_out", "") != "INPUT":
+            return None
+        owner, attr = input_slot(m, it.identifier)
+        try:
+            return getattr(owner, attr) if attr == "value" else m[it.identifier]
+        except (KeyError, TypeError):
+            return None
+    for m in ob.modifiers:
+        if m.type != "NODES" or m.node_group is None or not m.show_viewport or m.node_group.name == SUB_PHONG:
+            continue
+        for name in ("Phong Angle", "Angle"):
+            v = read(m, name)
+            if v is not None:
+                if read(m, "Angle Limit") is False:
+                    return math.pi
+                return float(v)
+    polys = ob.data.polygons
+    return math.pi if polys and any(p.use_smooth for p in polys) else 0.0
+
+
+def _sync_phong(ob, on):
+    m = ob.modifiers.get(SUB_PHONG)
+    if m is None:
+        m = ob.modifiers.new(SUB_PHONG, "NODES")
+        m.node_group = _phong_group()
+    main = ob.modifiers.get(SUB_MOD)
+    order = list(ob.modifiers)
+    if main is not None and order.index(m) != order.index(main) + 1:
+        ob.modifiers.move(order.index(m), order.index(main) + (1 if order.index(m) > order.index(main) else 0))
+    from .primitives import set_input, input_slot
+    angle = _phong_angle(ob)
+    ident = m.node_group.interface.items_tree["Smoothing Angle"].identifier
+    owner, attr = input_slot(m, ident)
+    try:
+        cur = float(getattr(owner, attr) if attr == "value" else m[ident])
+    except (KeyError, TypeError, ValueError):
+        cur = None
+    if cur is None or abs(cur - angle) > 1e-5:
+        set_input(m, ident, angle)
+    _apply(m, {"show_viewport": on, "show_render": on})
+
+
 def sync_subdivision(ob):
     gen = generator_of(ob, "subdivision")
     if gen is None:
-        return _drop(ob, SUB_PRE, SUB_MOD)
+        return _drop(ob, SUB_PRE, SUB_MOD, SUB_PHONG)
     on = enabled(gen)
     pre = ob.modifiers.get(SUB_PRE)
     if gen.b4d_sub_pre > 0:
@@ -351,6 +430,7 @@ def sync_subdivision(ob):
         "subdivision_type": gen.b4d_sub_type, "levels": gen.b4d_sub_view, "render_levels": gen.b4d_sub_render,
         "uv_smooth": gen.b4d_sub_uv, "boundary_smooth": gen.b4d_sub_boundary, "use_creases": gen.b4d_sub_creases,
         "show_only_control_edges": False, "show_viewport": on, "show_render": on})
+    _sync_phong(ob, on)
 
 
 def sync_reduce(ob):
@@ -386,7 +466,8 @@ def sync_modifiers(scene):
     for ob in scene.objects:
         if ob.type != "MESH":
             continue
-        if generator_of(ob, "subdivision") is not None or SUB_MOD in ob.modifiers or SUB_PRE in ob.modifiers:
+        if (generator_of(ob, "subdivision") is not None or SUB_MOD in ob.modifiers or SUB_PRE in ob.modifiers
+                or SUB_PHONG in ob.modifiers):
             sync_subdivision(ob)
         if generator_of(ob, "reduce") is not None or RED_MOD in ob.modifiers:
             sync_reduce(ob)
