@@ -121,6 +121,15 @@ def stamp(ob, kind, start=None):
         ob[key] = list(v) if isinstance(v, tuple) else v
         if ui:
             ob.id_properties_ui(key).update(default=default, **ui)
+    if kind in ("shear", "taper") and "b4d_def_curvature" in ob:   # C4D's curvature: 0 and up, slider to 300 %
+        ui = ob.id_properties_ui("b4d_def_curvature")
+        now = ui.as_dict()
+        if now.get("min") != 0.0 or now.get("soft_max") != 300.0:
+            ui.update(min=0.0, max=1e6, soft_min=0.0, soft_max=300.0,
+                      description="0 changes evenly from bottom to top; higher values hold the bottom straight and curve "
+                                  "toward the top (with Soft Ends, an S), and past 100 % it overshoots")
+            if ob["b4d_def_curvature"] < 0.0:
+                ob["b4d_def_curvature"] = 0.0
     if kind == "shrinkwrap":
         try:
             ob.id_properties_ui("b4d_def_target").update(id_type="OBJECT", description="The surface to wrap onto")

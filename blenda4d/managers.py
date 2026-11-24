@@ -129,7 +129,7 @@ class BLENDA4D_OT_om_select(bpy.types.Operator):
                 if sx - 2 <= x < sx + u:                  # the dots: upper the viewport, lower the render
                     b, t = _row_y(context.region, i)
                     y = event.mouse_y - context.region.y
-                    return bpy.ops.blenda4d.om_dot(name=ob.name, render=y < (b + t) / 2)
+                    return bpy.ops.blenda4d.om_dot(name=ob.name, render=y < (b + t) / 2, both=event.alt)
                 if sx + u <= x < sx + 2 * u:              # the check (a selected row: every selected object)
                     ob.b4d_enabled = not ob.b4d_enabled
                     for a in context.screen.areas:
@@ -1438,6 +1438,25 @@ def page_object(col, ob):
 
 
 def page_phong(col, ob):
+    from . import primitives
+    mod = _generator(ob) if prim_kind(ob) else None
+    items = mod.node_group.interface.items_tree if mod is not None and mod.node_group else {}
+    slots = {}
+    for name in (primitives.PHONG_LIMIT, primitives.PHONG_ANGLE):
+        if name in items:
+            try:
+                slots[name] = primitives.input_slot(mod, items[name].identifier)
+            except KeyError:
+                pass
+    if slots:
+        if primitives.PHONG_LIMIT in slots:
+            col.prop(*slots[primitives.PHONG_LIMIT], text="Angle Limit")
+        if primitives.PHONG_ANGLE in slots:
+            row = col.row()
+            if primitives.PHONG_LIMIT in slots:
+                row.active = bool(getattr(*slots[primitives.PHONG_LIMIT]))
+            row.prop(*slots[primitives.PHONG_ANGLE], text="Phong Angle")
+        col.separator()
     col.operator("object.shade_smooth", text="Smooth")
     col.operator("object.shade_flat", text="Flat")
     col.operator("object.shade_auto_smooth", text="Smooth by Angle")
@@ -1810,11 +1829,12 @@ class BLENDA4D_OT_om_dot(bpy.types.Operator):
     bl_options = {"UNDO", "INTERNAL"}
     name: bpy.props.StringProperty(options={"SKIP_SAVE"})
     render: bpy.props.BoolProperty(options={"SKIP_SAVE"})
+    both: bpy.props.BoolProperty(options={"SKIP_SAVE"})       # Alt: both dots (C4D; from Marden's patch)
 
     @classmethod
     def description(cls, context, props):
         return ("Visibility: the upper dot is the viewport, the lower dot renders. Grey follows the object above it, "
-                "green always shows it, red hides it; click a dot to step through them "
+                "green always shows it, red hides it; click a dot to step through them, Alt+click sets both "
                 "(Blender: Hide in Viewport, Disable in Renders)")
 
     def invoke(self, context, event):
@@ -1834,7 +1854,8 @@ class BLENDA4D_OT_om_dot(bpy.types.Operator):
         state = (vis_state(ob, attr) + 1) % 3
         group = [o for o in context.selected_objects] if ob.select_get() else []
         for o in (group if len(group) > 1 else [ob]):      # a dot of a selected object sets every selected object
-            set_vis(o, attr, state)
+            for a in (tuple(_VIS_KEY) if self.both else (attr,)):
+                set_vis(o, a, state)
         for a in context.screen.areas if context.screen else ():
             a.tag_redraw()
         return {"FINISHED"}
@@ -1933,7 +1954,7 @@ class BLENDA4D_OT_om_paint(bpy.types.Operator):
     bl_idname = "blenda4d.om_paint"
     bl_label = "Paint Visibility"
     bl_description = ("Drag down the dots or the checks to give every row you pass the same state as the first one "
-                      "(the first row steps on, as a click would)")
+                      "(the first row steps on, as a click would); with Alt both dots are painted")
     bl_options = {"UNDO"}
 
     @classmethod
@@ -1971,6 +1992,7 @@ class BLENDA4D_OT_om_paint(bpy.types.Operator):
             return {"PASS_THROUGH"}
         ob = self.rows[i][0]
         self.col = col if col == "CHECK" else "DOT_VIEW" if col == "DOT_VIEW" else "DOT_RENDER"
+        self.both = event.alt and col != "CHECK"
         if col == "CHECK":
             self.value = not ob.b4d_enabled
         else:
@@ -1991,6 +2013,9 @@ class BLENDA4D_OT_om_paint(bpy.types.Operator):
                 ob.b4d_enabled = self.value
             finally:
                 _enabling[0] = False
+        elif self.both:
+            for attr in _VIS_KEY:
+                set_vis(ob, attr, self.value)
         else:
             set_vis(ob, "hide_render" if self.col == "DOT_RENDER" else "hide_viewport", self.value)
         for a in context.screen.areas:
@@ -2423,7 +2448,7 @@ def _add_keymap():
         return
     km = kc.keymaps.new(name="Property Editor", space_type="PROPERTIES")
     _keymaps.append((km, km.keymap_items.new("blenda4d.om_divider", "LEFTMOUSE", "PRESS")))   # passes on away from the line
-    for mods in ({}, {"shift": True}, {"ctrl": True}, {"oskey": True}):     # a drag down the dots or checks paints them
+    for mods in ({}, {"shift": True}, {"ctrl": True}, {"oskey": True}, {"alt": True}):   # a drag down the dots or checks paints them
         _keymaps.append((km, km.keymap_items.new("blenda4d.om_paint", "LEFTMOUSE", "CLICK_DRAG", **mods)))
     for mods in ({}, {"shift": True}, {"ctrl": True}, {"oskey": True}):     # a drag from empty space draws a box
         _keymaps.append((km, km.keymap_items.new("blenda4d.om_box", "LEFTMOUSE", "CLICK_DRAG", **mods)))
@@ -2434,6 +2459,7 @@ def _add_keymap():
     _keymaps.append((km, km.keymap_items.new("blenda4d.om_select", "LEFTMOUSE", "CLICK", shift=True)))
     _keymaps.append((km, km.keymap_items.new("blenda4d.om_select", "LEFTMOUSE", "CLICK", ctrl=True)))
     _keymaps.append((km, km.keymap_items.new("blenda4d.om_select", "LEFTMOUSE", "CLICK", oskey=True)))
+    _keymaps.append((km, km.keymap_items.new("blenda4d.om_select", "LEFTMOUSE", "CLICK", alt=True)))   # Alt on the dots: both
     _keymaps.append((km, km.keymap_items.new("blenda4d.om_rename", "LEFTMOUSE", "DOUBLE_CLICK")))
     _keymaps.append((km, km.keymap_items.new("blenda4d.om_rename", "F2", "PRESS")))
     vkm = kc.keymaps.new(name="3D View", space_type="VIEW_3D")             # C4D Move tool: Ctrl/Cmd-drag copies

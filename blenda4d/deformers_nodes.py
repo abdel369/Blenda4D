@@ -141,11 +141,15 @@ def retarget(tree, ob):
 
 # --- the box deformers, in the deformer's space ------------------------------------------------------------------
 def _shape(g, P, v):
-    """0 at the bottom to 1 at the top, eased by Soft Ends and bent by Curvature."""
-    eased = g.mul(g.mul(v, v), g.sub(3.0, g.mul(v, 2.0)))
-    base = g.pick(P["fillet"], v, eased)
-    power = g.add(1.0, g.div(P["curvature"], 100.0))
-    return g.mul(g.m("SIGN", base), g.m("POWER", g.m("ABSOLUTE", base), power))
+    """0 at the bottom to 1 at the top, as C4D's Shear and Taper run: Curvature blends the even change toward a curve
+    that leaves the bottom straight (v squared), or with Soft Ends toward an S that also meets the top straight; past
+    100 % it overshoots. Outside the box (Unlimited) it carries on evenly."""
+    inside = g.clamp(v, 0.0, 1.0)
+    squared = g.mul(inside, inside)
+    s_curve = g.mul(squared, g.sub(3.0, g.mul(inside, 2.0)))
+    target = g.pick(P["fillet"], squared, s_curve)
+    c = g.m("MAXIMUM", g.div(P["curvature"], 100.0), 0.0)
+    return g.add(v, g.mul(c, g.sub(target, inside)))
 
 
 def _bend(g, P, x, y, z, h, v):
@@ -205,9 +209,14 @@ def _bulge(g, P, x, y, z, h, v):
 
 
 def _shear(g, P, x, y, z, h, v):
-    amount = g.mul(g.mul(h, g.div(P["strength"], 100.0)), _shape(g, P, v))
+    """C4D's Shear: at 100 % the top slides half the box's size along the direction (width and depth each by their own
+    half)."""
+    shaped = _shape(g, P, v)
+    amount = g.mul(g.div(P["strength"], 100.0), shaped)       # at 100 % the top slides half the box across (C4D)
     d = P["direction"]
-    return g.comb(g.add(x, g.mul(amount, g.m("COSINE", d))), g.add(y, g.mul(amount, g.m("SINE", d))), z)
+    half_x, half_y = g.mul(P["size_x"], SCALE * 0.5), g.mul(P["size_y"], SCALE * 0.5)
+    return g.comb(g.add(x, g.mul(amount, g.mul(half_x, g.m("COSINE", d)))),
+                  g.add(y, g.mul(amount, g.mul(half_y, g.m("SINE", d)))), z)
 
 
 def _wave(g, P, pos):
