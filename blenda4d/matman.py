@@ -351,6 +351,9 @@ def draw_tools(layout, context):
     row.operator("blenda4d.mm_delete", text="", icon="TRASH")
     row.operator("blenda4d.mm_delete_unused", text="", icon="ORPHAN_DATA")
     row.operator("blenda4d.mm_delete_duplicates", text="", icon="DUPLICATE")
+    row.separator()
+    row.operator("blenda4d.mm_to_octane", text="", icon="SHADING_RENDERED")
+    row.operator("blenda4d.mm_to_blender", text="", icon="BLENDER")
     right = sp.row(align=False)
     right.alignment = "RIGHT"
     right.scale_x = right.scale_y = 1.25
@@ -1024,6 +1027,8 @@ def register():
     _pcoll.append(bpy.utils.previews.new())
     for c in classes:
         bpy.utils.register_class(c)
+    from . import matconvert
+    matconvert.register()
     W = bpy.types.WindowManager
     W.b4d_mm_view = bpy.props.EnumProperty(description='Show materials as previews, as a list, or as a list with their textures', name="View", items=VIEWS, default="ICONS", update=_px_update)
     W.b4d_mm_px = bpy.props.IntProperty(description='How large the material previews are', name="Preview Size", default=64, min=PX_MIN, max=PX_MAX, subtype="PIXEL",
@@ -1044,6 +1049,8 @@ def register():
 
 
 def unregister():
+    from . import matconvert
+    matconvert.unregister()
     while _draw:
         bpy.types.SpaceProperties.draw_handler_remove(_draw.pop(), "WINDOW")
     for t in (_watch, _rerender, _redraw_until_done):
