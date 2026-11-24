@@ -75,8 +75,11 @@ def is_field(ob):
     return ob is not None and ob.get("b4d_type") in FIELDS
 
 
-def effectors_of(gen):
-    return [(i, e) for i, e in enumerate(getattr(gen, "b4d_fx_list", [])) if is_effector(e.obj)]
+LISTS = ("b4d_fx_list", "b4d_fx_list_all", "b4d_fx_list_lines", "b4d_fx_list_words")   # MoText: Letters, All, Lines, Words
+
+
+def effectors_of(gen, lst="b4d_fx_list"):
+    return [(i, e) for i, e in enumerate(getattr(gen, lst, [])) if is_effector(e.obj)]
 
 
 def fields_of(eff):
@@ -88,8 +91,11 @@ def signature(gen):
     out = [f"bare:{c.name}" for c in gen.children if not any(sl.material for sl in getattr(c, "material_slots", []))]
     from . import field_tags
     out += field_tags.clone_tag_signature(gen) + [f"sel:{getattr(e.obj, 'b4d_fx_use_sel', False)}" for _i, e in effectors_of(gen)]
-    for i, e in effectors_of(gen):
-        out += _sig_one(i, e.obj, "")
+    for lst in LISTS:
+        for i, e in effectors_of(gen, lst):
+            out += _sig_one(i, e.obj, lst[11:] + ":")
+    from . import moclone_gens
+    out += moclone_gens.extra_signature(gen)
     return out
 
 
@@ -341,14 +347,14 @@ def _apply_visibility(nodes, links, geo, e, w):
     return _store(nodes, links, geo, "b4d_hidden", "FLOAT", _math(nodes, "MAXIMUM", prev, hide, links))
 
 
-def _weight(nodes, links, gen, i, e):
+def _weight(nodes, links, gen, i, e, lst="b4d_fx_list"):
     """Strength x the list's own strength and switch x (Minimum..Maximum over the fields' value)."""
     fall = falloff(nodes, links, e)
     lo = _driven(nodes, e, "b4d_fx_min", "var*0.01")
     hi = _driven(nodes, e, "b4d_fx_max", "var*0.01")
     v = hi if fall is None else _math(nodes, "ADD", lo, _math(nodes, "MULTIPLY", _math(nodes, "SUBTRACT", hi, lo, links), fall, links), links)
     s = _math(nodes, "MULTIPLY", _driven(nodes, e, "b4d_fx_strength", "var*0.01"),
-              _math(nodes, "MULTIPLY", _driven(nodes, gen, f"b4d_fx_list[{i}].strength", "var*0.01"), _driven(nodes, gen, f"b4d_fx_list[{i}].on"), links), links)
+              _math(nodes, "MULTIPLY", _driven(nodes, gen, f"{lst}[{i}].strength", "var*0.01"), _driven(nodes, gen, f"{lst}[{i}].on"), links), links)
     return _math(nodes, "MULTIPLY", v, s, links)
 
 
@@ -492,9 +498,13 @@ def _vdist(nodes, links, a, b):
 
 
 def _count(nodes, links, geo):
-    n = nodes.new("GeometryNodeAttributeDomainSize"); n.component = "POINTCLOUD"
-    links.new(geo, n.inputs["Geometry"])
-    return n.outputs["Point Count"]
+    """How many clones: points of a point cloud, or of curves (MoSpline)."""
+    total = 0.0
+    for comp in ("POINTCLOUD", "CURVE"):
+        n = nodes.new("GeometryNodeAttributeDomainSize"); n.component = comp
+        links.new(geo, n.inputs["Geometry"])
+        total = _math(nodes, "ADD", total, n.outputs["Point Count"], links)
+    return total
 
 
 def _formula(nodes, links, geo, gen, i, e, w):
@@ -625,9 +635,31 @@ def _push_apart(nodes, links, geo, gen, i, e, w):
     g = hin.outputs["Geometry"]
     stt = _attr(nodes, "b4d_push_st", "INT")
     und = _math(nodes, "COMPARE", stt, 0.0, links)
-    ni, has, npos, gap = nearest(g, stt)                                 # the nearest other undecided clone
-    blocked = _math(nodes, "MULTIPLY", _math(nodes, "MULTIPLY", has, _math(nodes, "LESS_THAN", _vdist(nodes, links, gc.position(nodes), npos), gap, links), links),
-                    _math(nodes, "LESS_THAN", ni, idx, links), links)
+    # an undecided clone is blocked while an earlier undecided clone overlaps it; each of eight groups (number mod 8)
+    # gives its nearest undecided clone, so a tie between neighbours can't hide the earlier one
+    H = 8
+    hcls = _math(nodes, "FLOORED_MODULO", idx, float(H), links)
+    g = _store(nodes, links, g, "b4d_push_i", "INT", idx)
+    own_i, own_has, own_pos, own_gap = nearest(g, _math(nodes, "ADD", _math(nodes, "MULTIPLY", stt, float(H), links), hcls, links))
+    blocked = 0.0
+    for c in range(H):
+        part = nodes.new("GeometryNodeSeparateGeometry"); part.domain = "POINT"; links.new(g, part.inputs["Geometry"])
+        links.new(_math(nodes, "MULTIPLY", _math(nodes, "COMPARE", _attr(nodes, "b4d_push_st", "INT"), 0.0, links),
+                        _math(nodes, "COMPARE", _math(nodes, "FLOORED_MODULO", nodes.new("GeometryNodeInputIndex").outputs[0], float(H), links), float(c), links), links),
+                  part.inputs["Selection"])
+        sn = nodes.new("GeometryNodeSampleNearest"); sn.domain = "POINT"; links.new(part.outputs["Selection"], sn.inputs["Geometry"])
+        ci = sample(part.outputs["Selection"], _attr(nodes, "b4d_push_i", "INT"), "INT", sn.outputs["Index"])
+        cpos = sample(part.outputs["Selection"], gc.position(nodes), "FLOAT_VECTOR", sn.outputs["Index"])
+        cgap = _math(nodes, "ADD", own_r, _math(nodes, "MULTIPLY", R, size(sample(part.outputs["Selection"], _attr(nodes, "b4d_scale", "FLOAT_VECTOR"), "FLOAT_VECTOR", sn.outputs["Index"])), links), links)
+        cn = nodes.new("GeometryNodeAttributeDomainSize"); cn.component = "POINTCLOUD"; links.new(part.outputs["Selection"], cn.inputs["Geometry"])
+        mine = _math(nodes, "COMPARE", hcls, float(c), links)
+        oi = gc.switch(nodes, links, "INT", mine, ci, own_i)
+        opos = gc.switch(nodes, links, "VECTOR", mine, cpos, own_pos)
+        ogap = gc.switch(nodes, links, "FLOAT", mine, cgap, own_gap)
+        ohas = gc.switch(nodes, links, "FLOAT", mine, _math(nodes, "GREATER_THAN", cn.outputs["Point Count"], 0.0, links), own_has)
+        hit = _math(nodes, "MULTIPLY", _math(nodes, "MULTIPLY", ohas, _math(nodes, "LESS_THAN", _vdist(nodes, links, gc.position(nodes), opos), ogap, links), links),
+                    _math(nodes, "LESS_THAN", oi, idx, links), links)
+        blocked = _math(nodes, "MAXIMUM", blocked, hit, links)
     keep = _math(nodes, "MULTIPLY", und, _math(nodes, "SUBTRACT", 1.0, blocked, links), links)
     g = _store(nodes, links, g, "b4d_push_st", "INT", _math(nodes, "MAXIMUM", stt, keep, links))
     kept = nodes.new("GeometryNodeSeparateGeometry"); kept.domain = "POINT"
@@ -645,8 +677,10 @@ def _push_apart(nodes, links, geo, gen, i, e, w):
     geo = hout.outputs["Geometry"]
     gone = _math(nodes, "COMPARE", _attr(nodes, "b4d_push_st", "INT"), 2.0, links)
     geo = _store(nodes, links, geo, "b4d_hidden", "FLOAT", _math(nodes, "MAXIMUM", _attr(nodes, "b4d_hidden", "FLOAT"), gone, links))
-    rm = nodes.new("GeometryNodeRemoveAttribute"); links.new(geo, rm.inputs["Geometry"]); rm.inputs["Name"].default_value = "b4d_push_st"
-    return rm.outputs["Geometry"]
+    for name in ("b4d_push_st", "b4d_push_i"):
+        rm = nodes.new("GeometryNodeRemoveAttribute"); links.new(geo, rm.inputs["Geometry"]); rm.inputs["Name"].default_value = name
+        geo = rm.outputs["Geometry"]
+    return geo
 
 
 def _nested(nodes, links, geo, gen, e, w, depth):
@@ -668,8 +702,8 @@ BASE = (("position", "b4d_base_p", "FLOAT_VECTOR"), ("b4d_scale", "b4d_base_s", 
         ("b4d_color", "b4d_base_c", "FLOAT_COLOR"), ("b4d_weight", "b4d_base_w", "FLOAT"), ("b4d_hidden", "b4d_base_h", "FLOAT"))
 
 
-def _has_reeffector(owner, depth=0):
-    for _j, entry in effectors_of(owner):
+def _has_reeffector(owner, depth=0, lst="b4d_fx_list"):
+    for _j, entry in effectors_of(owner, lst):
         if entry.obj["b4d_type"] == "fx_reeffector" or (entry.obj["b4d_type"] in NESTS and depth < 4 and entry.obj != owner
                                                          and _has_reeffector(entry.obj, depth + 1)):
             return True
@@ -758,7 +792,13 @@ APPLY = {"fx_plain": _plain, "fx_random": _random, "fx_shader": _shader, "fx_ste
 
 
 def apply_one(nodes, links, geo, gen, i, e, w, depth=0):
+    """One effector. Its strength per clone is read once, where the clone is before it moves: the fields would
+    otherwise be read again after the move, and a clone pushed out of a field would lose the rest of the effect."""
     k = e["b4d_type"]
+    if hasattr(w, "is_output"):
+        name = f"b4d_w{depth}"
+        geo = _store(nodes, links, geo, name, "FLOAT", w)
+        w = _attr(nodes, name, "FLOAT")
     if k == "fx_group":
         return _group(nodes, links, geo, gen, i, e, w, depth)
     if k == "fx_reeffector":
@@ -767,26 +807,29 @@ def apply_one(nodes, links, geo, gen, i, e, w, depth=0):
 
 
 
-def effect_fn(gen):
-    """geo -> geo through the Cloner's effectors in list order; hidden clones go at the end."""
+def effect_fn(gen, lst="b4d_fx_list", drop_hidden=True):
+    """geo -> geo through the Cloner's effectors in list order; hidden clones go at the end (drop_hidden False: they
+    keep b4d_hidden = 1, for generators that hide pieces themselves)."""
     def effect(nodes, links, geo):
-        items = effectors_of(gen)
+        items = effectors_of(gen, lst)
         from . import field_tags
         geo = field_tags.clone_tags(nodes, links, gen, geo)            # MoClone Weightmap and Selection
         if not items:
             return geo
         geo = _store(nodes, links, geo, "b4d_hidden", "FLOAT", nodes.new("ShaderNodeValue").outputs[0])
-        if _has_reeffector(gen):
+        if _has_reeffector(gen, 0, lst):
             geo = keep_base(nodes, links, geo)
         for i, entry in items:
             e = entry.obj
-            w = _weight(nodes, links, gen, i, e)
+            w = _weight(nodes, links, gen, i, e, lst)
             from . import field_tags
             if field_tags.has(gen, "MG_WEIGHT"):                       # each clone's weight scales the effector
                 w = _math(nodes, "MULTIPLY", w, _attr(nodes, "b4d_weight", "FLOAT"), links)
             if field_tags.has(gen, "MG_SEL") and e.b4d_fx_use_sel:     # Selection: only the selected clones
                 w = _math(nodes, "MULTIPLY", w, _attr(nodes, "b4d_sel", "FLOAT"), links)
             geo = apply_one(nodes, links, geo, gen, i, e, w)
+        if not drop_hidden:
+            return geo
         drop = nodes.new("GeometryNodeDeleteGeometry"); drop.domain = "POINT"
         links.new(geo, drop.inputs["Geometry"]); links.new(_math(nodes, "GREATER_THAN", _attr(nodes, "b4d_hidden", "FLOAT"), 0.5, links), drop.inputs["Selection"])
         return drop.outputs["Geometry"]

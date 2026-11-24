@@ -11,7 +11,7 @@ from mathutils import Matrix, Vector
 from . import kinds
 from . import moclone_fx as fx
 
-MOGENS = ("cloner", "matrix")
+from .moclone_gens import FX_GENS as MOGENS      # generators with an Effectors list
 
 
 def _cloners():

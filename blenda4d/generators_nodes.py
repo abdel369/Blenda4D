@@ -580,6 +580,9 @@ KINDS["cloner"] = ("Cloner", _mc.CLONER_INPUTS, _mc.CLONER_MENUS, True)
 KINDS["matrix"] = ("Matrix", _mc.MATRIX_INPUTS, _mc.MATRIX_MENUS, True)
 BUILDERS["cloner"] = _mc.build_cloner
 BUILDERS["matrix"] = _mc.build_matrix
+from . import moclone_gens as _mg  # noqa: E402
+KINDS.update(_mg.KINDS)
+BUILDERS.update(_mg.BUILDERS)
 
 
 # --- group construction ---------------------------------------------------------------------------
@@ -636,6 +639,8 @@ def make_group(name, kind, kids, owner):
             from . import moclone_fx
             gen_ob = bpy.data.objects.get(owner)
             out = BUILDERS[kind](nodes, links, o, kid_geo, effect=moclone_fx.effect_fn(gen_ob) if gen_ob is not None else None)
+        elif kind in _mg.BUILDERS:                    # MoClone generators: the builder runs the effectors itself
+            out = BUILDERS[kind](nodes, links, o, kid_geo, gen=bpy.data.objects.get(owner))
         else:
             out = BUILDERS[kind](nodes, links, o, kid_geo)
     if "Shell Selection" in o:

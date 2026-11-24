@@ -136,7 +136,18 @@ def create(context, k):
     context.collection.objects.link(gen)
     gen["b4d_type"] = k
     tidy_name(gen)
-    if k == "instance":
+    if k == "tracer":                                   # the selected objects are traced, not put under it
+        rebuild(gen)
+        for o in sel:
+            it = gen.b4d_trace_list.add(); it.obj = o
+    elif k == "moinstance":                             # the selected object is its reference
+        gen.location = sel[0].matrix_world.translation.copy() if sel else context.scene.cursor.location
+        rebuild(gen)
+        if sel:
+            s = slot(gen, "Object Reference")
+            if s:
+                setattr(*s, sel[0])
+    elif k == "instance":
         gen.location = context.scene.cursor.location
         rebuild(gen)
         if sel:
@@ -215,7 +226,8 @@ def rebuild(gen):
             except Exception:
                 pass
     gen["b4d_kids"] = [o.name for o in kids]
-    if k in ("cloner", "matrix"):
+    from .moclone_gens import FX_GENS, OWN_SIG
+    if k in FX_GENS + OWN_SIG:
         from . import moclone_fx
         gen["b4d_fx_sig"] = moclone_fx.signature(gen)
     gen.update_tag()
@@ -225,7 +237,8 @@ def _needs_rebuild(gen):
     mod = gen_mod(gen)
     if mod is None or mod.node_group is None or mod.node_group.get("b4d_owner") != gen.name:
         return True
-    if gen.get("b4d_type") in ("cloner", "matrix"):
+    from .moclone_gens import FX_GENS, OWN_SIG
+    if gen.get("b4d_type") in FX_GENS + OWN_SIG:
         from . import moclone_fx
         if list(gen.get("b4d_fx_sig", [])) != moclone_fx.signature(gen):
             return True

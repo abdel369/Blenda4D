@@ -224,5 +224,6 @@ def refresh_all():
         except Exception as ex:
             print("Blenda 4D: could not refill", ob.name, ex)
     for ob in bpy.data.objects:
-        if ob.get("b4d_type") in ("cloner", "matrix"):
+        from .moclone_gens import FX_GENS
+        if ob.get("b4d_type") in FX_GENS:
             ob.update_tag()

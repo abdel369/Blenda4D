@@ -11,9 +11,14 @@ from . import generators as g
 from . import kinds
 from . import moclone_fx_ui
 
-ICONS = {"cloner": "MOD_ARRAY", "matrix": "LIGHTPROBE_VOLUME"}
+ICONS = {"cloner": "MOD_ARRAY", "matrix": "LIGHTPROBE_VOLUME", "fracture": "MOD_EXPLODE", "moinstance": "TRACKING_BACKWARDS",
+         "tracer": "CURVE_PATH", "mospline": "OUTLINER_OB_CURVES"}
 TIPS = {"cloner": "Places copies of the objects under it in a row, ring, grid, honeycomb or on another object",
-        "matrix": "Makes the points of a Cloner arrangement, shown as small cubes, for other Cloners to use"}
+        "matrix": "Makes the points of a Cloner arrangement, shown as small cubes, for other Cloners to use",
+        "fracture": "Makes the objects under it, or each of their loose parts, into clones that effectors move",
+        "moinstance": "Leaves a trail of copies of an object along the path it moves (play the animation from the start)",
+        "tracer": "Draws splines along the paths objects and their points move, or through them (play from the start)",
+        "mospline": "Grows splines, fanned out and bent, or from another spline, for a Sweep; effectors move their points"}
 
 
 def _mode(v):
@@ -92,6 +97,90 @@ def page_matrix(col, ob):
     g._rows(col, ob, _only_mode(_mode_rows(False), ob) + [None, ("Matrix Size", "Cube Size"), ("Show in Render", "Show in Render")])
 
 
+def page_fracture(col, ob):
+    if g._missing(col, ob):
+        return
+    if not g.kids_of(ob):
+        g._hint(col, "Put objects under the Fracture")
+    g._rows(col, ob, [("Fracture Mode", "Mode")])
+
+
+def page_moinstance(col, ob):
+    if g._missing(col, ob):
+        return
+    g._rows(col, ob, [("Object Reference", "Object Reference"), ("History Depth", "History Depth")])
+    g._hint(col, "Animate the MoInstance itself and play from the first frame")
+
+
+def _trace_changed(self, context):
+    g.sync_all()
+
+
+class B4DTraceEntry(bpy.types.PropertyGroup):
+    obj: bpy.props.PointerProperty(type=bpy.types.Object, update=_trace_changed)
+
+
+class BLENDA4D_UL_trace(bpy.types.UIList):
+    def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
+        layout.prop(item, "obj", text="", emboss=False)
+
+
+class BLENDA4D_OT_trace_link(bpy.types.Operator):
+    """Add the selected objects to the Trace Link list, or take the chosen one out"""
+    bl_idname = "blenda4d.trace_link"
+    bl_label = "Trace Link"
+    bl_options = {"REGISTER", "UNDO"}
+    owner: bpy.props.StringProperty()
+    remove: bpy.props.BoolProperty()
+
+    def execute(self, context):
+        gen = bpy.data.objects.get(self.owner)
+        if gen is None:
+            return {"CANCELLED"}
+        lst = gen.b4d_trace_list
+        if self.remove:
+            if 0 <= gen.b4d_trace_index < len(lst):
+                lst.remove(gen.b4d_trace_index)
+        else:
+            for o in context.selected_objects:
+                if o != gen and not any(e.obj == o for e in lst):
+                    lst.add().obj = o
+            if not len(lst) or lst[-1].obj is not None and not context.selected_objects:
+                lst.add()
+        g.sync_all()
+        return {"FINISHED"}
+
+
+def page_tracer(col, ob):
+    if g._missing(col, ob):
+        return
+    col.label(text="Trace Link")
+    r = col.row()
+    r.template_list("BLENDA4D_UL_trace", "", ob, "b4d_trace_list", ob, "b4d_trace_index", rows=3)
+    side = r.column(align=True)
+    a = side.operator("blenda4d.trace_link", text="", icon="ADD"); a.owner, a.remove = ob.name, False
+    d = side.operator("blenda4d.trace_link", text="", icon="REMOVE"); d.owner, d.remove = ob.name, True
+    g._rows(col, ob, [("Tracing Mode", "Tracing Mode"), ("Sample Step", "Sample Step"), ("Trace Active", "Trace Active"),
+                      ("Trace Vertices", "Trace Vertices"), ("Handle Cloners", "Handle Cloners"), ("Include Cloner", "Include Cloner"),
+                      ("Space", "Space"), None, ("Limit", "Limit"),
+                      ("Amount", "Amount", lambda v: v("Limit") != "None"), ("Variance", "Variance", lambda v: v("Limit") != "None"), None,
+                      ("Type", "Type"), ("Close Spline", "Close Spline"), ("Reverse Sequence", "Reverse Sequence")])
+
+
+def page_mospline(col, ob):
+    if g._missing(col, ob):
+        return
+    simple = lambda v: v("MoSpline Mode") == "Simple"
+    spline = lambda v: v("MoSpline Mode") == "Spline"
+    rows = [("MoSpline Mode", "Mode"), ("Grow Mode", "Grow Mode"), ("Start", "Start %"), ("End", "End %"), ("Offset", "Offset %"), None,
+            ("Length", "Length", simple), ("Steps", "Steps", simple), ("Segments", "Segments", simple), ("Angle", "Angle", simple),
+            ("Curve", "Curve", simple), ("Bend", "Bend", simple), ("Twist", "Twist", simple),
+            ("Source Spline", "Source Spline", spline), ("Generation Mode", "Generation Mode", spline),
+            ("Count", "Count", lambda v: spline(v) and v("Generation Mode") in ("Count", "Even")),
+            ("Step", "Step", lambda v: spline(v) and v("Generation Mode") == "Step"), None, ("Width", "Width")]
+    g._rows(col, ob, _only_mode(rows, ob))
+
+
 def page_transform(col, ob):
     if g._missing(col, ob):
         return
@@ -168,19 +257,33 @@ def register():
     moclone_fx_ui.register()
     from . import moclone_dyn
     moclone_dyn.register()
-    for k, page in (("cloner", page_cloner), ("matrix", page_matrix)):
+    for c in (B4DTraceEntry, BLENDA4D_UL_trace, BLENDA4D_OT_trace_link):
+        bpy.utils.register_class(c)
+    bpy.types.Object.b4d_trace_list = bpy.props.CollectionProperty(type=B4DTraceEntry)
+    bpy.types.Object.b4d_trace_index = bpy.props.IntProperty()
+    for k, page in (("cloner", page_cloner), ("matrix", page_matrix), ("fracture", page_fracture), ("moinstance", page_moinstance),
+                    ("mospline", page_mospline), ("tracer", page_tracer)):
         g.ICONS[k] = ICONS[k]
         g.TIPS[k] = TIPS[k]
         g.PAGES[k] = page
+        tabs = [("OBJECT", "Object"), ("TRANSFORM", "Transform"), ("EFFECTORS", "Effectors")]
+        if k == "mospline":
+            tabs = [tabs[0], tabs[2]]
+        elif k == "tracer":
+            tabs = tabs[:1]
         kinds.add(k, g.LABELS[k], ICONS[k], create=(lambda k: lambda context: g.create(context, k))(k),
-                  tabs=[("OBJECT", "Object"), ("TRANSFORM", "Transform"), ("EFFECTORS", "Effectors")],
+                  tabs=tabs,
                   pages={"OBJECT": page, "TRANSFORM": page_transform, "EFFECTORS": moclone_fx_ui.page_cloner_effectors},
                   titles={"OBJECT": g.LABELS[k], "TRANSFORM": "Transform", "EFFECTORS": "Effectors"},
-                  describe=TIPS[k] + (" (selected objects go under it)" if k == "cloner" else ""))
+                  describe=TIPS[k] + {"cloner": " (selected objects go under it)", "fracture": " (selected objects go under it)",
+                                      "moinstance": " (the selected object is its reference)", "tracer": " (the selected objects are traced)"}.get(k, ""))
         kinds.create_button("moclone", g.LABELS[k], k)
 
 
 def unregister():
+    for c in (BLENDA4D_OT_trace_link, BLENDA4D_UL_trace, B4DTraceEntry):
+        if getattr(c, "is_registered", False):
+            bpy.utils.unregister_class(c)
     from . import moclone_dyn
     moclone_dyn.unregister()
     moclone_fx_ui.unregister()
