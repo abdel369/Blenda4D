@@ -359,30 +359,39 @@ def _textures(mat):
     return sorted({n.image.name for n in mat.node_tree.nodes if getattr(n, "image", None) is not None})
 
 
+_tool_scale = [1.25]       # the tool row's height scale as last drawn; GRID_TOP was measured at 1.25
+TOOL_BUTTONS = 11
+
+
 def draw_tools(layout, context):
-    """The tool row under the menus."""
+    """The tool row under the menus: buttons joined in groups across the whole width (Blender shares the width out
+    evenly), about as tall as they are wide."""
     layout.use_property_split = False
     wm = context.window_manager
-    sp = layout.split(factor=0.86, align=False)      # a split, not a stretch spacer: a spacer here pushes the
-    row = sp.row(align=False)                         # tile rows below it out of place
-    row.alignment = "LEFT"
-    row.scale_x = row.scale_y = 1.25
-    row.operator("blenda4d.new_material", text="", icon="ADD")
-    row.operator("blenda4d.toggle_column", text="", icon="ASSET_MANAGER",
-                 depress=bool(roles.areas(context.screen, "ASSETS"))).name = "ASSETS"
-    row.operator("blenda4d.mm_apply", text="", icon="CHECKMARK")
-    row.operator("blenda4d.mm_pick", text="", icon="EYEDROPPER")
-    row.operator("blenda4d.mm_delete", text="", icon="TRASH")
-    row.operator("blenda4d.mm_delete_unused", text="", icon="ORPHAN_DATA")
-    row.operator("blenda4d.mm_delete_duplicates", text="", icon="DUPLICATE")
-    row.separator()
-    row.operator("blenda4d.mm_to_octane", text="", icon="SHADING_RENDERED")
-    row.operator("blenda4d.mm_to_blender", text="", icon="BLENDER")
-    right = sp.row(align=False)
-    right.alignment = "RIGHT"
-    right.scale_x = right.scale_y = 1.25
-    right.operator("blenda4d.mm_filter_toggle", text="", icon="FILTER", depress=only_selected())
-    right.prop(wm, "b4d_mm_search", text="", icon="VIEWZOOM", toggle=True, icon_only=True)
+    ui = context.preferences.system.ui_scale
+    region = context.region
+    width = (region.width / ui if region is not None else 250) - 2 * LEFT
+    s = max(1.0, min(1.4, width / TOOL_BUTTONS / 20))
+    _tool_scale[0] = s                                  # the tiles below start lower or higher with it (tile_at)
+    row = layout.row(align=False)
+    row.scale_y = s
+    g = row.row(align=True)
+    g.operator("blenda4d.new_material", text="", icon="ADD")
+    g.operator("blenda4d.toggle_column", text="", icon="ASSET_MANAGER",
+               depress=bool(roles.areas(context.screen, "ASSETS"))).name = "ASSETS"
+    g = row.row(align=True)
+    g.operator("blenda4d.mm_apply", text="", icon="CHECKMARK")
+    g.operator("blenda4d.mm_pick", text="", icon="EYEDROPPER")
+    g = row.row(align=True)
+    g.operator("blenda4d.mm_delete", text="", icon="TRASH")
+    g.operator("blenda4d.mm_delete_unused", text="", icon="ORPHAN_DATA")
+    g.operator("blenda4d.mm_delete_duplicates", text="", icon="DUPLICATE")
+    g = row.row(align=True)
+    g.operator("blenda4d.mm_to_octane", text="", icon="SHADING_RENDERED")
+    g.operator("blenda4d.mm_to_blender", text="", icon="BLENDER")
+    g = row.row(align=True)
+    g.operator("blenda4d.mm_filter_toggle", text="", icon="FILTER", depress=only_selected())
+    g.prop(wm, "b4d_mm_search", text="", icon="VIEWZOOM", toggle=True, icon_only=True)
     if wm.b4d_mm_search:
         layout.prop(wm, "b4d_mm_filter", text="", icon="VIEWZOOM", placeholder="Search")
 
@@ -490,7 +499,7 @@ def tile_at(context, x, y):
     px = wm.b4d_mm_px
     cols, cw = grid_columns(context, px)
     pitch = px * ui + (NAME_UNITS + ROW_GAP) * unit
-    top = GRID_TOP * unit
+    top = (GRID_TOP + _tool_scale[0] - 1.25) * unit
     if down < top:
         return None, "above"                        # the title, menus and tool row
     row, dy = divmod(down - top, pitch)
@@ -665,7 +674,7 @@ def tile_rect(context, region, i):
     pitch = px * ui + (NAME_UNITS + ROW_GAP) * unit
     row, col = divmod(i, cols)
     vx0 = LEFT * ui + col * cw * ui
-    vtop = -(GRID_TOP * unit + row * pitch)
+    vtop = -((GRID_TOP + _tool_scale[0] - 1.25) * unit + row * pitch)
     x0, y1 = region.view2d.view_to_region(vx0, vtop, clip=False)
     x1, y0 = region.view2d.view_to_region(vx0 + px * ui, vtop - px * ui - NAME_UNITS * unit, clip=False)
     return x0, y0, x1, y1

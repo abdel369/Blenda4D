@@ -12,6 +12,7 @@ VIEW = (0.212, 0.212, 0.212)            # 363636
 FIELD = (0.235, 0.235, 0.235, 1.0)
 FIELD_HI = (0.30, 0.30, 0.30, 1.0)
 SEL = (0.294, 0.294, 0.427, 1.0)        # 4b4b6d
+PRESSED = (0.345, 0.353, 0.580, 1.0)    # 585a94: a pressed (on) button's fill, clearly apart from FIELD
 SEL_TEXT = (0.95, 0.95, 0.95)
 TEXT = (0.82, 0.82, 0.82)
 TEXT_DIM = (0.60, 0.60, 0.60)
@@ -60,6 +61,10 @@ def apply():
         _set(w, "item", ACCENT)
         _set(w, "show_shaded", False)
         _set(w, "roundness", 0.15)
+    for name in ("wcol_tool", "wcol_toggle", "wcol_regular"):     # buttons that stay pressed while on: a stronger
+        w = getattr(ui, name)                                    # fill and a light outline, seen at a glance
+        _set(w, "inner_sel", PRESSED)
+        _set(w, "outline_sel", ACCENT)
     _set(th.view_3d, "camera", (0.89, 0.843, 0.796))
     # Object Manager names: selected = orange, active = bright
     _set(ui.wcol_list_item, "outline", (0, 0, 0, 0))          # trees are plain rows, no boxes
