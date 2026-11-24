@@ -1526,15 +1526,15 @@ classes = (BLENDA4D_OT_add_primitive,)
 
 
 def _sync_materials():
-    """Keep each primitive's and generator's material input in step with its first material slot, however the slot
+    """Keep each primitive's and generator's material input in step with its last material slot, however the slot
     was set: Blender's own material slots, a drop from the Asset Browser, another add-on (found Nov 19 2026: a
     material given outside set_material left the generated geometry without one, drawn white)."""
     try:
         for ob in bpy.data.objects:
             if not hasattr(ob.data, "materials") or not any(True for _ in _own_mods(ob)):
                 continue
-            mat = ob.material_slots[0].material if len(ob.material_slots) else None
-            material_output(ob, mat)
+            mat = next((s.material for s in reversed(ob.material_slots) if s.material is not None), None)
+            material_output(ob, mat)                      # C4D: the rightmost material tag is the one that shows
     except (ReferenceError, RuntimeError, AttributeError, KeyError) as ex:
         print("Blenda 4D: material sync", ex)
     return 0.5

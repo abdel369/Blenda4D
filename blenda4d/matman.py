@@ -124,18 +124,26 @@ def _tag_redraw():
 class BLENDA4D_OT_mm_apply(bpy.types.Operator):
     bl_idname = "blenda4d.mm_apply"
     bl_label = "Apply Material"
-    bl_description = "Put the selected material on the selected objects"
+    bl_description = "Give the selected objects a material tag for each selected material"
     bl_options = {"REGISTER", "UNDO"}
 
     @classmethod
     def poll(cls, context):
-        return current(context) is not None and bool(context.selected_objects)
+        return current(context) is not None and bool(sel_objects(context))
 
     def execute(self, context):
-        mat = current(context)
-        n = sum(_put_on(ob, mat) for ob in context.selected_objects)
+        mats = selected(context)                          # every selected material, as new tags (C4D: Apply)
+        obs = [ob for ob in sel_objects(context) if hasattr(getattr(ob, "data", None), "materials")]
+        from . import material_tag
+        for ob in obs:
+            for m in mats:
+                ob.data.materials.append(m)
+            material_tag.ensure(ob)
+            from . import managers
+            managers.show_last(ob)
+            ob.update_tag()
         _tag_redraw()
-        return {"FINISHED"} if n else {"CANCELLED"}
+        return {"FINISHED"} if obs and mats else {"CANCELLED"}
 
 
 class BLENDA4D_OT_mm_pick(bpy.types.Operator):
@@ -781,12 +789,31 @@ def drop_on_object(context, mats, event):
     ob = object_under(context, event)
     if ob is None or not hasattr(getattr(ob, "data", None), "materials"):
         return False
+    add_tags(context, ob, mats)
+    return True
+
+
+def add_tags(context, ob, mats):
+    """New material tags on the object, the last one shown in the Attribute Manager with the object selected (C4D)."""
+    from . import material_tag
     for m in mats:
         ob.data.materials.append(m)
+    material_tag.ensure(ob)
+    from . import managers
+    managers.show_last(ob)
     ob.update_tag()
+    vl = context.view_layer
+    for o in vl.objects:
+        if o is not None and o != ob and o.select_get():
+            o.select_set(False)
+    try:
+        ob.select_set(True)
+        vl.objects.active = ob
+        context.window_manager.b4d_am_subject = f"{material_tag.SUBJECT}:{ob.name}:{len(ob.material_slots) - 1}"
+    except RuntimeError:
+        pass
     for a in context.window.screen.areas:
         a.tag_redraw()
-    return True
 
 
 def _draw_drag():
@@ -812,10 +839,183 @@ def _draw_drag():
     gpu.state.blend_set("NONE")
 
 
+# --- right-click menu (C4D's Material Manager) ----------------------------------------------------------------------
+class BLENDA4D_OT_mm_context(bpy.types.Operator):
+    bl_idname = "blenda4d.mm_context"
+    bl_label = "Material Menu"
+    bl_description = "Right-click a material for what can be done with it"
+    bl_options = {"INTERNAL"}
+
+    @classmethod
+    def poll(cls, context):
+        return roles.role(context.area) == "MATERIALS"
+
+    def invoke(self, context, event):
+        mat, part = tile_at(context, event.mouse_region_x, event.mouse_region_y)
+        if part == "above":
+            return {"PASS_THROUGH"}
+        if mat is not None and not is_selected(context, mat):
+            select_only(context, [mat], mat)                 # a right-click picks the material first, as in C4D
+            _tag_redraw()
+        bpy.ops.wm.call_menu(name="BLENDA4D_MT_mm_context")
+        return {"FINISHED"}
+
+
+class BLENDA4D_MT_mm_context(bpy.types.Menu):
+    bl_idname = "BLENDA4D_MT_mm_context"
+    bl_label = ""
+
+    def draw(self, context):
+        lay = self.layout
+        lay.operator_context = "INVOKE_DEFAULT"
+        lay.operator("blenda4d.mm_edit", text="Edit...", icon="NODETREE")
+        lay.operator("blenda4d.mm_apply", text="Apply", icon="MATERIAL")
+        lay.operator("blenda4d.mm_rename", text="Rename...", icon="SORTALPHA")
+        lay.separator()
+        lay.operator("blenda4d.mm_select_of_active", text="Select Materials of Active Objects", icon="RESTRICT_SELECT_OFF")
+        lay.operator("blenda4d.mm_select_users", text="Select Material Tags/Objects", icon="OBJECT_DATA")
+        lay.operator("blenda4d.mm_select_same", text="Select Materials with same Reflectance", icon="SHADING_RENDERED")
+        lay.separator()
+        lay.operator("blenda4d.mm_render", text="Render Materials", icon="RENDER_STILL").every = False
+        lay.operator("blenda4d.mm_render", text="Render All Materials", icon="RENDERLAYERS").every = True
+        lay.operator("blenda4d.mm_sort", text="Sort Materials", icon="SORTALPHA")
+        lay.separator()
+        lay.operator("blenda4d.mm_delete", text="Delete", icon="TRASH")
+        lay.operator("blenda4d.mm_delete_unused", text="Delete Unused Materials", icon="TRASH")
+        lay.operator("blenda4d.mm_delete_duplicates", text="Delete Duplicate Materials", icon="TRASH")
+
+
+class BLENDA4D_OT_mm_edit(bpy.types.Operator):
+    bl_idname = "blenda4d.mm_edit"
+    bl_label = "Edit Material"
+    bl_description = "Open the material in the Node Editor window"
+
+    @classmethod
+    def poll(cls, context):
+        return current(context) is not None
+
+    def execute(self, context):
+        from . import nodewin
+        nodewin.open_window(context, current(context))
+        return {"FINISHED"}
+
+
+class BLENDA4D_OT_mm_rename(bpy.types.Operator):
+    bl_idname = "blenda4d.mm_rename"
+    bl_label = "Rename Material"
+    bl_description = "Rename the selected material"
+    bl_options = {"UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        return current(context) is not None
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_popup(self, width=200)
+
+    def draw(self, context):
+        mat = current(context)
+        if mat is not None:
+            self.layout.activate_init = True
+            self.layout.prop(mat, "name", text="", icon="MATERIAL")
+
+    def execute(self, context):
+        return {"FINISHED"}
+
+
+def sel_objects(context):
+    """The selected objects, read from the view layer: in a Properties editor context.selected_objects can be empty."""
+    return [o for o in context.view_layer.objects if o is not None and o.select_get()]
+
+
+def _users(mats):
+    names = {m.name for m in mats}
+    return [ob for ob in bpy.context.scene.objects
+            if any(s.material is not None and s.material.name in names for s in getattr(ob, "material_slots", []))]
+
+
+class BLENDA4D_OT_mm_select_of_active(bpy.types.Operator):
+    bl_idname = "blenda4d.mm_select_of_active"
+    bl_label = "Select Materials of Active Objects"
+    bl_description = "Select the materials the selected objects use"
+
+    def execute(self, context):
+        mats = []
+        for ob in sel_objects(context):
+            for s in getattr(ob, "material_slots", []):
+                if s.material is not None and s.material not in mats:
+                    mats.append(s.material)
+        select_only(context, mats, mats[0] if mats else None)
+        _tag_redraw()
+        return {"FINISHED"}
+
+
+class BLENDA4D_OT_mm_select_users(bpy.types.Operator):
+    bl_idname = "blenda4d.mm_select_users"
+    bl_label = "Select Material Tags/Objects"
+    bl_description = "Select every object that has a tag with the selected materials"
+    bl_options = {"UNDO"}
+
+    def execute(self, context):
+        users = _users(selected(context))
+        for o in context.view_layer.objects:
+            if o is not None:
+                o.select_set(o in users)
+        if users:
+            context.view_layer.objects.active = users[0]
+        _tag_redraw()
+        return {"FINISHED"}
+
+
+class BLENDA4D_OT_mm_select_same(bpy.types.Operator):
+    bl_idname = "blenda4d.mm_select_same"
+    bl_label = "Select Materials with same Reflectance"
+    bl_description = "Select every material whose settings and nodes match the selected one"
+
+    @classmethod
+    def poll(cls, context):
+        return current(context) is not None
+
+    def execute(self, context):
+        fp = fingerprint(current(context))
+        same = [m for m in materials(context) if fingerprint(m) == fp]
+        select_only(context, same, current(context))
+        _tag_redraw()
+        return {"FINISHED"}
+
+
+class BLENDA4D_OT_mm_render(bpy.types.Operator):
+    bl_idname = "blenda4d.mm_render"
+    bl_label = "Render Materials"
+    bl_description = "Render the previews again (the selected materials, or all)"
+    every: bpy.props.BoolProperty(options={"SKIP_SAVE"})
+
+    def execute(self, context):
+        for m in (materials(context) if self.every else selected(context)):
+            _stale.add(m.name)
+        if _stale and not bpy.app.timers.is_registered(_rerender):
+            bpy.app.timers.register(_rerender, first_interval=0.05)
+        return {"FINISHED"}
+
+
+class BLENDA4D_OT_mm_sort(bpy.types.Operator):
+    bl_idname = "blenda4d.mm_sort"
+    bl_label = "Sort Materials"
+    bl_description = "Put the materials in alphabetical order"
+    bl_options = {"UNDO"}
+
+    def execute(self, context):
+        for i, m in enumerate(sorted(all_materials(), key=lambda m: m.name.lower())):
+            m[ORDER] = i
+        _tag_redraw()
+        return {"FINISHED"}
+
+
 _keys = []
 
 
-classes = (BLENDA4D_OT_mm_click, BLENDA4D_OT_mm_drag, BLENDA4D_OT_mm_double, BLENDA4D_OT_mm_apply, BLENDA4D_OT_mm_pick, BLENDA4D_OT_mm_delete, BLENDA4D_OT_mm_delete_unused,
+classes = (BLENDA4D_OT_mm_click, BLENDA4D_OT_mm_drag, BLENDA4D_OT_mm_context, BLENDA4D_MT_mm_context, BLENDA4D_OT_mm_edit, BLENDA4D_OT_mm_rename,
+           BLENDA4D_OT_mm_select_of_active, BLENDA4D_OT_mm_select_users, BLENDA4D_OT_mm_select_same, BLENDA4D_OT_mm_render, BLENDA4D_OT_mm_sort, BLENDA4D_OT_mm_double, BLENDA4D_OT_mm_apply, BLENDA4D_OT_mm_pick, BLENDA4D_OT_mm_delete, BLENDA4D_OT_mm_delete_unused,
            BLENDA4D_OT_mm_delete_duplicates, BLENDA4D_PT_mm_bar)
 
 
@@ -839,6 +1039,7 @@ def register():
         for mods in ({}, {"shift": True}, {"ctrl": True}, {"oskey": True}):
             _keys.append((km.name, km.keymap_items.new("blenda4d.mm_click", "LEFTMOUSE", "CLICK", **mods).idname))
             _keys.append((km.name, km.keymap_items.new("blenda4d.mm_drag", "LEFTMOUSE", "CLICK_DRAG", **mods).idname))
+        _keys.append((km.name, km.keymap_items.new("blenda4d.mm_context", "RIGHTMOUSE", "PRESS").idname))
         _draw.append(bpy.types.SpaceProperties.draw_handler_add(_draw_drag, (), "WINDOW", "POST_PIXEL"))
 
 

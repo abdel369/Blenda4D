@@ -113,6 +113,12 @@ class BLENDA4D_OT_om_select(bpy.types.Operator):
     def invoke(self, context, event):
         self.extend = event.ctrl or event.oskey
         self.range = event.shift and not self.extend
+        if not self.name and roles.role(context.area) == "OBJECTS" and context.region is not None:
+            rows = visible_rows(context)
+            i = row_at(context, context.region, event.mouse_y)
+            hit = tag_at(context, context.region, rows, i, event.mouse_x - context.region.x) if 0 <= i < len(rows) else None
+            if hit is not None:                           # a material tag's swatch: show the tag (C4D)
+                return bpy.ops.blenda4d.mat_tag_pick(name=hit[0].name, slot=hit[1])
         if not self.name:
             ob = object_at(context, event)
             now = time.monotonic()
@@ -174,9 +180,19 @@ class BLENDA4D_OT_om_delete(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return roles.role(context.area) == "OBJECTS" and any(o.select_get() for o in context.view_layer.objects)
+        from . import material_tag
+        return roles.role(context.area) == "OBJECTS" and (any(o.select_get() for o in context.view_layer.objects)
+                                                          or material_tag.subject(context) is not None)
 
     def execute(self, context):
+        from . import material_tag
+        sub = material_tag.subject(context)
+        if sub is not None:                               # a material tag shown: Delete removes the tag (C4D)
+            remove_tag(*sub)
+            context.window_manager.b4d_am_subject = ""
+            for a in context.screen.areas:
+                a.tag_redraw()
+            return {"FINISHED"}
         if context.mode != "OBJECT":
             bpy.ops.object.mode_set(mode="OBJECT")
         context.window_manager.b4d_am_subject = ""
@@ -386,6 +402,76 @@ def duplicate_tree(context, objs):
     return tops
 
 
+def status_x(context, region, rows=None):
+    """Where the first status cell (the dots) starts, in region pixels: the divider plus the panel's own inset."""
+    return divider_x(context, region, rows) + 8 * context.preferences.system.ui_scale * _zoom(region)
+
+
+def tag_cell(context, region, rows, ob, k):
+    """(x0, x1) of the object's k-th tag cell on its row."""
+    u = _unit(region)
+    x0 = status_x(context, region, rows) + (2 + (ob.type == "CAMERA") + k) * u
+    return x0, x0 + u
+
+
+def tag_at(context, region, rows, i, x):
+    """(object, slot) of the material tag swatch at region x on row i, or None. The status side starts at the column
+    divider: the dots, the check, the camera's switch, then one cell per tag (_tags order)."""
+    ob = rows[i][0]
+    u = _unit(region)
+    k = int((x - status_x(context, region, rows)) // u) - 2 - (ob.type == "CAMERA")
+    tags = _tags(ob)
+    if 0 <= k < len(tags) and tags[k][1] is not None:
+        return ob, tags[k][2]
+    return None
+
+
+def move_tag(context, src, slot, dst, copy=False):
+    """A material tag from one object to another (copy: the source keeps it), with its settings (C4D)."""
+    from . import material_tag
+    if not hasattr(getattr(dst, "data", None), "materials") or slot >= len(src.material_slots):
+        return False
+    material_tag.ensure(src)
+    mat = src.material_slots[slot].material
+    dst.data.materials.append(mat)
+    material_tag.ensure(dst)
+    a, b = src.b4d_mat_tags[slot], dst.b4d_mat_tags[len(dst.material_slots) - 1]
+    for p in a.bl_rna.properties:
+        if p.identifier != "rna_type" and not p.is_readonly:
+            try:
+                setattr(b, p.identifier, getattr(a, p.identifier))
+            except (AttributeError, TypeError):
+                pass
+    if not copy and src != dst:
+        remove_tag(src, slot)
+    show_last(dst)
+    dst.update_tag()
+    return True
+
+
+def remove_tag(ob, slot):
+    from . import material_tag
+    material_tag.ensure(ob)
+    ob.data.materials.pop(index=slot)
+    if slot < len(ob.b4d_mat_tags):
+        ob.b4d_mat_tags.remove(slot)
+    show_last(ob)
+    ob.update_tag()
+
+
+def show_last(ob):
+    """C4D: the rightmost material tag is the one that shows. Generators follow it on their own (primitives.py); a
+    plain mesh whose faces all wear one material is moved to the last tag. A mesh with materials by face is left as
+    it is."""
+    me = getattr(ob, "data", None)
+    if ob.type != "MESH" or me is None or not len(ob.material_slots) or any(
+            m.type == "NODES" and m.node_group and m.node_group.name.startswith("Blenda ") for m in ob.modifiers):
+        return
+    if len(me.polygons) and len({p.material_index for p in me.polygons}) <= 1:
+        me.polygons.foreach_set("material_index", [len(ob.material_slots) - 1] * len(me.polygons))
+        me.update()
+
+
 class BLENDA4D_OT_om_drag(bpy.types.Operator):
     bl_idname = "blenda4d.om_drag"
     bl_label = "Drag in the Object Manager"
@@ -427,9 +513,12 @@ class BLENDA4D_OT_om_drag(bpy.types.Operator):
             return {"PASS_THROUGH"}
         x = event.mouse_prev_press_x - self.region.x
         dxx = divider_x(context, self.region, self.rows)
+        sxx = status_x(context, self.region, self.rows)
         if (_name_end(context, self.region, i, self.rows) + 0.4 * _unit(self.region) < x < dxx - 3
-                or dxx - 3 <= x < dxx + 2 * _unit(self.region)):     # empty space: a box; the dots and checks: paint
+                or dxx - 3 <= x < sxx + 2 * _unit(self.region)):     # empty space: a box; the dots and checks: paint
             return {"PASS_THROUGH"}                       # empty space right of the name: om_box draws a box
+        hit = tag_at(context, self.region, self.rows, i, x)
+        self.tag = (hit[0].name, hit[1]) if hit else None          # a material tag swatch: the tag is dragged
         src = self.rows[i][0]
         self.src_name = src.name
         self.objs = [src] + ([o for o in context.selected_objects if o != src] if src.select_get() else [])
@@ -461,6 +550,22 @@ class BLENDA4D_OT_om_drag(bpy.types.Operator):
         if event.type == "LEFTMOUSE" and event.value == "RELEASE":
             self._end(context)
             if any(f(context, self.objs, event) for f in OM_DROP):     # let go over a tag's page: fills its object field
+                return {"FINISHED"}
+            if self.tag:                                  # a tag let go on a row: it goes to that object (Cmd/Ctrl: a copy)
+                i = row_at(context, self.region, event.mouse_y)
+                dst = self.rows[i][0] if 0 <= i < len(self.rows) else None
+                src = bpy.data.objects.get(self.tag[0])
+                if dst is None or src is None or (dst == src and not (self.copy or event.ctrl or event.oskey)):
+                    return {"CANCELLED"}
+                move_tag(context, src, self.tag[1], dst, copy=self.copy or event.ctrl or event.oskey)
+                from . import material_tag
+                context.window_manager.b4d_am_subject = f"{material_tag.SUBJECT}:{dst.name}:{len(dst.material_slots) - 1}"
+                for o in context.view_layer.objects:
+                    if o is not None:
+                        o.select_set(o == dst)
+                context.view_layer.objects.active = dst
+                for a in context.screen.areas:
+                    a.tag_redraw()
                 return {"FINISHED"}
             t = self._target(context, event)
             kind, _sep, name = t.partition(":")
@@ -1694,7 +1799,7 @@ class BLENDA4D_OT_om_paint(bpy.types.Operator):
         if r is None or r.type != "WINDOW":
             return {"PASS_THROUGH"}
         self.region, self.rows = r, visible_rows(context)
-        self.dx = divider_x(context, r, self.rows)
+        self.dx = status_x(context, r, self.rows)
 
         class E:                                          # where the button went down, not where the drag began
             mouse_x, mouse_y = event.mouse_prev_press_x, event.mouse_prev_press_y
@@ -1821,6 +1926,21 @@ def _draw_rows():
             batch.draw(shader)
         gpu.state.blend_set("NONE")
     _draw_tree(context, region, rows, drop, shader)
+    _draw_swatches(context, region, rows)
+    from . import material_tag
+    sub = material_tag.subject(context)
+    if sub is not None and sub[0] in [o for o, _d in rows]:        # the tag the Attribute Manager shows: framed
+        ob, slot = sub
+        i = [o for o, _d in rows].index(ob)
+        k = next((n for n, t in enumerate(_tags(ob)) if t[1] is not None and t[2] == slot), None)
+        if k is not None:
+            u = _unit(region)
+            x0 = tag_cell(context, region, rows, ob, k)[0]
+            b, t = _row_y(region, i)
+            gpu.state.blend_set("ALPHA")
+            shader.uniform_float("color", (1.0, 0.77, 0.18, 1.0))
+            batch_for_shader(shader, "LINE_LOOP", {"pos": [(x0, b + 1), (x0 + u - 1, b + 1), (x0 + u - 1, t - 1), (x0, t - 1)]}).draw(shader)
+            gpu.state.blend_set("NONE")
     dx = divider_x(context, region, rows) - 2 * context.preferences.system.ui_scale
     gpu.state.blend_set("ALPHA")
     _rect(shader, dx, 0, dx + max(1.0, context.preferences.system.ui_scale), region.height, (0.0, 0.0, 0.0, 0.35))
@@ -1835,6 +1955,78 @@ def _draw_rows():
         gpu.state.blend_set("NONE")
     if drop:
         _draw_drop(context, region, rows, drop, shader)
+
+
+_swatch_tex = {}             # material name -> (pixel key, GPU texture) for the tag swatches
+
+
+def _swatch_pixels(mat):
+    """(width, height, flat RGBA floats) of the material's picture: the renderer's ball, else Blender's preview icon."""
+    import numpy as np
+    from . import matman
+    ball = next((b for fn in matman.BALLS for b in (fn(mat),) if b is not None), None)
+    if ball is not None:
+        h, w = ball.shape[:2]
+        return w, h, np.ascontiguousarray(ball, dtype=np.float32).reshape(-1)
+    p = mat.preview_ensure() if hasattr(mat, "preview_ensure") else mat.preview
+    if p is None:
+        return None
+    w, h = p.icon_size
+    if not w or not h:
+        return None
+    a = np.empty(w * h * 4, np.float32)
+    p.icon_pixels_float.foreach_get(a)
+    if not a[3::4].any():
+        return None
+    return w, h, a
+
+
+def _swatch(mat):
+    import gpu
+    px = _swatch_pixels(mat)
+    if px is None:
+        return None
+    w, h, a = px
+    key = (w, h, float(a[::97].sum()))
+    old = _swatch_tex.get(mat.name)
+    if old and old[0] == key:
+        return old[1]
+    tex = gpu.types.GPUTexture((w, h), format="RGBA16F", data=gpu.types.Buffer("FLOAT", w * h * 4, a))
+    _swatch_tex[mat.name] = (key, tex)
+    return tex
+
+
+def _draw_swatches(context, region, rows):
+    """The material tags after each row, painted here (a picture in the panel would be a Blender drag source and take
+    the mouse away from the Object Manager's own click and drag)."""
+    import gpu
+    from gpu_extras.batch import batch_for_shader
+    u = _unit(region)
+    pad = 0.12 * u
+    flat = gpu.shader.from_builtin("UNIFORM_COLOR")
+    img = gpu.shader.from_builtin("IMAGE")
+    gpu.state.blend_set("ALPHA")
+    for i, (ob, _d) in enumerate(rows):
+        b, t = _row_y(region, i)
+        if t < 0 or b > region.height:
+            continue
+        for k, (_icon, mat, _slot) in enumerate(_tags(ob)):
+            if mat is None:
+                continue
+            x0, x1 = tag_cell(context, region, rows, ob, k)
+            s = min(x1 - x0, t - b) - 2 * pad
+            cx, cy = (x0 + x1) / 2, (b + t) / 2
+            q = [(cx - s / 2, cy - s / 2), (cx + s / 2, cy - s / 2), (cx + s / 2, cy + s / 2), (cx - s / 2, cy + s / 2)]
+            tex = _swatch(mat)
+            if tex is not None:
+                img.bind()
+                img.uniform_sampler("image", tex)
+                batch_for_shader(img, "TRI_FAN", {"pos": q, "texCoord": [(0, 0), (1, 0), (1, 1), (0, 1)]}).draw(img)
+            else:
+                c = mat.diffuse_color
+                flat.uniform_float("color", (c[0], c[1], c[2], 1.0))
+                batch_for_shader(flat, "TRI_FAN", {"pos": q}).draw(flat)
+    gpu.state.blend_set("NONE")
 
 
 def _row_y(region, i):

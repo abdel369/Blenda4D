@@ -359,11 +359,9 @@ def is_picked(context, ob, index):
 
 def om_tag_button(layout, ob, index, mat):
     """The swatch after an object's row in the Object Manager: a button that shows this tag's settings."""
-    picked = is_picked(bpy.context, ob, index)
-    from . import matman
-    iv = matman.tile_icon(mat, False, 64, layout) if any(fn(mat) is not None for fn in matman.BALLS) else layout.icon(mat)
-    op = layout.operator("blenda4d.mat_tag_pick", text="", icon_value=iv, emboss=picked, depress=picked)
-    op.name, op.slot = ob.name, index
+    layout.label(text="", icon="BLANK1")       # room only: managers._draw_swatches paints the tag here, and the
+                                               # Object Manager's own click and drag handle it (a click shows the tag,
+                                               # a drag moves it, Cmd/Ctrl-drag copies it)
 
 
 class BLENDA4D_OT_mat_tag_pick(bpy.types.Operator):
