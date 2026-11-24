@@ -82,9 +82,31 @@ def reorder(moving, before=None):
         m[ORDER] = i
 
 
+def only_selected():
+    """True when the Material Manager shows only the selected objects' materials (the preference), else it
+    highlights them."""
+    try:
+        from . import settings
+        return settings.get().mm_filter == "ONLY"
+    except (KeyError, AttributeError):
+        return False
+
+
+def used_by_selected(context):
+    """The materials the selected objects use (their material tags), or None when no object is selected."""
+    obs = [o for o in context.view_layer.objects if o.select_get()]
+    if not obs:
+        return None
+    return {s.material.name for o in obs for s in getattr(o, "material_slots", ()) if s.material is not None}
+
+
 def materials(context):
     wm = context.window_manager
     out = all_materials()
+    if only_selected():
+        used = used_by_selected(context)
+        if used is not None:
+            out = [m for m in out if m.name in used]
     if wm.b4d_mm_search and wm.b4d_mm_filter:
         needle = wm.b4d_mm_filter.lower()
         out = [m for m in out if needle in m.name.lower()]
@@ -268,6 +290,8 @@ class BLENDA4D_OT_mm_delete_duplicates(bpy.types.Operator):
 
 CHECK_A = (0.541, 0.553, 0.565)       # the grey checkerboard behind each preview ball
 CHECK_B = (0.380, 0.388, 0.396)
+USED = 2                              # a tile's state besides selected (True): used by a selected object
+USED_FRAME = (0.92, 0.92, 0.92)       # thin white frame: the selected objects use this material (Highlight)
 FRAME = (0.992, 0.647, 0.247)         # thin orange frame around the selected material's preview
 _pcoll = []
 _tiles = {}                           # key -> (checksum, preview)
@@ -306,7 +330,7 @@ def _tile(mat, selected, px, img):
     h, w = img.shape[:2]
     src = img.ravel()
     f = max(1, round(w / max(px, 1))) if selected else 0
-    key = f"{mat.name}|{f}"
+    key = f"{mat.name}|{f}|{selected}"
     check = hash(src[::61].tobytes()) ^ hash((w, h))
     hit = _tiles.get(key)
     if hit is not None and hit[0] == check:
@@ -320,7 +344,7 @@ def _tile(mat, selected, px, img):
     out[..., 3] = 1.0
     if f:
         for sl in (np.s_[:f, :], np.s_[-f:, :], np.s_[:, :f], np.s_[:, -f:]):
-            out[sl][..., :3] = FRAME
+            out[sl][..., :3] = FRAME if selected != USED else USED_FRAME
     pcoll = _pcoll[0]
     prev = pcoll.get(key) or pcoll.new(key)
     prev.image_size = (w, h)
@@ -357,6 +381,7 @@ def draw_tools(layout, context):
     right = sp.row(align=False)
     right.alignment = "RIGHT"
     right.scale_x = right.scale_y = 1.25
+    right.operator("blenda4d.mm_filter_toggle", text="", icon="FILTER", depress=only_selected())
     right.prop(wm, "b4d_mm_search", text="", icon="VIEWZOOM", toggle=True, icon_only=True)
     if wm.b4d_mm_search:
         layout.prop(wm, "b4d_mm_filter", text="", icon="VIEWZOOM", placeholder="Search")
@@ -367,6 +392,11 @@ def draw_materials(layout, context):
     wm = context.window_manager
     cur = wm.b4d_material
     mats = materials(context)
+    used = used_by_selected(context) if not only_selected() else None
+    used = used or set()
+
+    def state(mat, on):
+        return True if on else (USED if mat.name in used else False)
     if wm.b4d_mm_view == "ICONS":
         px = wm.b4d_mm_px
         cols, cw = grid_columns(context, px)
@@ -383,7 +413,7 @@ def draw_materials(layout, context):
                 cell.ui_units_x = cw / 20
                 mat = mats[i + j]
                 on = is_selected(context, mat)
-                cell.template_icon(icon_value=tile_icon(mat, on, px, layout), scale=px / 20)
+                cell.template_icon(icon_value=tile_icon(mat, state(mat, on), px, layout), scale=px / 20)
                 cell.operator("blenda4d.mat_pick", text=mat.name, emboss=on, depress=on).name = mat.name
         return
     col = layout.column(align=False)
@@ -392,7 +422,7 @@ def draw_materials(layout, context):
         row = col.row(align=False)
         row.alignment = "LEFT"
         on = is_selected(context, mat)
-        row.template_icon(icon_value=tile_icon(mat, on, wm.b4d_mm_px, layout), scale=s)
+        row.template_icon(icon_value=tile_icon(mat, state(mat, on), wm.b4d_mm_px, layout), scale=s)
         name = row.column(align=True)
         name.separator(factor=max(0.0, (s - 1) * 1.25))     # level with the middle of the preview
         name.operator("blenda4d.mat_pick", text=mat.name, emboss=on, depress=on).name = mat.name
@@ -1017,7 +1047,37 @@ class BLENDA4D_OT_mm_sort(bpy.types.Operator):
 _keys = []
 
 
-classes = (BLENDA4D_OT_mm_click, BLENDA4D_OT_mm_drag, BLENDA4D_OT_mm_context, BLENDA4D_MT_mm_context, BLENDA4D_OT_mm_edit, BLENDA4D_OT_mm_rename,
+class BLENDA4D_OT_mm_filter_toggle(bpy.types.Operator):
+    """Show only the materials of the selected objects (on), or show every material and frame the selected objects'
+    ones in white (off). Also in the add-on's preferences"""
+    bl_idname = "blenda4d.mm_filter_toggle"
+    bl_label = "Show Only Materials of Selected Objects"
+
+    def execute(self, context):
+        from . import settings
+        p = settings.get()
+        p.mm_filter = "HIGHLIGHT" if p.mm_filter == "ONLY" else "ONLY"
+        context.preferences.is_dirty = True
+        _tag_redraw()
+        return {"FINISHED"}
+
+
+_last_sel = [None]
+
+
+@bpy.app.handlers.persistent
+def _selection_changed(*_args):
+    """Redraw the Material Manager when the selected objects change: it frames or shows their materials."""
+    try:
+        now = frozenset(o.name for o in bpy.context.view_layer.objects if o.select_get())
+    except AttributeError:
+        return
+    if now != _last_sel[0]:
+        _last_sel[0] = now
+        _tag_redraw()
+
+
+classes = (BLENDA4D_OT_mm_filter_toggle, BLENDA4D_OT_mm_click, BLENDA4D_OT_mm_drag, BLENDA4D_OT_mm_context, BLENDA4D_MT_mm_context, BLENDA4D_OT_mm_edit, BLENDA4D_OT_mm_rename,
            BLENDA4D_OT_mm_select_of_active, BLENDA4D_OT_mm_select_users, BLENDA4D_OT_mm_select_same, BLENDA4D_OT_mm_render, BLENDA4D_OT_mm_sort, BLENDA4D_OT_mm_double, BLENDA4D_OT_mm_apply, BLENDA4D_OT_mm_pick, BLENDA4D_OT_mm_delete, BLENDA4D_OT_mm_delete_unused,
            BLENDA4D_OT_mm_delete_duplicates, BLENDA4D_PT_mm_bar)
 
@@ -1029,6 +1089,8 @@ def register():
         bpy.utils.register_class(c)
     from . import matconvert
     matconvert.register()
+    if _selection_changed not in bpy.app.handlers.depsgraph_update_post:
+        bpy.app.handlers.depsgraph_update_post.append(_selection_changed)
     W = bpy.types.WindowManager
     W.b4d_mm_view = bpy.props.EnumProperty(description='Show materials as previews, as a list, or as a list with their textures', name="View", items=VIEWS, default="ICONS", update=_px_update)
     W.b4d_mm_px = bpy.props.IntProperty(description='How large the material previews are', name="Preview Size", default=64, min=PX_MIN, max=PX_MAX, subtype="PIXEL",
@@ -1051,6 +1113,8 @@ def register():
 def unregister():
     from . import matconvert
     matconvert.unregister()
+    if _selection_changed in bpy.app.handlers.depsgraph_update_post:
+        bpy.app.handlers.depsgraph_update_post.remove(_selection_changed)
     while _draw:
         bpy.types.SpaceProperties.draw_handler_remove(_draw.pop(), "WINDOW")
     for t in (_watch, _rerender, _redraw_until_done):
