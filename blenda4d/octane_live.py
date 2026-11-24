@@ -2,16 +2,13 @@
 """Works with the Octane add-on when you have installed it; without it nothing here shows. Nothing of Octane is part of
 Blenda 4D: every setting is the add-on's own, read from it while it runs.
 
-With it, the Render Viewer has Octane's row: the live picture, pause, clay, region, the focus, material and white balance
-pickers, the kernel and the pass. Octane's settings show where Blenda keeps settings: Render Settings, and an Octane page
-for cameras, lights and objects. Create > Octane makes its camera, lights, objects and materials."""
+With it, the viewport's Rendered mode shows Octane's live picture, and Octane's settings show where Blenda keeps settings:
+Render Settings, and an Octane page for cameras, lights and objects. Create > Octane makes its camera, lights, objects and materials."""
 import bpy
 
-from . import build, managers, matman, matpage, roles
-from . import viewer as V
+from . import build, managers, matman, matpage
 
 NAME = "octane"
-ROW_PX = 28
 KERNELS = [("OctaneDirectLightingKernel", "Direct Lighting"), ("OctanePathTracingKernel", "Path Tracing"),
            ("OctanePhotonTracingKernel", "Photon Tracing"), ("OctanePMCKernel", "PMC"), ("OctaneInfoChannelsKernel", "Info Channels")]
 MATERIALS = [("OctaneUniversalMaterial", "Universal"), ("OctaneDiffuseMaterial", "Diffuse"), ("OctaneGlossyMaterial", "Glossy"),
@@ -28,7 +25,6 @@ SHAPES = [("octane.quick_add_octane_vectron", "Vectron", "MESH_DATA"), ("octane.
           ("octane.quick_add_octane_sphere", "Sphere", "MESH_UVSPHERE"), ("octane.quick_add_octane_capsule", "Capsule", "MESH_CAPSULE"),
           ("octane.quick_add_octane_cylinder", "Cylinder", "MESH_CYLINDER"), ("octane.quick_add_octane_prism", "Prism", "MESH_CONE"),
           ("octane.quick_add_octane_torus", "Torus", "MESH_TORUS"), ("octane.quick_add_octane_tube", "Tube", "MESH_CYLINDER")]
-_kept = {}                   # the viewport as it was before the live picture took its place
 _was = [None]
 
 
@@ -91,198 +87,6 @@ def _ready(scene):
         _new_kernel(scene, KERNELS[0][0])
 
 
-# --- the live picture --------------------------------------------------------------------------------------------------------------
-KEEP = ("show_gizmo", "show_region_header", "show_region_tool_header", "show_region_toolbar", "show_region_ui", "show_region_hud",
-        "show_region_asset_shelf", "use_render_border")
-
-
-def area():
-    """The area that shows the live picture, or None."""
-    a = V.editor()
-    return a if a is not None and a.type == "VIEW_3D" and _kept else None
-
-
-def live():
-    return area() is not None
-
-
-def _flag(sp, attr, v):
-    try:
-        if getattr(sp, attr) != v:
-            setattr(sp, attr, v)
-    except AttributeError:                                 # this one cannot be switched here
-        pass
-
-
-def start():
-    a = V.editor()
-    if a is None or a.type != "IMAGE_EDITOR" or not used() or build.busy():
-        return
-    _ready(bpy.context.scene)
-    a.type = "VIEW_3D"
-    sp = a.spaces.active
-    _kept.clear()
-    _kept.update(shading=sp.shading.type, overlays=sp.overlay.show_overlays, text=sp.overlay.show_text, flags={k: getattr(sp, k) for k in KEEP if hasattr(sp, k)},
-                 view=None)
-    for k in _kept["flags"]:
-        if k != "use_render_border":
-            _flag(sp, k, False)
-    sp.overlay.show_overlays = False
-    sp.shading.type = "RENDERED"
-    win = V.window()
-    if bpy.context.scene.camera is not None:
-        bpy.app.timers.register(lambda: _camera(win, a), first_interval=0.05)
-    V.redraw()
-
-
-def _camera(win, a):
-    """Through the camera, filling the picture's area."""
-    try:
-        r3 = a.spaces.active.region_3d
-        if r3 is None or not _kept:
-            return None
-        _kept["view"] = (r3.view_perspective, r3.view_location.copy(), r3.view_rotation.copy(), r3.view_distance, r3.view_camera_zoom, tuple(r3.view_camera_offset))
-        r3.view_perspective = "CAMERA"
-        region = next(r for r in a.regions if r.type == "WINDOW")
-        with bpy.context.temp_override(window=win, screen=win.screen, area=a, region=region):
-            bpy.ops.view3d.view_center_camera()
-    except (ReferenceError, RuntimeError):
-        pass
-    return None
-
-
-def stop():
-    """The picture's area is the Image Editor again; its viewport gets back all that was changed."""
-    a = area()
-    if a is None:
-        _kept.clear()
-        return
-    sp = a.spaces.active
-    sp.shading.type = _kept["shading"]
-    sp.overlay.show_overlays, sp.overlay.show_text = _kept["overlays"], _kept["text"]
-    for k, v in _kept["flags"].items():
-        _flag(sp, k, v)
-    if _kept["view"] is not None and sp.region_3d is not None:
-        r3 = sp.region_3d
-        r3.view_perspective, r3.view_location, r3.view_rotation, r3.view_distance, r3.view_camera_zoom, r3.view_camera_offset = _kept["view"]
-    _kept.clear()
-    a.type = "IMAGE_EDITOR"
-    a.ui_type = "IMAGE_EDITOR"
-    V._dress(a)
-    V.redraw()
-
-
-def restart():
-    a = area()
-    if a is None:
-        return start()
-    a.spaces.active.shading.type = "SOLID"
-
-    def again():
-        b = area()
-        if b is not None:
-            b.spaces.active.shading.type = "RENDERED"
-        return None
-    bpy.app.timers.register(again, first_interval=0.1)
-
-
-def _label():
-    p = _props(bpy.context.scene)
-    return "Live" + (" (paused)" if live() and p is not None and p.preview_pause else "")
-
-
-ROW = {"on": live, "start": start, "stop": stop, "label": _label}
-
-
-def _in_view(fn, **kw):
-    a, win = area(), V.window()
-    if a is None:
-        return
-    region = next(r for r in a.regions if r.type == "WINDOW")
-    with bpy.context.temp_override(window=win, screen=win.screen, area=a, region=region):
-        fn("INVOKE_DEFAULT", **kw)
-
-
-def _pause():
-    p = _props(bpy.context.scene)
-    p.preview_pause = not p.preview_pause
-
-
-def _clay():
-    p = _props(bpy.context.scene)
-    items = [i.identifier for i in p.bl_rna.properties["clay_mode"].enum_items]
-    p.clay_mode = items[0] if p.clay_mode != items[0] else items[1]
-
-
-def _clay_on():
-    p = _props(bpy.context.scene)
-    return p.clay_mode != p.bl_rna.properties["clay_mode"].enum_items[0].identifier
-
-
-def _region():
-    a = area()
-    sp = a.spaces.active
-    sc = bpy.context.scene
-    if sp.use_render_border or (sp.region_3d.view_perspective == "CAMERA" and sc.render.use_border):
-        sp.use_render_border = sc.render.use_border = False
-    else:
-        _in_view(bpy.ops.view3d.render_border)
-
-
-def _region_on():
-    a = area()
-    return a is not None and (a.spaces.active.use_render_border or (a.spaces.active.region_3d.view_perspective == "CAMERA" and
-                                                                      bpy.context.scene.render.use_border))
-
-
-def _settings():
-    win = V.window()
-    main = next((w for w in bpy.context.window_manager.windows if roles.areas(w.screen, "OBJECTS")), win)
-    bar = next(iter(roles.areas(main.screen, "DOC_TABS")), main.screen.areas[0])
-    with bpy.context.temp_override(window=main, screen=main.screen, area=bar, region=bar.regions[-1]):
-        from . import render_settings as rs
-        rs.ensure_pages(bpy.context.window_manager)
-        wm = bpy.context.window_manager
-        wm.b4d_rs_page = next((i for i, p in enumerate(wm.b4d_rs_pages) if p.key == "ENGINE"), wm.b4d_rs_page)
-        bpy.ops.blenda4d.render_settings()
-
-
-# key: (name, icon, function, can it be used, is it on, what it does)
-C = {
-    "LIVE": ("Live", "PLAY", lambda: stop() if live() else start(), None, live, "Show the scene as Octane renders it, and keep it up to date"),
-    "RESTART": ("Restart", "FILE_REFRESH", restart, live, None, "Start the live picture again from the beginning"),
-    "PAUSE": ("Pause", "PAUSE", _pause, live, lambda: bool(_props(bpy.context.scene).preview_pause), "Hold the live picture, and go on again"),
-    "SETTINGS": ("Render Settings", "PREFERENCES", _settings, None, None, "Octane's page in Render Settings"),
-    "CLAY": ("Clay", "SHADING_SOLID", _clay, None, _clay_on, "Show every surface as plain clay"),
-    "REGION": ("Render Region", "SELECT_SET", _region, live, _region_on, "Draw a box: only that part is rendered. Click again for the whole picture"),
-    "FOCUS": ("Focus Picker", "CON_CAMERASOLVER", lambda: _in_view(bpy.ops.octane.focus_picker), live, None, "Click in the live picture where the camera should focus"),
-    "MATERIAL": ("Material Picker", "EYEDROPPER", lambda: _in_view(bpy.ops.octane.material_picker), live, None, "Click an object in the live picture to pick its material"),
-    "WHITE": ("White Balance Picker", "COLOR", lambda: _in_view(bpy.ops.octane.whitebalance_picker), live, None, "Click what should be white in the live picture"),
-}
-GROUPS = (("LIVE", "RESTART", "PAUSE"), ("SETTINGS", "CLAY"), ("REGION", "FOCUS", "MATERIAL", "WHITE"))
-
-
-class BLENDA4D_OT_octane_cmd(bpy.types.Operator):
-    bl_idname = "blenda4d.octane_cmd"
-    bl_label = "Octane"
-    bl_options = {"INTERNAL"}
-    cmd: bpy.props.StringProperty(options={"SKIP_SAVE"})
-
-    @classmethod
-    def description(cls, context, props):
-        c = C.get(props.cmd)
-        return f"{c[0]}: {c[5]}" if c else cls.bl_label
-
-    def execute(self, context):
-        c = C.get(self.cmd)
-        if c is None or not used(context.scene) or (c[3] is not None and not c[3]()):
-            return {"CANCELLED"}
-        c[2]()
-        for a in context.screen.areas:
-            a.tag_redraw()
-        return {"FINISHED"}
-
-
 class BLENDA4D_OT_octane_kernel(bpy.types.Operator):
     bl_idname = "blenda4d.octane_kernel"
     bl_label = "Kernel"
@@ -314,46 +118,6 @@ class BLENDA4D_MT_octane_kernel(bpy.types.Menu):
 def kernel_name(scene):
     n = kernel_node(scene)
     return dict(KERNELS).get(n.bl_idname, n.name) if n is not None else "Kernel"
-
-
-def draw_row(col, context):
-    """Octane's row under the Render Viewer's buttons. It stays, dimmed, while another renderer is picked."""
-    from . import bars, fitzoom
-    region, s = context.region, context.preferences.system.ui_scale
-    free = (region.width / max(0.1, fitzoom.zoom_of(region)) - 2 * bars.PANEL_MARGIN * s) / (24 * s)
-    row = col.row(align=True)
-    row.alignment = "LEFT"
-    row.scale_x = row.scale_y = 1.2
-    on = used(context.scene)
-    for n, group in enumerate(GROUPS):
-        need = len(group) + (0.7 if n else 0)
-        if need > free:
-            return
-        free -= need
-        if n:
-            row.separator(factor=1.4)
-        for k in group:
-            c = C[k]
-            b = row.row(align=True)
-            b.alignment = "LEFT"
-            b.enabled = on and (c[3] is None or bool(c[3]()))
-            b.operator("blenda4d.octane_cmd", text="", icon=c[1], depress=bool(on and c[4] is not None and c[4]())).cmd = k
-    rest = row.row(align=True)
-    rest.enabled = on
-    if free > 6:
-        rest.separator(factor=1.4)
-        b = rest.row(align=True)
-        b.ui_units_x = 5
-        b.menu(BLENDA4D_MT_octane_kernel.bl_idname, text=kernel_name(context.scene))
-    vl = _props(context.view_layer)
-    if free > 12 and vl is not None and hasattr(vl, "current_preview_pass_type"):
-        rest.separator(factor=0.8)
-        b = rest.row(align=True)
-        b.ui_units_x = 5
-        b.prop(vl, "current_preview_pass_type", text="")
-    if not on and free > 12:
-        rest.separator(factor=1.0)
-        rest.label(text="Octane is not the renderer")
 
 
 # --- the add-on's own settings, drawn into Blenda's pages -----------------------------------------------------------------------------
@@ -637,7 +401,6 @@ def ball(mat):
 
 
 # --- coming and going ------------------------------------------------------------------------------------------------------------------
-EXTRA = (ROW_PX, draw_row)
 
 
 def _sync():
@@ -647,13 +410,8 @@ def _sync():
     except AttributeError:
         return 2.0
     if now != _was[0]:
-        first = _was[0] is None
         _was[0] = now
         if now:
-            if EXTRA not in V.EXTRA:
-                V.EXTRA.append(EXTRA)
-            if ROW not in V.LIVE:
-                V.LIVE.append(ROW)
             from . import render_settings
             render_settings.ENGINE_DRAW[NAME] = draw_settings
             managers.OCTANE_PAGE[:] = [page]
@@ -661,22 +419,10 @@ def _sync():
             matman.BALLS[:] = [ball]
         else:
             _gone()
-        win = V.window()
-        if not first and win is not None and V.docked(win) and not build.busy():      # the row needs its place
-            def again():
-                yield from V.leave_steps(win)
-                yield from V.dock_steps(win)
-            build.run_steps(again())
     return 2.0
 
 
 def _gone():
-    if live():
-        stop()
-    if EXTRA in V.EXTRA:
-        V.EXTRA.remove(EXTRA)
-    if ROW in V.LIVE:
-        V.LIVE.remove(ROW)
     from . import render_settings
     render_settings.ENGINE_DRAW.pop(NAME, None)
     managers.OCTANE_PAGE.clear()
@@ -684,12 +430,7 @@ def _gone():
     matman.BALLS.clear()
 
 
-@bpy.app.handlers.persistent
-def _loaded(*_args):
-    _kept.clear()
-
-
-classes = (BLENDA4D_OT_octane_cmd, BLENDA4D_OT_octane_kernel, BLENDA4D_MT_octane_kernel, BLENDA4D_OT_octane_add, BLENDA4D_OT_octane_material,
+classes = (BLENDA4D_OT_octane_kernel, BLENDA4D_MT_octane_kernel, BLENDA4D_OT_octane_add, BLENDA4D_OT_octane_material,
            BLENDA4D_MT_octane_materials, BLENDA4D_MT_octane_create)
 _menus = []
 
@@ -703,7 +444,6 @@ def register():
         if cls is not None:
             cls.append(fn)
             _menus.append((cls, fn))
-    bpy.app.handlers.load_post.append(_loaded)
     _sync()
     if not bpy.app.background:
         bpy.app.timers.register(_sync, first_interval=2.0, persistent=True)
@@ -714,8 +454,6 @@ def unregister():
         bpy.app.timers.unregister(_sync)
     _gone()
     _was[0] = None
-    if _loaded in bpy.app.handlers.load_post:
-        bpy.app.handlers.load_post.remove(_loaded)
     for cls, fn in _menus:
         try:
             cls.remove(fn)
