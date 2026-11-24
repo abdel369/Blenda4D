@@ -721,6 +721,107 @@ def drop_point(context, region, x, y):
     return context.scene.cursor.location.copy(), None
 
 
+def _over(context, event, role):
+    for a in context.window.screen.areas:
+        if roles.role(a) == role and a.x <= event.mouse_x < a.x + a.width and a.y <= event.mouse_y < a.y + a.height:
+            return True
+    return False
+
+
+def to_material_manager(context, a):
+    """The material asset brought into the scene, unassigned, and selected in the Material Manager."""
+    from . import matman
+    mat = _load(a)
+    mat.use_fake_user = True                          # kept with no object using it, as in C4D
+    matman.select_only(context, [mat], mat)
+    matman._tag_redraw()
+    return mat
+
+
+def _drop_material(context, a, event):
+    """A material asset dropped on the Material Manager (added, unassigned) or on an Object Manager row (a new
+    material tag). None: dropped elsewhere (the viewport is handled by the caller)."""
+    from . import matman
+    if _over(context, event, "MATERIALS"):
+        to_material_manager(context, a)
+        return True
+    if _over(context, event, "OBJECTS"):
+        mat = to_material_manager(context, a)
+        return matman.drop_on_object(context, [mat], event)
+    return None
+
+
+class BLENDA4D_OT_ab_assign(bpy.types.Operator):
+    """Put the material on every selected object, as a new material tag"""
+    bl_idname = "blenda4d.ab_assign"
+    bl_label = "Assign to Selected Objects"
+    bl_options = {"REGISTER", "UNDO"}
+    key: bpy.props.StringProperty(options={"SKIP_SAVE"})
+
+    def execute(self, context):
+        from . import matman
+        a = lib.find(self.key or _st["sel"])
+        obs = [o for o in matman.sel_objects(context) if hasattr(getattr(o, "data", None), "materials")]
+        if a is None or not obs:
+            self.report({"INFO"}, "Select objects first")
+            return {"CANCELLED"}
+        mat = to_material_manager(context, a)
+        for ob in obs:
+            matman.add_tags(context, ob, [mat])
+        for ob in obs:
+            ob.select_set(True)
+        return {"FINISHED"}
+
+
+class BLENDA4D_OT_ab_to_mm(bpy.types.Operator):
+    """Bring the material into the Material Manager without putting it on any object"""
+    bl_idname = "blenda4d.ab_to_mm"
+    bl_label = "Add to Material Manager"
+    bl_options = {"REGISTER", "UNDO"}
+    key: bpy.props.StringProperty(options={"SKIP_SAVE"})
+
+    def execute(self, context):
+        a = lib.find(self.key or _st["sel"])
+        if a is None:
+            return {"CANCELLED"}
+        to_material_manager(context, a)
+        return {"FINISHED"}
+
+
+class BLENDA4D_MT_ab_asset(bpy.types.Menu):
+    bl_idname = "BLENDA4D_MT_ab_asset"
+    bl_label = ""
+
+    def draw(self, context):
+        lay = self.layout
+        a = lib.find(_st["sel"])
+        if a is not None and a["type"] == "materials":
+            lay.operator("blenda4d.ab_assign", text="Assign to Selected Objects", icon="MATERIAL").key = _st["sel"]
+            lay.operator("blenda4d.ab_to_mm", text="Add to Material Manager", icon="NODE_MATERIAL").key = _st["sel"]
+        else:
+            lay.operator("blenda4d.ab_add_to_scene", text="Add to Scene", icon="ADD")
+
+
+class BLENDA4D_OT_ab_asset_menu(bpy.types.Operator):
+    """Right-click an asset: what can be done with it"""
+    bl_idname = "blenda4d.ab_asset_menu"
+    bl_label = "Asset"
+    bl_options = {"INTERNAL"}
+
+    @classmethod
+    def poll(cls, context):
+        return roles.role(context.area) == "ASSETS"
+
+    def invoke(self, context, event):
+        key = asset_at(context, event.mouse_x, event.mouse_y)
+        if not key:
+            return {"PASS_THROUGH"}                   # elsewhere: the folder menu
+        _st["sel"] = key
+        _redraw()
+        bpy.ops.wm.call_menu(name=BLENDA4D_MT_ab_asset.bl_idname)
+        return {"FINISHED"}
+
+
 class BLENDA4D_OT_ab_drag(bpy.types.Operator):
     bl_idname = "blenda4d.ab_drag"
     bl_label = "Drag Asset"
@@ -744,8 +845,12 @@ class BLENDA4D_OT_ab_drag(bpy.types.Operator):
     def modal(self, context, event):
         if event.type == "LEFTMOUSE" and event.value == "RELEASE":
             context.window.cursor_modal_restore()
-            area, region = _viewport_under(context, event.mouse_x, event.mouse_y)
             a = lib.find(self.key)
+            if a is not None and a["type"] == "materials":
+                done = _drop_material(context, a, event)
+                if done is not None:
+                    return {"FINISHED"} if done else {"CANCELLED"}
+            area, region = _viewport_under(context, event.mouse_x, event.mouse_y)
             if area is None or a is None:
                 return {"CANCELLED"}
             loc, ob = drop_point(context, region, event.mouse_x, event.mouse_y)
@@ -1047,7 +1152,8 @@ class BLENDA4D_MT_ab_libraries(bpy.types.Menu):
 MENUS = (BLENDA4D_MT_ab_create, BLENDA4D_MT_ab_edit, BLENDA4D_MT_ab_view, BLENDA4D_MT_ab_libraries)
 classes = (BLENDA4D_PT_ab_bar, BLENDA4D_OT_ab_open, BLENDA4D_OT_ab_fold, BLENDA4D_OT_ab_show, BLENDA4D_OT_ab_home, BLENDA4D_OT_ab_back,
            BLENDA4D_OT_ab_forward, BLENDA4D_OT_ab_favorite, BLENDA4D_OT_ab_refresh, BLENDA4D_OT_ab_library_prefs,
-           BLENDA4D_OT_ab_pick, BLENDA4D_OT_ab_add_to_scene, BLENDA4D_OT_ab_drag, BLENDA4D_OT_ab_new_folder,
+           BLENDA4D_OT_ab_pick, BLENDA4D_OT_ab_add_to_scene, BLENDA4D_OT_ab_assign, BLENDA4D_OT_ab_to_mm,
+           BLENDA4D_MT_ab_asset, BLENDA4D_OT_ab_asset_menu, BLENDA4D_OT_ab_drag, BLENDA4D_OT_ab_new_folder,
            BLENDA4D_OT_ab_rename_folder, BLENDA4D_OT_ab_delete_folder, BLENDA4D_MT_ab_folder, BLENDA4D_OT_ab_folder_menu,
            BLENDA4D_OT_ab_add_files, BLENDA4D_FH_asset_drop, *MENUS)
 
@@ -1084,7 +1190,8 @@ def register():
     if kc is not None:
         km = kc.keymaps.new(name="Property Editor", space_type="PROPERTIES")
         for idname, key, value in (("blenda4d.ab_drag", "LEFTMOUSE", "CLICK_DRAG"),
-                                   ("blenda4d.ab_folder_menu", "RIGHTMOUSE", "PRESS")):
+                                   ("blenda4d.ab_folder_menu", "RIGHTMOUSE", "PRESS"),
+                                   ("blenda4d.ab_asset_menu", "RIGHTMOUSE", "PRESS")):   # head: tried first
             km.keymap_items.new(idname, key, value, head=True)
             _keys.append((km.name, idname))
 

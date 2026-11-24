@@ -54,19 +54,102 @@ def _swap(old, new):
 
 
 # --- Blender -> Octane --------------------------------------------------------------------------------------------------------------
+SHADERS = ("BSDF_PRINCIPLED", "BSDF_ANISOTROPIC", "BSDF_GLOSSY", "BSDF_METALLIC", "BSDF_DIFFUSE", "EMISSION",
+           "BSDF_GLASS", "BSDF_REFRACTION", "BSDF_TRANSLUCENT", "SUBSURFACE_SCATTERING", "BSDF_SHEEN")
+
+
+def _shaders(tree, depth=0):
+    """Every shader node in a tree, groups opened (old materials keep their shader in a node group)."""
+    out = []
+    if tree is None or depth > 6:
+        return out
+    for n in tree.nodes:
+        if n.type in SHADERS:
+            out.append(n)
+        elif n.type == "GROUP" and n.node_tree is not None:
+            out += _shaders(n.node_tree, depth + 1)
+    return out
+
+
+def _bl_read(node, name, default):
+    s = node.inputs.get(name)
+    if s is None:
+        return default, None
+    img = _image_up(s)
+    v = _plain(getattr(s, "default_value", None))
+    return (default if v is None else v), img
+
+
+def _ours_to_octane(mat):
+    """Octane's converter found nothing to convert (a shader inside a node group, say): an Octane Universal material
+    from the main shader's colour, metal, roughness, anisotropy and image textures."""
+    found = _shaders(mat.node_tree)
+    if not found:
+        return None
+    rank = {t: i for i, t in enumerate(SHADERS)}
+    main = min(found, key=lambda n: rank.get(n.type, 99))
+    metal_kinds = ("BSDF_ANISOTROPIC", "BSDF_GLOSSY", "BSDF_METALLIC")
+    color, color_img = _bl_read(main, "Base Color" if main.type == "BSDF_PRINCIPLED" else "Color", (0.8, 0.8, 0.8))
+    metal, metal_img = _bl_read(main, "Metallic", 1.0 if main.type in metal_kinds else 0.0)
+    rough, rough_img = _bl_read(main, "Roughness", 0.3)
+    aniso, _ = _bl_read(main, "Anisotropy" if main.type != "BSDF_PRINCIPLED" else "Anisotropic", 0.0)
+    rot, _ = _bl_read(main, "Rotation" if main.type != "BSDF_PRINCIPLED" else "Anisotropic Rotation", 0.0)
+    if main.type in metal_kinds and not aniso:          # several anisotropic shaders mixed: brushed metal
+        aniso = 0.8 if sum(1 for n in found if n.type in metal_kinds) > 1 else aniso   # (Blender 4+ files them as Glossy)
+    new = mat.copy()
+    nt = new.node_tree
+    nt.nodes.clear()
+    out = nt.nodes.new("ShaderNodeOutputMaterial"); out.location = (400, 0)
+    u = nt.nodes.new("OctaneUniversalMaterial")
+    nt.links.new(u.outputs[0], out.inputs["Surface"])
+
+    def put(name, value, img=None, color=False):
+        s = u.inputs.get(name)
+        if s is None:
+            return
+        if img is not None:
+            t = nt.nodes.new("OctaneRGBImage" if color else "OctaneGreyscaleImage")
+            t.image = img; t.location = (-400, -200 * len(nt.nodes))
+            nt.links.new(t.outputs[0], s)
+            return
+        try:
+            s.default_value = _rgb(value) if color else (_lum(value) if not isinstance(value, float) else value)
+        except (TypeError, ValueError, AttributeError):
+            pass
+    put("Albedo", color, color_img, color=True)
+    put("Metallic", metal, metal_img)
+    put("Roughness", rough, rough_img)
+    put("Anisotropy", min(1.0, abs(_lum(aniso))) if aniso else 0.0)
+    put("Rotation", _lum(rot) if rot else 0.0)
+    return new
+
+
+def _shows_octane(mat):
+    node = _octane_node(mat)
+    return node is not None
+
+
 def to_octane(mat):
     from octane.utils.converters import common
-    if not common.is_material_convertable(mat):
-        return False
-    src_out = mat.node_tree.get_output_node("ALL")
-    if src_out is None:
-        return False
-    new = mat.copy()
-    new.node_tree.nodes.clear()
-    node = common.convert_to_octane_node(new.node_tree, None, None, mat.node_tree, src_out, None)
-    if node is None:
-        bpy.data.materials.remove(new)
-        return False
+    src_out = mat.node_tree.get_output_node("ALL") if mat.node_tree else None
+    new = None
+    if src_out is not None and common.is_material_convertable(mat):
+        new = mat.copy()
+        new.node_tree.nodes.clear()
+        try:
+            node = common.convert_to_octane_node(new.node_tree, None, None, mat.node_tree, src_out, None)
+        except Exception as e:
+            print("Blenda 4D: Octane converter", mat.name, e)
+            node = None
+        if node is None or not _shows_octane(new):    # nothing came out: never swap in an empty material
+            bpy.data.materials.remove(new)
+            new = None
+    if new is None:
+        new = _ours_to_octane(mat)
+        if new is None or not _shows_octane(new):
+            if new is not None:
+                bpy.data.materials.remove(new)
+            return False
     try:
         from octane.utils import utility
         utility.beautifier_nodetree_layout_by_owner(new)
