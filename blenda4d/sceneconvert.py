@@ -16,11 +16,30 @@ from . import matconvert
 LIGHT_TYPES = {"POINT": ("octane_point_light_type", "Sphere"), "SUN": ("octane_directional_light_type", "Directional")}
 
 
+def _tree_materials(tree, found, seen_trees):
+    """Materials a geometry node tree sets (Set Material nodes, material sockets), nested groups included."""
+    if tree is None or tree.name in seen_trees:
+        return
+    seen_trees.add(tree.name)
+    for n in tree.nodes:
+        for sock in n.inputs:
+            v = getattr(sock, "default_value", None)
+            if isinstance(v, bpy.types.Material):
+                found.append(v)
+        if getattr(n, "node_tree", None) is not None:
+            _tree_materials(n.node_tree, found, seen_trees)
+
+
 def _scene_materials(scene):
+    """Every material the scene's objects show: their slots, and what their geometry nodes set (a generator's or
+    MoText's material lives in a Set Material node, not a slot, and was left unconverted: Octane drew it white)."""
     seen, out = set(), []
     for ob in scene.objects:
-        for s in getattr(ob, "material_slots", ()):
-            m = s.material
+        found, trees = [s.material for s in getattr(ob, "material_slots", ())], set()
+        for md in ob.modifiers:
+            if md.type == "NODES":
+                _tree_materials(md.node_group, found, trees)
+        for m in found:
             if m is not None and m.name not in seen and m.library is None:
                 seen.add(m.name)
                 out.append(m)
@@ -53,6 +72,9 @@ def light_to_octane(ob):
         em = light.node_tree.nodes.new("ShaderNodeEmission")
         light.node_tree.links.new(em.outputs[0], out.inputs[0])
     NodeTreeHandler.update_new_light(ob)
+    oc = getattr(ob, "octane", None)                 # a light is never seen by the camera, as in Blender and C4D:
+    if oc is not None and hasattr(oc, "camera_visibility"):   # Octane draws an area light as a glowing panel
+        oc.camera_visibility = False
     em = _octane_emission(light)
     if em is None:
         return False
