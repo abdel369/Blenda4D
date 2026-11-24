@@ -371,7 +371,9 @@ def draw_tools(layout, context):
     ui = context.preferences.system.ui_scale
     region = context.region
     width = (region.width / ui if region is not None else 250) - 2 * LEFT
-    s = max(1.0, min(1.4, width / TOOL_BUTTONS / 20))
+    from . import octane_live
+    livedb = octane_live.installed() and octane_live._has_op("octane.open_octanedb")
+    s = max(1.0, min(1.4, width / (TOOL_BUTTONS + livedb) / 20))
     _tool_scale[0] = s                                  # the tiles below start lower or higher with it (tile_at)
     row = layout.row(align=False)
     row.scale_y = s
@@ -389,6 +391,8 @@ def draw_tools(layout, context):
     g = row.row(align=True)
     g.operator("blenda4d.mm_to_octane", text="", icon="SHADING_RENDERED")
     g.operator("blenda4d.mm_to_blender", text="", icon="BLENDER")
+    if livedb:                                       # OTOY's online material library (Octane's LiveDB and LocalDB)
+        g.operator("octane.open_octanedb", text="", icon="URL")
     g = row.row(align=True)
     g.operator("blenda4d.mm_filter_toggle", text="", icon="FILTER", depress=only_selected())
     g.prop(wm, "b4d_mm_search", text="", icon="VIEWZOOM", toggle=True, icon_only=True)
