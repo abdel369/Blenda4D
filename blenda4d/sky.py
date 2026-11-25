@@ -78,15 +78,21 @@ def create(context, physical=False):
 
 
 def _adopt(scene):
-    """The Sky takes over the scene's World. The World it had is kept and comes back when the Sky is deleted; an HDRI
-    it showed becomes the Sky's HDRI."""
+    """The Sky takes over the scene's World; an HDRI it showed becomes the Sky's HDRI. Every HDRI dropped in replaces
+    the one before, and nothing old is kept: the dropped World and the replaced picture go once nothing uses them
+    (deleting the Sky leaves plain grey, never an earlier HDRI)."""
     old = scene.world
+    before = scene.b4d_sky_image
     if old is not None and old != scene.b4d_sky_world:
-        scene.b4d_sky_prev_world = old
         env = _environment(old.node_tree) if old.node_tree is not None else None
-        if env is not None and env.image is not None and scene.b4d_sky_image is None:
-            scene.b4d_sky_image = env.image
+        if env is not None and env.image is not None:
+            scene.b4d_sky_image = env.image          # every HDRI dropped in replaces the Sky's, as in C4D
+    scene.b4d_sky_prev_world = None
     scene.world = _our_world(scene)
+    if old is not None and old != scene.world and old.users == 0:
+        bpy.data.worlds.remove(old)
+    if before is not None and before != scene.b4d_sky_image and before.users == 0:
+        bpy.data.images.remove(before)
 
 
 def _environment(tree, seen=()):
@@ -289,18 +295,23 @@ def _views(scene, state):
 
 
 def _removed(scene):
-    """The Sky is gone: so is the sky. The World from before the Sky comes back (or a plain grey one)."""
-    w, prev = scene.b4d_sky_world, scene.b4d_sky_prev_world
+    """The Sky is gone: so is the sky. What is left is a plain medium grey, as in C4D with no Sky object (Joseph,
+    Nov 24: never an HDRI from before coming back)."""
+    w = scene.b4d_sky_world
+    img = scene.b4d_sky_image
     if scene.world is None or scene.world == w:
-        if prev is not None and prev != w:
-            scene.world = prev
-        else:
-            scene.world = bpy.data.worlds.new("World")
-            scene.world.color = GREY
-            scene.world.use_nodes = True
-            bg = next((n for n in scene.world.node_tree.nodes if n.type == "BACKGROUND"), None)
-            if bg is not None:
-                bg.inputs["Color"].default_value = (*GREY, 1.0)
+        grey = bpy.data.worlds.get("No Sky") or bpy.data.worlds.new("No Sky")
+        grey.color = (MID_GREY,) * 3
+        grey.use_nodes = True
+        nt = grey.node_tree
+        if not any(n.type == "BACKGROUND" for n in nt.nodes) or any(n.type == "TEX_ENVIRONMENT" for n in nt.nodes):
+            nt.nodes.clear()
+            out = nt.nodes.new("ShaderNodeOutputWorld"); out.location = (300, 0)
+            bg = nt.nodes.new("ShaderNodeBackground"); nt.links.new(bg.outputs[0], out.inputs[0])
+        bg = next(n for n in nt.nodes if n.type == "BACKGROUND")
+        bg.inputs["Color"].default_value = (MID_GREY, MID_GREY, MID_GREY, 1.0)
+        bg.inputs["Strength"].default_value = 1.0
+        scene.world = grey
     scene.b4d_sky_world = None
     scene.b4d_sky_prev_world = None
     if "b4d_sky_physical" in scene:
@@ -310,6 +321,8 @@ def _removed(scene):
         scene.property_unset(key)                # back to the defaults (no Sky: the update callbacks do nothing)
     if w is not None and w.users == 0:
         bpy.data.worlds.remove(w)
+    if img is not None and img.users == 0:
+        bpy.data.images.remove(img)              # no old HDRI left in the file
 
 
 _seen_world = {}                           # scene pointer -> the World it had at the last tick
@@ -514,7 +527,10 @@ class BLENDA4D_OT_sky_from_file(bpy.types.Operator):
             self.report({"ERROR"}, f"Could not read {path}: {e}")
             return {"CANCELLED"}
         ob = create(context)
+        before = context.scene.b4d_sky_image
         context.scene.b4d_sky_image = image
+        if before is not None and before != image and before.users == 0:
+            bpy.data.images.remove(before)           # nothing old kept
         for o in context.selected_objects:
             o.select_set(False)
         try:
