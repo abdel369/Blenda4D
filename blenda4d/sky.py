@@ -312,11 +312,55 @@ def _removed(scene):
         bpy.data.worlds.remove(w)
 
 
+_seen_world = {}                           # scene pointer -> the World it had at the last tick
+
+
+def _dropped_world(scene):
+    """An HDRI world dropped on the view (Blender's own drop of a World asset, Poly Haven's for one) while the scene
+    has no Sky: the Sky is made and takes it, and is selected so its controls are at hand, as in C4D. A World the
+    scene already had when first seen (a file just opened) is left alone."""
+    key = scene.as_pointer()
+    w = scene.world
+    now = w.as_pointer() if w is not None else 0
+    before = _seen_world.get(key)
+    _seen_world[key] = now
+    if before is None or before == now or w is None or w == scene.b4d_sky_world:
+        return False
+    if w.node_tree is None or _environment(w.node_tree) is None:
+        return False
+    try:
+        from . import switch
+        if not switch.is_on():
+            return False
+    except Exception:
+        pass
+    win = next((x for x in bpy.context.window_manager.windows if x.scene == scene), None)
+    if win is None:
+        return False
+    with bpy.context.temp_override(window=win, scene=scene):
+        ob = create(bpy.context)
+        for o in scene.objects:
+            if o.select_get():
+                o.select_set(False)
+        try:
+            ob.select_set(True)
+        except RuntimeError:
+            pass
+        bpy.context.view_layer.objects.active = ob
+    _seen_world[key] = scene.world.as_pointer() if scene.world is not None else 0
+    for a in win.screen.areas:
+        a.tag_redraw()
+    return True
+
+
 def sync(scene):
     ob = find(scene)
+    if ob is None and _dropped_world(scene):
+        ob = find(scene)
     if ob is None:
         if scene.b4d_sky_world is not None:
-            _removed(scene)
+            _removed(scene)                      # the World it had comes back: not a new drop
+            _seen_world[scene.as_pointer()] = scene.world.as_pointer() if scene.world is not None else 0
         if scene.get("b4d_sky_views", -1) != -1:
             scene["b4d_sky_views"] = -1
             _views(scene, -1)
@@ -328,6 +372,7 @@ def sync(scene):
     if scene.get("b4d_sky_views", -1) != state:
         scene["b4d_sky_views"] = state
         _views(scene, state)
+    _seen_world[scene.as_pointer()] = scene.world.as_pointer() if scene.world is not None else 0
 
 
 def _tick():
@@ -434,6 +479,79 @@ class BLENDA4D_OT_sky_nodes(bpy.types.Operator):
         area.tag_redraw()
 
 
+# --- an HDRI dropped into the scene ----------------------------------------------------------------------------------
+
+HDRI_EXTENSIONS = (".hdr", ".exr", ".hdri")
+
+
+class BLENDA4D_OT_sky_from_file(bpy.types.Operator):
+    """Light the scene with this HDRI: it goes on the scene's Sky (made if there is none), and the Sky is selected so
+    its settings show in the Attribute Manager"""
+    bl_idname = "blenda4d.sky_from_file"
+    bl_label = "Use as Sky"
+    bl_options = {"REGISTER", "UNDO", "INTERNAL"}
+
+    filepath: bpy.props.StringProperty(subtype="FILE_PATH", options={"SKIP_SAVE"})
+    directory: bpy.props.StringProperty(subtype="DIR_PATH", options={"SKIP_SAVE", "HIDDEN"})
+    files: bpy.props.CollectionProperty(type=bpy.types.OperatorFileListElement, options={"SKIP_SAVE", "HIDDEN"})
+
+    def _path(self):
+        import os
+        if self.directory and len(self.files):
+            for f in self.files:                       # several dropped: the first HDRI wins (one sky per scene)
+                if f.name.lower().endswith(HDRI_EXTENSIONS):
+                    return os.path.join(self.directory, f.name)
+        return self.filepath
+
+    def execute(self, context):
+        path = self._path()
+        if not path or not path.lower().endswith(HDRI_EXTENSIONS):
+            self.report({"WARNING"}, "Drop an HDRI (.hdr or .exr)")
+            return {"CANCELLED"}
+        try:
+            image = bpy.data.images.load(path, check_existing=True)
+        except RuntimeError as e:
+            self.report({"ERROR"}, f"Could not read {path}: {e}")
+            return {"CANCELLED"}
+        ob = create(context)
+        context.scene.b4d_sky_image = image
+        for o in context.selected_objects:
+            o.select_set(False)
+        try:
+            ob.select_set(True)
+        except RuntimeError:
+            pass
+        context.view_layer.objects.active = ob
+        for area in context.screen.areas:
+            area.tag_redraw()
+        self.report({"INFO"}, f"Sky: {image.name}")
+        return {"FINISHED"}
+
+    def invoke(self, context, event):
+        return self.execute(context)
+
+
+class BLENDA4D_FH_sky_drop(bpy.types.FileHandler):
+    """An .hdr or .exr dragged onto the 3D view or the Object Manager becomes the scene's Sky, as in C4D"""
+    bl_idname = "BLENDA4D_FH_sky_drop"
+    bl_label = "Use as Sky"
+    bl_import_operator = "blenda4d.sky_from_file"
+    bl_file_extensions = ";".join(HDRI_EXTENSIONS)
+
+    @classmethod
+    def poll_drop(cls, context):
+        area = context.area
+        if area is None:
+            return False
+        if area.type == "VIEW_3D":
+            return True
+        from . import roles
+        return roles.role(area) == "OBJECTS"
+
+
+SKY_DROP_CLASSES = (BLENDA4D_OT_sky_from_file, BLENDA4D_FH_sky_drop)
+
+
 # --- the Floor -----------------------------------------------------------------------------------------------------
 
 FLOOR_SIZE = 200.0                         # metres: reaches the horizon in most shots
@@ -455,6 +573,8 @@ def create_floor(context):
 
 def register():
     bpy.utils.register_class(BLENDA4D_OT_sky_nodes)
+    for c in SKY_DROP_CLASSES:
+        bpy.utils.register_class(c)
     from . import sky_resolution
     sky_resolution.register()
     S = bpy.types.Scene
@@ -554,6 +674,9 @@ def unregister():
             delattr(S, n)
     if hasattr(bpy.types, "BLENDA4D_OT_sky_nodes"):
         bpy.utils.unregister_class(BLENDA4D_OT_sky_nodes)
+    for c in reversed(SKY_DROP_CLASSES):
+        if c.is_registered:
+            bpy.utils.unregister_class(c)
     from . import sky_resolution
     if hasattr(bpy.types, "BLENDA4D_OT_sky_resolution"):
         sky_resolution.unregister()
