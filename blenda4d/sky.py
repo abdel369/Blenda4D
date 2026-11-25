@@ -381,6 +381,8 @@ def sync(scene):
     if scene.world != scene.b4d_sky_world or scene.b4d_sky_world is None:
         _adopt(scene)                            # a World set some other way (a dropped HDRI, say): the Sky takes it
         apply(scene)
+    if shown(ob)[1] and not scene.b4d_sky_hide_camera and scene.render.film_transparent:
+        scene.render.film_transparent = False    # the Sky decides what the camera sees: Hide from Camera, not Film Transparent
     state = 1 if shown(ob)[0] else 0
     if scene.get("b4d_sky_views", -1) != state:
         scene["b4d_sky_views"] = state
@@ -420,14 +422,21 @@ def _render_end(scene, *_):
 
 # --- the Attribute Manager page ------------------------------------------------------------------------------------
 
+def _unit_row(col, scene, attr, label, unit, active):
+    """One layout for every number row, so Intensity, Rotation, Contrast and Saturation line up (fields, units, dots)."""
+    row = col.row()
+    row.active = active
+    sp = row.split(factor=0.93, align=True)
+    sp.prop(scene, attr, text=label)
+    sp.label(text=unit)
+
+
 def page_sky(col, ob):
     scene = bpy.context.scene
     image = scene.b4d_sky_image
     sun = physical_node(scene) if image is None and scene.get("b4d_sky_physical") else None
-    row = col.row()
-    row.active = (image is None and sun is None) or scene.b4d_sky_hide_camera
-    row.prop(scene, "b4d_sky_color", text="Sky Color")
-    col.prop(scene, "b4d_sky_intensity", text="Intensity")
+    _unit_row(col, scene, "b4d_sky_color", "Sky Color", "", (image is None and sun is None) or scene.b4d_sky_hide_camera)
+    _unit_row(col, scene, "b4d_sky_intensity", "Intensity", "", True)
     if sun is not None:
         col.separator()
         for label, attr in SUN_ROWS:
@@ -442,15 +451,9 @@ def page_sky(col, ob):
     sp.template_ID(scene, "b4d_sky_image", open="image.open")
     from . import sky_resolution
     sky_resolution.draw(col, scene)
-    row = col.row()
-    row.active = image is not None
-    row.prop(scene, "b4d_sky_rotation", text="Rotation")
+    _unit_row(col, scene, "b4d_sky_rotation", "Rotation", "", image is not None)
     for label, attr in (("Contrast", "b4d_sky_contrast"), ("Saturation", "b4d_sky_saturation")):
-        row = col.row()
-        row.active = image is not None
-        sp = row.split(factor=0.93, align=True)      # a plain field with "%" after it (a percent property is a slider)
-        sp.prop(scene, attr, text=label)
-        sp.label(text="%")
+        _unit_row(col, scene, attr, label, "%", image is not None)   # a plain field with "%" after it
     col.separator()
     row = col.row()
     row.active = image is not None or sun is not None
