@@ -610,7 +610,7 @@ def begin(scene, first, last, keep, seq=None):
         S.lo = first
     S.seq, S.index, S.rendering, S.layers, S.ab = seq, max(0, len(seq.frames) - 1), True, False, False
     S.live = True
-    S.hi, S.goal, S.resume = (seq.frames[-1].number if seq.frames else first), last, None
+    S.hi, S.goal, S.resume = last, last, None
     S.restore_path = None
     if not keep:
         S.restore_path = scene.render.filepath
@@ -669,8 +669,6 @@ def _drain():
             frame.seconds = now
             r = bpy.context.scene.render
             frame.size = (r.resolution_x * r.resolution_percentage // 100, r.resolution_y * r.resolution_percentage // 100)
-            if not seq.frames or S.hi == seq.frames[-1].number:    # the range grows with the render, unless its
-                S.hi = number                                       # end was set by hand
             seq.frames.append(frame)
             if S.live:
                 S.index = len(seq.frames) - 1
