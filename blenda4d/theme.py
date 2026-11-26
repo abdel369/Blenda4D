@@ -4,6 +4,8 @@ when the switch goes to Blender. Panels #2b2b2b, viewport #363636, status #1c1c1
 #4b4b6d / #aba8c7, text #d0d0d0, selected names #e8923a."""
 import bpy
 
+from . import prefs_memory
+
 PANEL = (0.169, 0.169, 0.169, 1.0)      # 2b2b2b
 PANEL_DARK = (0.11, 0.11, 0.11, 1.0)    # 1c1c1c
 MENU_BACK = (0.102, 0.102, 0.102, 1.0)  # 1a1a1a
@@ -30,10 +32,12 @@ def _set(owner, attr, value):
         old = getattr(owner, attr)
     except AttributeError:
         return
-    try:
-        old = tuple(old)
-    except TypeError:
-        pass
+    if not isinstance(old, str):                          # an enum stays a word, not a tuple of its letters
+        try:
+            old = tuple(old)
+        except TypeError:
+            pass
+    old = prefs_memory.original(owner, attr, old, value)  # the person's own value, even after a restart
     _snap.append((owner, attr, old))
     try:
         setattr(owner, attr, value)
@@ -41,9 +45,28 @@ def _set(owner, attr, value):
         _snap.pop()
 
 
+def _wears_blenda(ui):
+    """The theme already holds Blenda's colours (saved into the preferences by Blender's auto-save in an older
+    version), with nothing kept on disk to go back to."""
+    try:
+        return (prefs_memory.original_unknown(ui.wcol_menu_back, "inner")
+                and all(abs(a - b) < 1e-3 for a, b in zip(ui.wcol_menu_back.inner, MENU_BACK))
+                and all(abs(a - b) < 1e-3 for a, b in zip(ui.wcol_numslider.item, (0.329, 0.353, 0.60, 1.0))))
+    except (AttributeError, TypeError):
+        return False
+
+
 def apply():
     th = bpy.context.preferences.themes[0]
     ui = th.user_interface
+    if _wears_blenda(ui):                                 # Blender's own theme is the original then
+        try:
+            bpy.ops.preferences.reset_default_theme()
+        except RuntimeError as e:
+            print("Blenda 4D: theme reset", e)
+        prefs_memory.begin()                              # the theme's structs may be new after the reset
+        th = bpy.context.preferences.themes[0]
+        ui = th.user_interface
     # the tools column lives in the viewport's toolbar strip: solid beside the view, not floating over it
     _set(bpy.context.preferences.system, "use_region_overlap", False)
     for name in ("wcol_regular", "wcol_tool", "wcol_toolbar_item", "wcol_text", "wcol_num", "wcol_numslider",

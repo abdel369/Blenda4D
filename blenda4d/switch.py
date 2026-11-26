@@ -8,6 +8,7 @@ import os
 
 import bpy
 
+from . import prefs_memory
 from . import bars, build, coords, editable, kinds, layouts, managers, matman, menus, nodewin, primitives, roles, theme
 
 WORKSPACE = "Blenda 4D"
@@ -116,7 +117,7 @@ def _screen_chrome(on):
     if on:
         for k, v in PREFS_OFF.items():
             if hasattr(apps, k):
-                _saved_prefs.setdefault(k, getattr(apps, k))
+                _saved_prefs.setdefault(k, prefs_memory.original(apps, k, getattr(apps, k), v))
                 setattr(apps, k, v)
     else:
         for k, v in _saved_prefs.items():
@@ -158,9 +159,11 @@ def set_mode(on, forget=False):
     splash(on)
     if on and not _on[0]:
         _register_mode()
+        prefs_memory.begin()                               # the person's preferences are kept on disk first
         theme.apply()
         _screen_chrome(True)
         _render_window(True)
+        prefs_memory.commit()
         for scene in bpy.data.scenes:
             scene.unit_settings.system = "METRIC"
             scene.unit_settings.length_unit = "CENTIMETERS"
@@ -176,6 +179,7 @@ def set_mode(on, forget=False):
         theme.restore()
         _screen_chrome(False)
         _render_window(False)
+        prefs_memory.finish()
         _unregister_mode()
         _on[0] = False
     try:
@@ -217,6 +221,8 @@ def register():
 def unregister():
     if _on[0]:
         set_mode(False, forget=True)
+    else:
+        prefs_memory.put_back_from_disk()                  # Blenda mode never switched off cleanly before
     bpy.types.TOPBAR_HT_upper_bar.remove(_blender_header_button)
     bpy.utils.unregister_class(BLENDA4D_OT_switch)
     build.curtain_off()

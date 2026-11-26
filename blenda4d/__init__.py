@@ -12,6 +12,9 @@ def _start():
         on = True
     if on and not switch.is_on():
         switch.set_mode(True)
+    elif not on:
+        from . import prefs_memory
+        prefs_memory.put_back_from_disk()                 # left over from a session that ended in Blenda mode
     return None
 
 

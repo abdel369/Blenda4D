@@ -864,9 +864,11 @@ def own_render_display(on):
     once it is open is no answer: closing it cancels the render. Back in Blender mode the preference returns."""
     v = bpy.context.preferences.view
     if on:
-        if v.render_display_type != "NONE":
-            _kept_display[0] = v.render_display_type
-            v.render_display_type = "NONE"
+        from . import prefs_memory
+        kept = prefs_memory.original(v, "render_display_type", v.render_display_type, "NONE")
+        if kept != "NONE":
+            _kept_display[0] = kept
+        v.render_display_type = "NONE"
     else:
         if v.render_display_type == "NONE":
             v.render_display_type = _kept_display[0] or "WINDOW"
