@@ -827,7 +827,7 @@ def remove(seqs):
 # finished frames are read from their files on another thread and shown as textures. When the render ends the Image
 # Editor is back, with all it can do.
 GPU_ENGINES = ("BLENDER_EEVEE", "BLENDER_EEVEE_NEXT", "BLENDER_WORKBENCH")
-OWN_ROOM = 1.0e9              # bytes of textures kept ready to play
+OWN_ROOM = 3.0e8              # bytes of textures kept ready to play; the frames past that are read again
 OWN = {"on": False, "want": None, "shown": None, "jobs": [], "ready": {}, "tex": OrderedDict(), "bad": set(), "thread": None}
 
 
@@ -861,9 +861,7 @@ def _own_take(area):
 
 
 def _own_end():
-    """The Image Editor is back in the picture's area."""
-    if not OWN["on"]:
-        return
+    """The Image Editor is back in the picture's area, however the render ended (also in a file saved meanwhile)."""
     OWN.update(on=False, want=None, shown=None, jobs=[])
     for key in ("ready", "tex"):
         OWN[key].clear()
@@ -956,6 +954,7 @@ def _loaded(*_a):
     """Another file: History stays, its images are read again when they are shown."""
     S.play, S.four, S.pixels_key, S.ab = 0, False, None, False
     _ready.clear()
+    bpy.app.timers.register(_own_end, first_interval=0.1)      # a file saved while the viewer painted the picture
 
 
 _outside = []
