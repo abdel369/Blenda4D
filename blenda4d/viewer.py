@@ -539,12 +539,8 @@ def _playback():
         return None
     first = S.seq.frames[0].number
     i, low, high = S.index + S.play, S.lo - first, S.hi - first
-    if S.rendering:                                     # play what is made, and stop at the newest finished frame
+    if S.rendering:                                     # play what is made, up to the newest finished frame
         high = min(high, _last_done())
-        if i > high:
-            S.play = 0
-            redraw()
-            return None
     if i > high or i < low:
         if S.repeat == "SIMPLE":
             S.play = 0
@@ -614,7 +610,7 @@ def begin(scene, first, last, keep, seq=None):
         S.lo = first
     S.seq, S.index, S.rendering, S.layers, S.ab = seq, max(0, len(seq.frames) - 1), True, False, False
     S.live = True
-    S.hi, S.goal, S.resume = last, last, None
+    S.hi, S.goal, S.resume = (seq.frames[-1].number if seq.frames else first), last, None
     S.restore_path = None
     if not keep:
         S.restore_path = scene.render.filepath
@@ -673,6 +669,8 @@ def _drain():
             frame.seconds = now
             r = bpy.context.scene.render
             frame.size = (r.resolution_x * r.resolution_percentage // 100, r.resolution_y * r.resolution_percentage // 100)
+            if not seq.frames or S.hi == seq.frames[-1].number:    # the range grows with the render, unless its
+                S.hi = number                                       # end was set by hand
             seq.frames.append(frame)
             if S.live:
                 S.index = len(seq.frames) - 1
