@@ -29,10 +29,10 @@ class BLENDA4D_Prefs(bpy.types.AddonPreferences):
 
 
 def _keys_changed(prefs):
-    from . import keymap
+    from . import keymap, switch
     if not prefs.keys:
         keymap._restore_keys()
-    elif prefs.mode:
+    elif switch.is_on():
         keymap._use_blenda_keys()
 
 
