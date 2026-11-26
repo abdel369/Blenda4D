@@ -179,7 +179,8 @@ def set_mode(on, forget=False):
         theme.restore()
         _screen_chrome(False)
         _render_window(False)
-        prefs_memory.finish()
+        if not _quitting():                                # on quit Blender has already saved its preferences with
+            prefs_memory.finish()                          # Blenda's values: the file keeps the originals for next time
         _unregister_mode()
         _on[0] = False
     try:
@@ -218,10 +219,16 @@ def register():
     bpy.types.TOPBAR_HT_upper_bar.append(_blender_header_button)
 
 
+def _quitting():
+    """Blender is closing: its windows (and key configurations) are gone before add-ons are switched off."""
+    wm = bpy.context.window_manager
+    return not bpy.app.background and (wm is None or not wm.windows or wm.keyconfigs is None)
+
+
 def unregister():
     if _on[0]:
         set_mode(False, forget=True)
-    else:
+    elif not _quitting():
         prefs_memory.put_back_from_disk()                  # Blenda mode never switched off cleanly before
     bpy.types.TOPBAR_HT_upper_bar.remove(_blender_header_button)
     bpy.utils.unregister_class(BLENDA4D_OT_switch)
