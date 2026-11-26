@@ -87,8 +87,8 @@ def set_shading(sp, mode):
     except (ImportError, AttributeError):
         pass
     sp.shading.type = mode
-    if mode in ("MATERIAL", "RENDERED"):                   # the lines of a "(Lines)" display stay with that display
-        sp.overlay.show_wireframes = False
+    from . import display_modes
+    display_modes.keep_lines(sp, mode)
 
 
 class BLENDA4D_OT_overlay(bpy.types.Operator):
